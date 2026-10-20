@@ -30,7 +30,7 @@ There is no test runner set up yet.
 
 ## Architecture
 
-Expo SDK 58, Expo Router with typed routes, and the `@/*` → `src/*` path alias. The UI mirrors the existing AppSheet app (`reference/timetable.png`). The root `Stack` holds the `(tabs)` group and the `add-appointment` modal, which accepts optional `date` / `customerName` params for prefilling. Tabs, in AppSheet order:
+Expo SDK 57, Expo Router with typed routes, and the `@/*` → `src/*` path alias. The UI mirrors the existing AppSheet app (`reference/timetable.png`). The root `Stack` holds the `(tabs)` group and the `add-appointment` modal, which accepts optional `date` / `customerName` params for prefilling. Tabs, in AppSheet order:
 - `new` (預約): `tabPress` is intercepted to push the modal, so the screen file is only a redirect.
 - `customers` (顧客資料)
 - `appointments` (預約資料): upcoming list.
