@@ -119,7 +119,8 @@ function listAppointments_(from, to) {
   const ss = openSpreadsheet_();
   const tz = ss.getSpreadsheetTimeZone();
   const customers = readCustomers_(ss);
-  const table = readTable_(getSheet_(ss, SHEET_APPOINTMENTS));
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  const table = from || to ? readTableInDateRange_(sheet, from, to, tz) : readTable_(sheet);
 
   const out = [];
   table.rows.forEach(function (row) {
@@ -192,9 +193,61 @@ function readTable_(sheet) {
   const headers = (values[0] || []).map(function (h) {
     return String(h).trim();
   });
+  return { headers: headers, rows: toRows_(headers, values.slice(1), display.slice(1)) };
+}
 
+/**
+ * Like readTable_, but only reads full rows for the block that holds
+ * appointments between `from` and `to`. Reading every row's display values
+ * is what makes a full read slow (the sheet has years of history), so this
+ * scans just the 預約ID and 日期 columns first, then fetches the rows from
+ * the first match to the last. Rows are mostly in booking order, so that
+ * block is small; a stray match far away only makes it bigger, never wrong.
+ */
+function readTableInDateRange_(sheet, from, to, tz) {
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 1 || lastCol < 1) return { headers: [], rows: [] };
+
+  const headers = sheet
+    .getRange(1, 1, 1, lastCol)
+    .getValues()[0]
+    .map(function (h) {
+      return String(h).trim();
+    });
+  const idCol = headers.indexOf(COL.id);
+  const dateCol = headers.indexOf(COL.date);
+  if (idCol === -1 || dateCol === -1) return readTable_(sheet);
+  if (lastRow < 2) return { headers: headers, rows: [] };
+
+  const dataRows = lastRow - 1;
+  const ids = sheet.getRange(2, idCol + 1, dataRows, 1).getDisplayValues();
+  const dateRange = sheet.getRange(2, dateCol + 1, dataRows, 1);
+  const dateValues = dateRange.getValues();
+  const dateDisplay = dateRange.getDisplayValues();
+
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < dataRows; i++) {
+    if (!String(ids[i][0]).trim()) continue;
+    const date = toIsoDate_(dateValues[i][0], dateDisplay[i][0], tz);
+    // Same rule as listAppointments_: rows without a date are kept
+    if (date && ((from && date < from) || (to && date > to))) continue;
+    if (first === -1) first = i;
+    last = i;
+  }
+  if (first === -1) return { headers: headers, rows: [] };
+
+  const block = sheet.getRange(first + 2, 1, last - first + 1, lastCol);
+  return {
+    headers: headers,
+    rows: toRows_(headers, block.getValues(), block.getDisplayValues()),
+  };
+}
+
+function toRows_(headers, values, display) {
   const rows = [];
-  for (let r = 1; r < values.length; r++) {
+  for (let r = 0; r < values.length; r++) {
     const v = {};
     const d = {};
     headers.forEach(function (h, c) {
@@ -204,7 +257,7 @@ function readTable_(sheet) {
     });
     rows.push({ values: v, display: d });
   }
-  return { headers: headers, rows: rows };
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
