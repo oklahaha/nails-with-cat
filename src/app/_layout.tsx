@@ -1,5 +1,5 @@
 /**
- * Root layout — Expo Router stack navigator.
+ * Root layout — the tab navigator plus the Add Appointment modal on top.
  *
  * Routes live under src/app/ (file-based routing).
  * Non-route code (components, services, types) stays outside this folder.
@@ -12,7 +12,7 @@ import { colors } from '@/constants/theme';
 export default function RootLayout() {
   return (
     <>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.surface },
@@ -21,10 +21,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen
-          name="index"
-          options={{ title: '預約一覽' }}
-        />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="add-appointment"
           options={{ title: '新增預約', presentation: 'modal' }}

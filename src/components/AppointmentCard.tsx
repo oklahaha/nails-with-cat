@@ -1,8 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { serviceColor } from '@/constants/services';
 import { colors, radius, spacing } from '@/constants/theme';
 import type { Appointment } from '@/types/appointment';
-import { openWhatsApp } from '@/utils/whatsapp';
+import { appointmentTitle } from '@/utils/appointmentTitle';
+import { openWhatsApp, reminderMessage } from '@/utils/whatsapp';
 
 type Props = {
   appointment: Appointment;
@@ -14,32 +16,29 @@ type Props = {
  */
 export function AppointmentCard({ appointment }: Props) {
   const hasPhone = Boolean(appointment.phone?.trim());
+  const color = serviceColor(appointment.service);
+  const title = appointmentTitle(appointment);
 
   const handleWhatsApp = () => {
     if (!appointment.phone) return;
-
-    const message =
-      `你好 ${appointment.customerName}！` +
-      `提醒你預約：${appointment.date} ${appointment.time}（${appointment.service}）`;
-
-    void openWhatsApp(appointment.phone, message);
+    void openWhatsApp(appointment.phone, reminderMessage(appointment));
   };
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { borderLeftColor: color }]}>
       <View style={styles.row}>
         <Text style={styles.time}>{appointment.time}</Text>
         {appointment.endTime ? (
           <Text style={styles.endTime}>– {appointment.endTime}</Text>
         ) : null}
-        <View style={styles.badge}>
+        <View style={[styles.badge, { backgroundColor: color }]}>
           <Text style={styles.badgeText}>{appointment.service}</Text>
         </View>
       </View>
 
-      <Text style={styles.name}>{appointment.customerName}</Text>
+      <Text style={styles.name}>{title}</Text>
 
-      {appointment.notes ? (
+      {appointment.notes && appointment.notes !== title ? (
         <Text style={styles.notes} numberOfLines={2}>
           {appointment.notes}
         </Text>
@@ -72,6 +71,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
+    borderLeftWidth: 4,
     padding: spacing.md,
     marginBottom: spacing.sm,
   },
@@ -93,7 +93,6 @@ const styles = StyleSheet.create({
   },
   badge: {
     marginLeft: 'auto',
-    backgroundColor: colors.accentMuted,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.sm,
@@ -101,7 +100,7 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: colors.accent,
+    color: colors.onAccent,
   },
   name: {
     fontSize: 17,

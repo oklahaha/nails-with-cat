@@ -1,10 +1,6 @@
 /**
- * Home screen — list of appointments grouped by date.
- *
- * Data source: appointmentsApi.listAppointments()
- * Swap mock → Google Apps Script inside that service file only.
+ * 預約資料 tab — upcoming appointments (today onwards) grouped by date.
  */
-import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -14,44 +10,18 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Link } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AddButton } from '@/components/AddButton';
 import { AppointmentCard } from '@/components/AppointmentCard';
 import { colors, radius, spacing } from '@/constants/theme';
-import { listAppointments } from '@/services/appointmentsApi';
-import type { Appointment } from '@/types/appointment';
-import {
-  formatDateHeader,
-  groupAppointmentsByDate,
-} from '@/utils/groupByDate';
+import { useAppointments } from '@/hooks/useAppointments';
+import { todayIsoDate } from '@/utils/dates';
+import { formatDateHeader, groupAppointmentsByDate } from '@/utils/groupByDate';
 
-export default function HomeScreen() {
-  const insets = useSafeAreaInsets();
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async (isRefresh = false) => {
-    try {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-      setError(null);
-
-      const data = await listAppointments();
-      setAppointments(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '載入失敗');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+export default function AppointmentsScreen() {
+  const { appointments, loading, refreshing, error, reload } = useAppointments({
+    from: todayIsoDate(),
+  });
 
   const grouped = groupAppointmentsByDate(appointments);
 
@@ -68,7 +38,7 @@ export default function HomeScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorText}>{error}</Text>
-        <Pressable style={styles.retryBtn} onPress={() => void load()}>
+        <Pressable style={styles.retryBtn} onPress={() => void reload()}>
           <Text style={styles.retryText}>重試</Text>
         </Pressable>
       </View>
@@ -78,14 +48,11 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + 88 },
-        ]}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => void load(true)}
+            onRefresh={() => void reload(true)}
             tintColor={colors.accent}
           />
         }
@@ -106,20 +73,7 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
-      {/* Floating CTA → Add Appointment screen */}
-      <Link href="/add-appointment" asChild>
-        <Pressable
-          style={({ pressed }) => [
-            styles.fab,
-            { bottom: insets.bottom + spacing.md },
-            pressed && styles.fabPressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="新增預約"
-        >
-          <Text style={styles.fabText}>＋ 新增預約</Text>
-        </Pressable>
-      </Link>
+      <AddButton />
     </View>
   );
 }
@@ -131,6 +85,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.md,
+    // Leave room for the floating add button
+    paddingBottom: 96,
   },
   section: {
     marginBottom: spacing.lg,
@@ -170,28 +126,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   retryText: {
-    color: '#FFFFFF',
+    color: colors.onAccent,
     fontWeight: '600',
-  },
-  fab: {
-    position: 'absolute',
-    alignSelf: 'center',
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.lg,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  fabPressed: {
-    opacity: 0.9,
-  },
-  fabText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 16,
   },
 });

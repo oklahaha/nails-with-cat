@@ -1,87 +1,143 @@
 /**
- * Appointment API layer — swap mock → Google Apps Script here.
+ * Appointment API layer — Google Apps Script Web App (see apps-script/).
  *
- * ----------------------------------------------------------------
- * HOW TO CONNECT TO GOOGLE SHEETS LATER
- * ----------------------------------------------------------------
- * 1. Keep your existing Apps Script app running (no need to stop it).
- * 2. Deploy a new (or extend the existing) Web App that returns JSON:
- *      doGet / doPost with actions like:
- *        ?action=listAppointments
- *        ?action=createAppointment  (POST body)
- * 3. Set APPS_SCRIPT_WEB_APP_URL below to your deployment URL.
- * 4. Replace the mock implementations with fetch() calls.
- * 5. Map sheet columns ↔ Appointment type in src/types/appointment.ts.
+ * Configure in .env.local (see .env.example):
+ *   EXPO_PUBLIC_APPS_SCRIPT_URL    the deployed /exec URL
+ *   EXPO_PUBLIC_APPS_SCRIPT_TOKEN  must match the API_TOKEN script property
  *
- * Example (later):
- *   const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?action=listAppointments`);
- *   const data = await res.json();
- *   return data.appointments as Appointment[];
- * ----------------------------------------------------------------
+ * When the URL is empty, falls back to mock data so the UI still runs.
+ * Which spreadsheet is used (copy vs real) is decided by the script's
+ * SPREADSHEET_ID property, not by the app.
  */
 
 import { MOCK_APPOINTMENTS } from '@/data/mockAppointments';
 import type { Appointment, NewAppointmentInput } from '@/types/appointment';
+import type { Customer } from '@/types/customer';
 
-/** Paste your Apps Script Web App URL here when ready. */
-const APPS_SCRIPT_WEB_APP_URL = '';
+const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
+const APPS_SCRIPT_TOKEN = process.env.EXPO_PUBLIC_APPS_SCRIPT_TOKEN ?? '';
 
-/** Toggle when the real API is ready. Keep false while developing with mock data. */
-const USE_REAL_API = false;
+/** True while no Apps Script URL is configured. */
+export const isUsingMockApi = !APPS_SCRIPT_WEB_APP_URL;
+
+type ApiResponse<T> = ({ ok: true } & T) | { ok: false; error: string };
+
+export type ListAppointmentsOptions = {
+  /** Only include appointments on/after this date (YYYY-MM-DD). */
+  from?: string;
+  /** Only include appointments on/before this date (YYYY-MM-DD). */
+  to?: string;
+};
 
 /**
- * Fetch all appointments (grouped on the client by date).
- * Today: returns mock data. Later: GET from Apps Script.
+ * Fetch appointments (grouped on the client by date).
  */
-export async function listAppointments(): Promise<Appointment[]> {
-  if (USE_REAL_API && APPS_SCRIPT_WEB_APP_URL) {
-    // TODO: replace with real fetch once Apps Script is deployed
-    // const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?action=listAppointments`);
-    // if (!res.ok) throw new Error('Failed to load appointments');
-    // const data = await res.json();
-    // return data.appointments;
-    throw new Error('Real API not implemented yet');
+export async function listAppointments(
+  options: ListAppointmentsOptions = {}
+): Promise<Appointment[]> {
+  if (isUsingMockApi) {
+    // Simulate a short network delay so loading UI can be tested
+    await delay(300);
+    return MOCK_APPOINTMENTS.filter(
+      (apt) =>
+        (!options.from || apt.date >= options.from) &&
+        (!options.to || apt.date <= options.to)
+    );
   }
 
-  // Simulate a short network delay so loading UI can be tested
-  await delay(300);
-  return [...MOCK_APPOINTMENTS];
+  const params = new URLSearchParams({
+    action: 'listAppointments',
+    token: APPS_SCRIPT_TOKEN,
+  });
+  if (options.from) params.set('from', options.from);
+  if (options.to) params.set('to', options.to);
+
+  const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const data = await parseResponse<{ appointments: Appointment[] }>(res);
+  return data.appointments;
 }
 
 /**
- * Create a new appointment.
- * Today: logs + resolves. Later: POST to Apps Script → append row to 預約資料.
+ * Create a new appointment — appends a row to 預約資料.
  */
 export async function createAppointment(
   input: NewAppointmentInput
 ): Promise<Appointment> {
-  if (USE_REAL_API && APPS_SCRIPT_WEB_APP_URL) {
-    // TODO: POST JSON body to Apps Script
-    // const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ action: 'createAppointment', ...input }),
-    // });
-    // if (!res.ok) throw new Error('Failed to create appointment');
-    // return (await res.json()).appointment;
-    throw new Error('Real API not implemented yet');
+  if (isUsingMockApi) {
+    await delay(300);
+
+    // Mock "created" record — not persisted; list still reads MOCK_APPOINTMENTS
+    const created: Appointment = {
+      id: `APT-MOCK-${Date.now()}`,
+      customerName: input.customerName.trim(),
+      date: input.date.trim(),
+      time: input.time.trim(),
+      service: input.service,
+      notes: input.notes.trim(),
+      durationMinutes: input.durationMinutes,
+      handOrFoot: input.handOrFoot,
+      price: input.price,
+      status: '預約',
+    };
+
+    console.log('[appointmentsApi] mock createAppointment:', created);
+    return created;
   }
 
-  await delay(300);
+  // text/plain avoids a CORS preflight on web, which Apps Script can't answer.
+  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'createAppointment',
+      appointment: input,
+    }),
+  });
+  const data = await parseResponse<{ appointment: Appointment }>(res);
+  return data.appointment;
+}
 
-  // Mock "created" record — not persisted; list still reads MOCK_APPOINTMENTS
-  const created: Appointment = {
-    id: `APT-MOCK-${Date.now()}`,
-    customerName: input.customerName.trim(),
-    date: input.date.trim(),
-    time: input.time.trim(),
-    service: input.service,
-    notes: input.notes.trim(),
-    status: '已預約',
-  };
+/**
+ * Fetch all customers from the 顧客 sheet.
+ */
+export async function listCustomers(): Promise<Customer[]> {
+  if (isUsingMockApi) {
+    await delay(300);
+    const byName = new Map<string, Customer>();
+    for (const apt of MOCK_APPOINTMENTS) {
+      if (byName.has(apt.customerName)) continue;
+      byName.set(apt.customerName, {
+        id: `CUST-MOCK-${byName.size + 1}`,
+        name: apt.customerName,
+        phone: apt.phone ?? '',
+      });
+    }
+    return [...byName.values()];
+  }
 
-  console.log('[appointmentsApi] mock createAppointment:', created);
-  return created;
+  const params = new URLSearchParams({
+    action: 'listCustomers',
+    token: APPS_SCRIPT_TOKEN,
+  });
+  const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const data = await parseResponse<{ customers: Customer[] }>(res);
+  return data.customers;
+}
+
+/** Apps Script always replies 200; real errors come back as { ok: false }. */
+async function parseResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new Error(`連線失敗（${res.status}）`);
+
+  let data: ApiResponse<T>;
+  try {
+    data = (await res.json()) as ApiResponse<T>;
+  } catch {
+    throw new Error('伺服器回應格式錯誤，請檢查 Apps Script 部署設定');
+  }
+
+  if (!data.ok) throw new Error(data.error);
+  return data;
 }
 
 function delay(ms: number): Promise<void> {

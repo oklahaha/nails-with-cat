@@ -19,7 +19,7 @@ export const MOCK_APPOINTMENTS: Appointment[] = [
     durationMinutes: 90,
     handOrFoot: '手',
     price: 280,
-    status: '已預約',
+    status: '預約',
     endTime: '11:30',
   },
   {
@@ -32,7 +32,7 @@ export const MOCK_APPOINTMENTS: Appointment[] = [
     time: '14:00',
     durationMinutes: 60,
     price: 350,
-    status: '已預約',
+    status: '預約',
     endTime: '15:00',
   },
   {
@@ -46,7 +46,7 @@ export const MOCK_APPOINTMENTS: Appointment[] = [
     durationMinutes: 150,
     handOrFoot: '手+腳',
     price: 580,
-    status: '已預約',
+    status: '預約',
     endTime: '13:30',
   },
   {
@@ -60,7 +60,7 @@ export const MOCK_APPOINTMENTS: Appointment[] = [
     durationMinutes: 60,
     handOrFoot: '腳',
     price: 220,
-    status: '已預約',
+    status: '預約',
     endTime: '16:30',
   },
   {
@@ -73,7 +73,7 @@ export const MOCK_APPOINTMENTS: Appointment[] = [
     time: '13:00',
     durationMinutes: 75,
     price: 380,
-    status: '已預約',
+    status: '預約',
     endTime: '14:15',
   },
 ];

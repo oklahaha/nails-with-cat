@@ -28,10 +28,10 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
+    "start": "expo start --port 8080",
+    "android": "expo start --android --port 8080",
+    "ios": "expo start --ios --port 8080",
+    "web": "expo start --port 8080",
     "lint": "expo lint"
   },
   "private": true

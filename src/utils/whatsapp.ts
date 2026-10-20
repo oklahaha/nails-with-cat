@@ -1,5 +1,15 @@
 import * as Linking from 'expo-linking';
-import { Alert } from 'react-native';
+
+import type { Appointment } from '@/types/appointment';
+import { showAlert } from '@/utils/alert';
+
+/** Default reminder text sent when contacting a customer about a booking. */
+export function reminderMessage(appointment: Appointment): string {
+  return (
+    `你好 ${appointment.customerName}！` +
+    `提醒你預約：${appointment.date} ${appointment.time}（${appointment.service}）`
+  );
+}
 
 /**
  * Open WhatsApp chat for a phone number.
@@ -13,7 +23,7 @@ export async function openWhatsApp(
 ): Promise<void> {
   const cleaned = phone.replace(/[^\d]/g, '');
   if (!cleaned) {
-    Alert.alert('無法開啟 WhatsApp', '沒有有效的電話號碼。');
+    showAlert('無法開啟 WhatsApp', '沒有有效的電話號碼。');
     return;
   }
 
@@ -25,6 +35,6 @@ export async function openWhatsApp(
   try {
     await Linking.openURL(url);
   } catch {
-    Alert.alert('無法開啟 WhatsApp', '請確認裝置已安裝 WhatsApp。');
+    showAlert('無法開啟 WhatsApp', '請確認裝置已安裝 WhatsApp。');
   }
 }

@@ -1,18 +1,20 @@
 /**
- * Simple light theme for the studio booking app.
- * Soft rose accents — keep UI calm and readable on phone.
+ * Dark theme modelled on the existing AppSheet app (see reference/timetable.png).
+ * Salmon-pink accent for TODAY, the active tab and the add button.
  */
 export const colors = {
-  background: '#FAF8F7',
-  surface: '#FFFFFF',
-  text: '#1C1917',
-  textSecondary: '#78716C',
-  border: '#E7E5E4',
-  accent: '#BE185D',
-  accentMuted: '#FCE7F3',
-  success: '#15803D',
+  background: '#1F1F1F',
+  surface: '#2A2A2A',
+  surfaceRaised: '#333333',
+  text: '#F2F2F2',
+  textSecondary: '#A3A3A3',
+  border: '#3A3A3A',
+  accent: '#EE8E8C',
+  accentMuted: '#4A3333',
+  onAccent: '#FFFFFF',
+  success: '#81C995',
   whatsapp: '#25D366',
-  danger: '#B91C1C',
+  danger: '#FF6B6B',
 };
 
 export const spacing = {

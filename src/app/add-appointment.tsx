@@ -7,7 +7,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,21 +16,45 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
+import {
+  defaultDurationFor,
+  defaultPriceFor,
+  HAND_OR_FOOT_OPTIONS,
+  type HandOrFoot,
+  SERVICES,
+} from '@/constants/services';
 import { colors, radius, spacing } from '@/constants/theme';
-import { createAppointment } from '@/services/appointmentsApi';
+import { createAppointment, isUsingMockApi } from '@/services/appointmentsApi';
 import type { ServiceType } from '@/types/appointment';
+import { showAlert } from '@/utils/alert';
 
-const SERVICES: ServiceType[] = ['整甲', '眼睫毛', '整甲 + 眼睫毛'];
+const SERVICE_NAMES = SERVICES.map((s) => s.name);
+
+function priceText(service: ServiceType): string {
+  const price = defaultPriceFor(service);
+  return price == null ? '' : String(price);
+}
 
 export default function AddAppointmentScreen() {
-  const [customerName, setCustomerName] = useState('');
-  const [date, setDate] = useState('');
+  // Optional prefill from the calendar (date) or the customer list (customerName)
+  const params = useLocalSearchParams<{ date?: string; customerName?: string }>();
+  const [customerName, setCustomerName] = useState(params.customerName ?? '');
+  const [date, setDate] = useState(params.date ?? '');
   const [time, setTime] = useState('');
   const [service, setService] = useState<ServiceType>('整甲');
+  const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>('手');
+  const [price, setPrice] = useState(priceText('整甲'));
+  // Once the price is typed by hand, changing service no longer overwrites it
+  const [priceEdited, setPriceEdited] = useState(false);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const handleServiceChange = (next: ServiceType) => {
+    setService(next);
+    if (!priceEdited) setPrice(priceText(next));
+  };
 
   const validate = (): string | null => {
     if (!customerName.trim()) return '請輸入顧客姓名';
@@ -41,13 +64,16 @@ export default function AddAppointmentScreen() {
     if (!/^\d{2}:\d{2}$/.test(time.trim())) {
       return '時間格式請用 HH:mm（例如 14:30）';
     }
+    if (price.trim() && !/^\d+$/.test(price.trim())) {
+      return '收費請只輸入數字（例如 200）';
+    }
     return null;
   };
 
   const handleSubmit = async () => {
     const error = validate();
     if (error) {
-      Alert.alert('資料不完整', error);
+      showAlert('資料不完整', error);
       return;
     }
 
@@ -59,13 +85,27 @@ export default function AddAppointmentScreen() {
         time,
         service,
         notes,
+        durationMinutes: defaultDurationFor(service),
+        handOrFoot,
+        price: price.trim() ? Number(price.trim()) : undefined,
       });
 
-      Alert.alert('已儲存（模擬）', '目前使用 mock API，連上 Google Sheet 後會真正寫入。', [
-        { text: '好', onPress: () => router.back() },
-      ]);
+      showAlert(
+        isUsingMockApi ? '已儲存（模擬）' : '已儲存',
+        isUsingMockApi
+          ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
+          : '預約已寫入 Google Sheet。',
+        [
+          {
+            text: '好',
+            // On web the page may be opened directly, with no history to go back to
+            onPress: () =>
+              router.canGoBack() ? router.back() : router.replace('/'),
+          },
+        ]
+      );
     } catch (e) {
-      Alert.alert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
+      showAlert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
     } finally {
       setSaving(false);
     }
@@ -113,30 +153,31 @@ export default function AddAppointmentScreen() {
         />
 
         <FieldLabel text="服務 (活動)" />
-        <View style={styles.serviceRow}>
-          {SERVICES.map((option) => {
-            const selected = service === option;
-            return (
-              <Pressable
-                key={option}
-                onPress={() => setService(option)}
-                style={[
-                  styles.serviceChip,
-                  selected && styles.serviceChipSelected,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.serviceChipText,
-                    selected && styles.serviceChipTextSelected,
-                  ]}
-                >
-                  {option}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <ChipGroup
+          options={SERVICE_NAMES}
+          value={service}
+          onChange={handleServiceChange}
+        />
+
+        <FieldLabel text="手/腳" />
+        <ChipGroup
+          options={HAND_OR_FOOT_OPTIONS}
+          value={handOrFoot}
+          onChange={setHandOrFoot}
+        />
+
+        <FieldLabel text="收費 ($)" />
+        <TextInput
+          style={styles.input}
+          value={price}
+          onChangeText={(text) => {
+            setPrice(text);
+            setPriceEdited(true);
+          }}
+          placeholder="可選填"
+          placeholderTextColor={colors.textSecondary}
+          keyboardType="number-pad"
+        />
 
         <FieldLabel text="備注" />
         <TextInput
@@ -170,6 +211,42 @@ export default function AddAppointmentScreen() {
 
 function FieldLabel({ text }: { text: string }) {
   return <Text style={styles.label}>{text}</Text>;
+}
+
+function ChipGroup<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly T[];
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  return (
+    <View style={styles.serviceRow}>
+      {options.map((option) => {
+        const selected = value === option;
+        return (
+          <Pressable
+            key={option}
+            onPress={() => onChange(option)}
+            style={[styles.serviceChip, selected && styles.serviceChipSelected]}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+          >
+            <Text
+              style={[
+                styles.serviceChipText,
+                selected && styles.serviceChipTextSelected,
+              ]}
+            >
+              {option}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

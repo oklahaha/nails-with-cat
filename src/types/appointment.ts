@@ -11,11 +11,12 @@
  * (or rename these fields to match your API response 1:1).
  */
 
-/** Service options shown in the Add Appointment form (maps to 活動). */
-export type ServiceType = '整甲' | '眼睫毛' | '整甲 + 眼睫毛';
+import type { HandOrFoot, ServiceType } from '@/constants/services';
 
-/** Appointment status values used in the sheet (狀態). */
-export type AppointmentStatus = '已預約' | '已完成' | '已取消' | string;
+export type { ServiceType };
+
+/** Appointment status values used in the sheet (狀態); 特別事項 rows are often blank. */
+export type AppointmentStatus = '預約' | '已完成' | '' | string;
 
 /**
  * One row from 預約資料, enriched with optional phone from 顧客.
@@ -55,4 +56,10 @@ export type NewAppointmentInput = {
   time: string;
   service: ServiceType;
   notes: string;
+  /** Duration in minutes; the script derives End Time from it. */
+  durationMinutes?: number;
+  /** 手/腳 */
+  handOrFoot?: HandOrFoot;
+  /** 收費 */
+  price?: number;
 };
