@@ -87,3 +87,10 @@ export function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
 }
+
+/** Minutes since midnight → "HH:mm". */
+export function minutesToTime(minutes: number): string {
+  const h = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const m = String(minutes % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}

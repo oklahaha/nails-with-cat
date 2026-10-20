@@ -1,54 +1,85 @@
 /**
  * 預約資料 tab — upcoming appointments (today onwards) grouped by date.
  */
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { router } from 'expo-router';
+import { useMemo } from 'react';
+import { RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 
 import { AddButton } from '@/components/AddButton';
 import { AppointmentCard } from '@/components/AppointmentCard';
-import { colors, radius, spacing } from '@/constants/theme';
+import { StateView } from '@/components/StateView';
+import { colors, spacing, type } from '@/constants/theme';
 import { useAppointments } from '@/hooks/useAppointments';
-import { todayIsoDate } from '@/utils/dates';
+import type { Appointment } from '@/types/appointment';
+import { addDays, todayIsoDate } from '@/utils/dates';
 import { formatDateHeader, groupAppointmentsByDate } from '@/utils/groupByDate';
 
+type Section = { date: string; data: Appointment[] };
+
 export default function AppointmentsScreen() {
+  const today = todayIsoDate();
   const { appointments, loading, refreshing, error, reload } = useAppointments({
-    from: todayIsoDate(),
+    from: today,
   });
 
-  const grouped = groupAppointmentsByDate(appointments);
+  const sections = useMemo(
+    () =>
+      groupAppointmentsByDate(appointments).map((group) => ({
+        date: group.date,
+        data: group.appointments,
+      })),
+    [appointments]
+  );
 
   if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={styles.loadingText}>載入預約中…</Text>
-      </View>
-    );
+    return <StateView loading title="載入預約中…" />;
   }
 
   if (error) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{error}</Text>
-        <Pressable style={styles.retryBtn} onPress={() => void reload()}>
-          <Text style={styles.retryText}>重試</Text>
-        </Pressable>
-      </View>
+      <StateView
+        title="未能載入預約"
+        message={error}
+        tone="error"
+        action={{ label: '重試', onPress: () => void reload() }}
+      />
     );
   }
 
+  const tomorrow = addDays(today, 1);
+
   return (
     <View style={styles.container}>
-      <ScrollView
+      <SectionList<Appointment, Section>
+        sections={sections}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        renderSectionHeader={({ section }) => {
+          const relative =
+            section.date === today ? '今日' : section.date === tomorrow ? '明日' : null;
+          return (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                {relative ?? formatDateHeader(section.date)}
+                {relative ? (
+                  <Text style={styles.sectionDate}>{`  ${formatDateHeader(section.date)}`}</Text>
+                ) : null}
+              </Text>
+              <Text style={styles.sectionCount}>{section.data.length} 個預約</Text>
+            </View>
+          );
+        }}
+        renderSectionFooter={() => <View style={styles.sectionGap} />}
+        stickySectionHeadersEnabled={false}
         contentContainerStyle={styles.scrollContent}
+        ListEmptyComponent={
+          <StateView
+            icon="calendar"
+            title="目前沒有預約"
+            message="新增的預約會按日期列在這裡。"
+            action={{ label: '新增預約', onPress: () => router.push('/add-appointment') }}
+          />
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -56,27 +87,16 @@ export default function AppointmentsScreen() {
             tintColor={colors.accent}
           />
         }
-      >
-        {grouped.length === 0 ? (
-          <Text style={styles.empty}>目前沒有預約</Text>
-        ) : (
-          grouped.map((section) => (
-            <View key={section.date} style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                {formatDateHeader(section.date)}
-              </Text>
-              {section.appointments.map((apt) => (
-                <AppointmentCard key={apt.id} appointment={apt} />
-              ))}
-            </View>
-          ))
-        )}
-      </ScrollView>
+      />
 
-      <AddButton />
+      {sections.length > 0 ? <AddButton /> : null}
     </View>
   );
 }
+
+const keyExtractor = (apt: Appointment) => apt.id;
+
+const renderItem = ({ item }: { item: Appointment }) => <AppointmentCard appointment={item} />;
 
 const styles = StyleSheet.create({
   container: {
@@ -84,49 +104,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   scrollContent: {
-    padding: spacing.md,
+    flexGrow: 1,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
     // Leave room for the floating add button
     paddingBottom: 96,
   },
-  section: {
-    marginBottom: spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textSecondary,
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  empty: {
-    textAlign: 'center',
-    color: colors.textSecondary,
-    marginTop: spacing.xl,
-    fontSize: 16,
+  sectionTitle: {
+    ...type.heading,
+    flexShrink: 1,
   },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
-    padding: spacing.lg,
+  sectionDate: {
+    ...type.caption,
+    fontWeight: '500',
   },
-  loadingText: {
-    marginTop: spacing.md,
-    color: colors.textSecondary,
+  sectionCount: {
+    ...type.caption,
+    fontSize: 12,
   },
-  errorText: {
-    color: colors.danger,
-    marginBottom: spacing.md,
-    textAlign: 'center',
-  },
-  retryBtn: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  retryText: {
-    color: colors.onAccent,
-    fontWeight: '600',
+  sectionGap: {
+    height: spacing.lg,
   },
 });

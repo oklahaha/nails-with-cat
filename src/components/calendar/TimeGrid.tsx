@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { serviceColor } from '@/constants/services';
-import { colors, spacing } from '@/constants/theme';
+import { colors, radius, spacing, tint, type } from '@/constants/theme';
 import type { Appointment } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import {
@@ -45,6 +45,9 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
   const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
   const gridHeight = hours.length * HOUR_HEIGHT;
   const toY = (minutes: number) => ((minutes - startHour * 60) / 60) * HOUR_HEIGHT;
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const showNow = nowMinutes >= startHour * 60 && nowMinutes <= endHour * 60;
 
   return (
     <View style={styles.container}>
@@ -90,9 +93,19 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
                 <View key={hour} style={[styles.hourLine, { top: toY(hour * 60) }]} />
               ))}
 
+              {date === today && showNow ? (
+                <View style={[styles.nowLine, { top: toY(nowMinutes) }]} pointerEvents="none">
+                  <View style={styles.nowDot} />
+                </View>
+              ) : null}
+
               {blocksByDay[dayIndex].map((block) => {
                 const { appointment: apt } = block;
                 const widthPct = 100 / block.lanes;
+                const color = serviceColor(apt.service);
+                const height = Math.max(toY(block.end) - toY(block.start), 18);
+                // Too short for two lines (e.g. 30 min): name and time on one
+                const short = height < 44;
                 return (
                   <Pressable
                     key={apt.id}
@@ -101,10 +114,11 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
                       styles.block,
                       {
                         top: toY(block.start),
-                        height: Math.max(toY(block.end) - toY(block.start), 18),
+                        height,
                         left: `${block.lane * widthPct}%`,
                         width: `${widthPct}%`,
-                        backgroundColor: serviceColor(apt.service),
+                        backgroundColor: tint(color, 0.3),
+                        borderLeftColor: color,
                       },
                       pressed && styles.blockPressed,
                     ]}
@@ -112,17 +126,29 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
                     accessibilityLabel={`${apt.time} ${appointmentTitle(apt)} ${apt.service}`}
                   >
                     {compact ? (
-                      <Text style={styles.blockTextCompact} numberOfLines={3}>
+                      // Narrow lanes get one truncated line rather than wrapping per letter
+                      <Text style={styles.blockTextCompact} numberOfLines={block.lanes > 1 ? 1 : 3}>
                         {appointmentTitle(apt)}
+                      </Text>
+                    ) : short ? (
+                      <Text style={styles.blockTitle} numberOfLines={1}>
+                        {appointmentTitle(apt)}
+                        <Text style={styles.blockText}>
+                          {'  '}
+                          <Text style={type.time}>{apt.time}</Text> · {apt.service}
+                        </Text>
                       </Text>
                     ) : (
                       <>
                         <Text style={styles.blockTitle} numberOfLines={1}>
-                          {apt.time}
-                          {apt.endTime && apt.endTime !== apt.time ? `–${apt.endTime}` : ''}{' '}
                           {appointmentTitle(apt)}
                         </Text>
                         <Text style={styles.blockText} numberOfLines={1}>
+                          <Text style={type.time}>
+                            {apt.time}
+                            {apt.endTime && apt.endTime !== apt.time ? `–${apt.endTime}` : ''}
+                          </Text>
+                          {' · '}
                           {apt.service}
                           {apt.notes && apt.notes !== appointmentTitle(apt) ? ` · ${apt.notes}` : ''}
                         </Text>
@@ -238,9 +264,10 @@ const styles = StyleSheet.create({
   },
   hourLabel: {
     position: 'absolute',
-    right: spacing.xs,
+    right: spacing.xs + 2,
     fontSize: 11,
-    color: colors.textSecondary,
+    color: colors.textTertiary,
+    fontVariant: ['tabular-nums'],
   },
   column: {
     flex: 1,
@@ -254,29 +281,51 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
   },
+  nowLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: colors.accent,
+    zIndex: 1,
+  },
+  nowDot: {
+    position: 'absolute',
+    left: -4,
+    top: -3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+  },
   block: {
     position: 'absolute',
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+    borderRadius: radius.xs,
+    borderLeftWidth: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.background,
+    // Gap between neighbouring blocks
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderRightColor: colors.background,
+    borderBottomColor: colors.background,
   },
   blockPressed: {
-    opacity: 0.8,
+    opacity: 0.75,
   },
   blockTitle: {
-    color: colors.onAccent,
-    fontSize: 13,
+    color: colors.text,
+    fontSize: 14,
     fontWeight: '700',
   },
   blockText: {
-    color: colors.onAccent,
+    color: colors.textSecondary,
     fontSize: 12,
+    marginTop: 1,
   },
   blockTextCompact: {
-    color: colors.onAccent,
+    color: colors.text,
     fontSize: 10,
     fontWeight: '600',
   },

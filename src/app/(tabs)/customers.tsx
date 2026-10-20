@@ -2,10 +2,9 @@
  * 顧客資料 tab — searchable customer list from the 顧客 sheet.
  * Each row can WhatsApp the customer or start a booking with their name filled in.
  */
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router } from 'expo-router';
+import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -16,37 +15,15 @@ import {
 } from 'react-native';
 
 import { Icon } from '@/components/Icon';
-import { colors, radius, spacing } from '@/constants/theme';
-import { listCustomers } from '@/services/appointmentsApi';
+import { StateView } from '@/components/StateView';
+import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
+import { useCustomers } from '@/hooks/useCustomers';
 import type { Customer } from '@/types/customer';
 import { openWhatsApp } from '@/utils/whatsapp';
 
 export default function CustomersScreen() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { customers, loading, refreshing, error, reload } = useCustomers();
   const [query, setQuery] = useState('');
-
-  const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    try {
-      const data = await listCustomers();
-      setCustomers(data.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant')));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '載入失敗');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load])
-  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -59,80 +36,99 @@ export default function CustomersScreen() {
   }, [customers, query]);
 
   if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={styles.mutedText}>載入顧客中…</Text>
-      </View>
-    );
+    return <StateView loading title="載入顧客中…" />;
   }
 
   if (error && customers.length === 0) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{error}</Text>
-        <Pressable style={styles.retryBtn} onPress={() => void load()}>
-          <Text style={styles.retryText}>重試</Text>
-        </Pressable>
-      </View>
+      <StateView
+        title="未能載入顧客"
+        message={error}
+        tone="error"
+        action={{ label: '重試', onPress: () => void reload() }}
+      />
     );
   }
 
   return (
     <View style={styles.container}>
       <View style={styles.searchBox}>
-        <Icon name="search" color={colors.textSecondary} size={20} />
+        <Icon name="search" color={colors.textTertiary} size={18} />
         <TextInput
           style={styles.searchInput}
           value={query}
           onChangeText={setQuery}
           placeholder="搜尋姓名或電話"
-          placeholderTextColor={colors.textSecondary}
+          placeholderTextColor={colors.textTertiary}
           autoCorrect={false}
           clearButtonMode="while-editing"
+          returnKeyType="search"
         />
       </View>
 
       <FlatList
         data={filtered}
-        keyExtractor={(c, index) => c.id || `${c.name}-${index}`}
-        renderItem={({ item }) => <CustomerRow customer={item} />}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => void load(true)}
+            onRefresh={() => void reload(true)}
             tintColor={colors.accent}
           />
         }
         ListHeaderComponent={
-          <Text style={styles.count}>共 {filtered.length} 位顧客</Text>
+          filtered.length > 0 ? (
+            <Text style={styles.count}>
+              {query.trim() ? `找到 ${filtered.length} 位顧客` : `共 ${filtered.length} 位顧客`}
+            </Text>
+          ) : null
         }
-        ListEmptyComponent={<Text style={styles.empty}>找不到顧客</Text>}
+        ListEmptyComponent={
+          <StateView
+            icon="person"
+            title={query.trim() ? '找不到顧客' : '未有顧客資料'}
+            message={query.trim() ? `沒有符合「${query.trim()}」的姓名或電話。` : undefined}
+          />
+        }
       />
     </View>
   );
 }
 
+const keyExtractor = (c: Customer, index: number) => c.id || `${c.name}-${index}`;
+
+const renderItem = ({ item }: { item: Customer }) => <CustomerRow customer={item} />;
+
 function CustomerRow({ customer }: { customer: Customer }) {
   return (
     <View style={styles.row}>
+      <View style={styles.avatar}>
+        {/* Array.from keeps emoji (surrogate pairs) whole */}
+        <Text style={styles.avatarText}>{Array.from(customer.name)[0] ?? ''}</Text>
+      </View>
+
       <View style={styles.rowInfo}>
         <Text style={styles.name} numberOfLines={1}>
           {customer.name}
         </Text>
-        <Text style={styles.phone}>{formatPhone(customer.phone) || '未有電話'}</Text>
+        <Text style={[styles.phone, !customer.phone && styles.phoneMissing]}>
+          {formatPhone(customer.phone) || '未有電話'}
+        </Text>
       </View>
 
       {customer.phone ? (
         <Pressable
           onPress={() => void openWhatsApp(customer.phone)}
-          style={({ pressed }) => [styles.whatsappBtn, pressed && styles.pressed]}
+          hitSlop={4}
+          style={({ pressed }) => [styles.whatsappBtn, pressed && pressedStyle]}
           accessibilityRole="button"
           accessibilityLabel={`用 WhatsApp 聯絡 ${customer.name}`}
         >
-          <Text style={styles.btnText}>WhatsApp</Text>
+          <Icon name="chat" color="#FFFFFF" size={18} />
         </Pressable>
       ) : null}
 
@@ -143,11 +139,11 @@ function CustomerRow({ customer }: { customer: Customer }) {
             params: { customerName: customer.name },
           })
         }
-        style={({ pressed }) => [styles.bookBtn, pressed && styles.pressed]}
+        style={({ pressed }) => [styles.bookBtn, pressed && pressedStyle]}
         accessibilityRole="button"
         accessibilityLabel={`為 ${customer.name} 新增預約`}
       >
-        <Text style={styles.btnText}>預約</Text>
+        <Text style={styles.bookText}>預約</Text>
       </Pressable>
     </View>
   );
@@ -168,101 +164,85 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    margin: spacing.md,
-    marginBottom: 0,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.md,
     backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: radius.pill,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: spacing.sm + 3,
     fontSize: 16,
     color: colors.text,
   },
   listContent: {
+    flexGrow: 1,
     padding: spacing.md,
   },
   count: {
-    color: colors.textSecondary,
-    fontSize: 13,
+    ...type.caption,
+    fontSize: 12,
     marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.sm + 4,
     backgroundColor: colors.surface,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
+    paddingVertical: spacing.sm + 4,
+    paddingHorizontal: spacing.md - 4,
     marginBottom: spacing.sm,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm + 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentMuted,
+  },
+  avatarText: {
+    color: colors.accent,
+    fontSize: 17,
+    fontWeight: '700',
   },
   rowInfo: {
     flex: 1,
   },
   name: {
-    color: colors.text,
     fontSize: 16,
     fontWeight: '600',
+    color: colors.text,
   },
   phone: {
-    color: colors.textSecondary,
-    fontSize: 13,
+    ...type.caption,
+    ...type.time,
     marginTop: 2,
   },
+  phoneMissing: {
+    color: colors.textTertiary,
+  },
   whatsappBtn: {
-    backgroundColor: colors.whatsapp,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  bookBtn: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  btnText: {
-    color: colors.onAccent,
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  empty: {
-    textAlign: 'center',
-    color: colors.textSecondary,
-    marginTop: spacing.xl,
-  },
-  centered: {
-    flex: 1,
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
-    padding: spacing.lg,
+    backgroundColor: colors.whatsapp,
   },
-  mutedText: {
-    marginTop: spacing.md,
-    color: colors.textSecondary,
+  bookBtn: {
+    height: 38,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    justifyContent: 'center',
+    backgroundColor: colors.accentMuted,
   },
-  errorText: {
-    color: colors.danger,
-    marginBottom: spacing.md,
-    textAlign: 'center',
-  },
-  retryBtn: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  retryText: {
-    color: colors.onAccent,
-    fontWeight: '600',
+  bookText: {
+    color: colors.accent,
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

@@ -1,8 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Icon } from '@/components/Icon';
 import { serviceColor } from '@/constants/services';
-import { colors, radius, spacing } from '@/constants/theme';
+import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import type { Appointment } from '@/types/appointment';
+import { showAppointmentDetails } from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { openWhatsApp, reminderMessage } from '@/utils/whatsapp';
 
@@ -11,131 +13,148 @@ type Props = {
 };
 
 /**
- * Single appointment row.
- * WhatsApp button only renders when phone is present (from 顧客 sheet).
+ * Single appointment row: time on the left, customer and service on the right.
+ * Tapping opens the details; the WhatsApp button only renders when there's a
+ * phone (from the 顧客 sheet).
  */
 export function AppointmentCard({ appointment }: Props) {
-  const hasPhone = Boolean(appointment.phone?.trim());
+  const phone = appointment.phone?.trim();
   const color = serviceColor(appointment.service);
   const title = appointmentTitle(appointment);
+  const hasEnd = Boolean(appointment.endTime && appointment.endTime !== appointment.time);
+  // 手/腳 only matters for nail services, and $0 is the sheet's "no charge" filler
+  const meta = [
+    appointment.service.includes('甲') ? appointment.handOrFoot : null,
+    appointment.price ? `$${appointment.price}` : null,
+    appointment.status === '已完成' ? '已完成' : null,
+  ].filter(Boolean);
 
-  const handleWhatsApp = () => {
-    if (!appointment.phone) return;
-    void openWhatsApp(appointment.phone, reminderMessage(appointment));
-  };
-
+  // The WhatsApp button sits beside the tappable area, not inside it, since
+  // buttons can't nest on web
   return (
-    <View style={[styles.card, { borderLeftColor: color }]}>
-      <View style={styles.row}>
-        <Text style={styles.time}>{appointment.time}</Text>
-        {appointment.endTime ? (
-          <Text style={styles.endTime}>– {appointment.endTime}</Text>
-        ) : null}
-        <View style={[styles.badge, { backgroundColor: color }]}>
-          <Text style={styles.badgeText}>{appointment.service}</Text>
+    <View style={styles.card}>
+      <Pressable
+        onPress={() => showAppointmentDetails(appointment)}
+        style={({ pressed }) => [styles.main, pressed && styles.mainPressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`${appointment.time} ${title} ${appointment.service}`}
+      >
+        <View style={styles.timeCol}>
+          <Text style={styles.time}>{appointment.time}</Text>
+          {hasEnd ? <Text style={styles.endTime}>{appointment.endTime}</Text> : null}
         </View>
-      </View>
 
-      <Text style={styles.name}>{title}</Text>
+        <View style={[styles.stripe, { backgroundColor: color }]} />
 
-      {appointment.notes && appointment.notes !== title ? (
-        <Text style={styles.notes} numberOfLines={2}>
-          {appointment.notes}
-        </Text>
+        <View style={styles.body}>
+          <Text style={styles.name} numberOfLines={1}>
+            {title}
+          </Text>
+          <View style={styles.serviceRow}>
+            <Text style={styles.service}>{appointment.service}</Text>
+            {meta.length > 0 ? <Text style={styles.meta}>· {meta.join(' · ')}</Text> : null}
+          </View>
+          {appointment.notes && appointment.notes !== title ? (
+            <Text style={styles.notes} numberOfLines={2}>
+              {appointment.notes}
+            </Text>
+          ) : null}
+        </View>
+      </Pressable>
+
+      {phone ? (
+        <Pressable
+          onPress={() => void openWhatsApp(phone, reminderMessage(appointment))}
+          hitSlop={6}
+          style={({ pressed }) => [styles.whatsappBtn, pressed && pressedStyle]}
+          accessibilityRole="button"
+          accessibilityLabel={`用 WhatsApp 聯絡 ${appointment.customerName}`}
+        >
+          <Icon name="chat" color="#FFFFFF" size={18} />
+        </Pressable>
       ) : null}
-
-      <View style={styles.footer}>
-        <Text style={styles.status}>{appointment.status}</Text>
-
-        {hasPhone ? (
-          <Pressable
-            onPress={handleWhatsApp}
-            style={({ pressed }) => [
-              styles.whatsappBtn,
-              pressed && styles.whatsappBtnPressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`用 WhatsApp 聯絡 ${appointment.customerName}`}
-          >
-            <Text style={styles.whatsappText}>WhatsApp</Text>
-          </Pressable>
-        ) : null}
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderLeftWidth: 4,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
-    flexWrap: 'wrap',
-    gap: spacing.xs,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingRight: spacing.md,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  main: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md - 4,
+    paddingVertical: spacing.md - 2,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.sm,
+  },
+  mainPressed: {
+    backgroundColor: colors.surfaceRaised,
+  },
+  timeCol: {
+    width: 48,
+    alignSelf: 'flex-start',
   },
   time: {
+    ...type.time,
     fontSize: 16,
     fontWeight: '700',
     color: colors.text,
   },
   endTime: {
-    fontSize: 14,
-    color: colors.textSecondary,
+    ...type.time,
+    fontSize: 13,
+    color: colors.textTertiary,
+    marginTop: 2,
   },
-  badge: {
-    marginLeft: 'auto',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
+  stripe: {
+    width: 3,
+    alignSelf: 'stretch',
+    borderRadius: 2,
   },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.onAccent,
+  body: {
+    flex: 1,
   },
   name: {
     fontSize: 17,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: spacing.xs,
+  },
+  serviceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: 4,
+    marginTop: 3,
+  },
+  service: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  meta: {
+    ...type.caption,
+    fontSize: 14,
   },
   notes: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.xs,
-  },
-  status: {
-    fontSize: 13,
-    color: colors.success,
-    fontWeight: '500',
+    ...type.caption,
+    marginTop: 6,
+    lineHeight: 18,
   },
   whatsappBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.whatsapp,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  whatsappBtnPressed: {
-    opacity: 0.85,
-  },
-  whatsappText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
   },
 });

@@ -11,17 +11,16 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: colors.surface },
-        headerTitleStyle: { color: colors.text, fontWeight: '600' },
+        headerStyle: { backgroundColor: colors.background },
+        headerTitleStyle: { color: colors.text, fontWeight: '700', fontSize: 18 },
         headerShadowVisible: false,
         sceneStyle: { backgroundColor: colors.background },
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
         },
-        tabBarActiveTintColor: colors.onAccent,
-        tabBarActiveBackgroundColor: colors.accent,
-        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textTertiary,
         tabBarLabelStyle: { fontSize: 11, lineHeight: 14, fontWeight: '600' },
       }}
     >

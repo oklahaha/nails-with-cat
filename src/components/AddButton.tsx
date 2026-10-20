@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet } from 'react-native';
 
 import { Icon } from '@/components/Icon';
-import { colors, spacing } from '@/constants/theme';
+import { colors, pressedStyle, spacing } from '@/constants/theme';
 
 type Props = {
   /** Prefill the form's date (YYYY-MM-DD). */
@@ -16,7 +16,7 @@ export function AddButton({ date }: Props) {
       onPress={() =>
         router.push({ pathname: '/add-appointment', params: date ? { date } : {} })
       }
-      style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+      style={({ pressed }) => [styles.fab, pressed && pressedStyle]}
       accessibilityRole="button"
       accessibilityLabel="新增預約"
     >
@@ -36,13 +36,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.accent,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    // Warm-tinted shadow to match the background
+    shadowColor: '#0A0605',
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
-  },
-  fabPressed: {
-    opacity: 0.85,
   },
 });

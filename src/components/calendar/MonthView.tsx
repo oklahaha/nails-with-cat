@@ -1,11 +1,12 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { serviceColor } from '@/constants/services';
-import { colors, spacing } from '@/constants/theme';
+import { colors, radius, spacing } from '@/constants/theme';
 import type { Appointment } from '@/types/appointment';
+import { appointmentTitle } from '@/utils/appointmentTitle';
 import { isSameMonth, monthGrid, todayIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 
-/** Bars shown per day before collapsing the rest into "+N". */
+/** Name chips shown per day before collapsing the rest into "+N". */
 const MAX_BARS = 3;
 
 type Props = {
@@ -17,18 +18,20 @@ type Props = {
 };
 
 /**
- * Month grid like the AppSheet 時間表: one coloured bar per appointment,
- * coloured by service (活動).
+ * Month grid like the AppSheet 時間表: one chip per appointment showing the
+ * customer's name, coloured by service (活動). A legend below maps colours to
+ * the services that appear this month.
  */
 export function MonthView({ anchor, byDate, onPressDay }: Props) {
   const weeks = monthGrid(anchor);
   const today = todayIsoDate();
+  const services = servicesInMonth(weeks, anchor, byDate);
 
   return (
     <View style={styles.container}>
       <View style={styles.weekdayRow}>
-        {WEEKDAY_LABELS.map((label) => (
-          <Text key={label} style={styles.weekday}>
+        {WEEKDAY_LABELS.map((label, i) => (
+          <Text key={label} style={[styles.weekday, (i === 0 || i === 6) && styles.weekend]}>
             {label}
           </Text>
         ))}
@@ -67,7 +70,11 @@ export function MonthView({ anchor, byDate, onPressDay }: Props) {
                     <View
                       key={apt.id}
                       style={[styles.bar, { backgroundColor: serviceColor(apt.service) }]}
-                    />
+                    >
+                      <Text style={styles.barText} numberOfLines={1}>
+                        {appointmentTitle(apt)}
+                      </Text>
+                    </View>
                   ))}
                   {extra > 0 ? <Text style={styles.more}>+{extra}</Text> : null}
                 </View>
@@ -76,8 +83,33 @@ export function MonthView({ anchor, byDate, onPressDay }: Props) {
           })}
         </View>
       ))}
+
+      {services.length > 0 ? (
+        <View style={styles.legend}>
+          {services.map((service) => (
+            <View key={service} style={styles.legendItem}>
+              <View style={[styles.legendSwatch, { backgroundColor: serviceColor(service) }]} />
+              <Text style={styles.legendText}>{service}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
+}
+
+/** Distinct services booked in the anchor's month, in first-seen order. */
+function servicesInMonth(
+  weeks: string[][],
+  anchor: string,
+  byDate: Map<string, Appointment[]>,
+): string[] {
+  const seen = new Set<string>();
+  for (const date of weeks.flat()) {
+    if (!isSameMonth(date, anchor)) continue;
+    for (const apt of byDate.get(date) ?? []) seen.add(apt.service);
+  }
+  return [...seen];
 }
 
 const styles = StyleSheet.create({
@@ -91,8 +123,12 @@ const styles = StyleSheet.create({
   weekday: {
     flex: 1,
     textAlign: 'center',
-    color: colors.text,
-    fontSize: 13,
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  weekend: {
+    color: colors.accent,
   },
   week: {
     flex: 1,
@@ -104,6 +140,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingTop: spacing.xs,
+    overflow: 'hidden',
     borderRightWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
@@ -123,10 +160,11 @@ const styles = StyleSheet.create({
   dayText: {
     color: colors.text,
     fontSize: 13,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
   },
   dayTextOutside: {
-    color: colors.textSecondary,
-    opacity: 0.5,
+    color: colors.textTertiary,
   },
   dayTextToday: {
     color: colors.onAccent,
@@ -134,17 +172,48 @@ const styles = StyleSheet.create({
   },
   bars: {
     alignSelf: 'stretch',
-    paddingHorizontal: 3,
+    paddingHorizontal: 2,
     marginTop: 2,
     gap: 2,
   },
   bar: {
-    height: 4,
-    borderRadius: 2,
+    borderRadius: radius.xs,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
+  },
+  barText: {
+    color: colors.onService,
+    fontSize: 10,
+    fontWeight: '600',
   },
   more: {
     color: colors.textSecondary,
     fontSize: 10,
     textAlign: 'center',
+  },
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    // Leave room for the floating add button
+    paddingRight: 88,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendSwatch: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+  },
+  legendText: {
+    color: colors.textSecondary,
+    fontSize: 12,
   },
 });

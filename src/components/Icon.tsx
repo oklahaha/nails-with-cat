@@ -11,6 +11,13 @@ const ICONS = {
   chevronLeft: { ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' },
   chevronRight: { ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' },
   search: { ios: 'magnifyingglass', android: 'search', web: 'search' },
+  chat: { ios: 'message.fill', android: 'chat', web: 'chat' },
+  clock: { ios: 'clock', android: 'schedule', web: 'schedule' },
+  person: { ios: 'person', android: 'person', web: 'person' },
+  close: { ios: 'xmark', android: 'close', web: 'close' },
+  check: { ios: 'checkmark', android: 'check', web: 'check' },
+  chevronDown: { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' },
+  chevronUp: { ios: 'chevron.up', android: 'expand_less', web: 'expand_less' },
 } as const;
 
 export type IconName = keyof typeof ICONS;

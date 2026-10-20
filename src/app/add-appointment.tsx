@@ -1,12 +1,15 @@
 /**
- * Add Appointment screen — basic form fields.
+ * Add Appointment screen.
  *
+ * Customer name suggests existing customers; date and time are picked rather
+ * than typed, and the time slots flag clashes with that day's bookings.
  * On submit, calls appointmentsApi.createAppointment().
- * With mock API this only logs; later it will append a row to Google Sheet 預約資料.
  */
-import { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { type ReactNode, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,21 +19,31 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DatePicker } from '@/components/form/DatePicker';
+import { TimeSlotPicker } from '@/components/form/TimeSlotPicker';
 import {
   defaultDurationFor,
   defaultPriceFor,
   HAND_OR_FOOT_OPTIONS,
   type HandOrFoot,
   SERVICES,
+  serviceColor,
 } from '@/constants/services';
-import { colors, radius, spacing } from '@/constants/theme';
+import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
+import { useAppointments } from '@/hooks/useAppointments';
+import { useCustomers } from '@/hooks/useCustomers';
 import { createAppointment, isUsingMockApi } from '@/services/appointmentsApi';
 import type { ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
+import { minutesToTime, timeToMinutes } from '@/utils/dates';
+import { formatDateHeader } from '@/utils/groupByDate';
 
-const SERVICE_NAMES = SERVICES.map((s) => s.name);
+type Field = 'customerName' | 'date' | 'time' | 'price';
+
+/** Customer suggestions shown under the name field. */
+const MAX_SUGGESTIONS = 5;
 
 function priceText(service: ServiceType): string {
   const price = defaultPriceFor(service);
@@ -38,9 +51,12 @@ function priceText(service: ServiceType): string {
 }
 
 export default function AddAppointmentScreen() {
+  const insets = useSafeAreaInsets();
   // Optional prefill from the calendar (date) or the customer list (customerName)
   const params = useLocalSearchParams<{ date?: string; customerName?: string }>();
   const [customerName, setCustomerName] = useState(params.customerName ?? '');
+  // Suggestions show while typing and hide once one is picked
+  const [suggesting, setSuggesting] = useState(false);
   const [date, setDate] = useState(params.date ?? '');
   const [time, setTime] = useState('');
   const [service, setService] = useState<ServiceType>('整甲');
@@ -50,32 +66,50 @@ export default function AddAppointmentScreen() {
   const [priceEdited, setPriceEdited] = useState(false);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
+
+  const { customers } = useCustomers();
+  const dayBookings = useAppointments({ from: date, to: date }, { enabled: date !== '' });
+
+  const duration = defaultDurationFor(service);
+  const validTime = /^\d{2}:\d{2}$/.test(time);
+  const endTime = validTime && duration ? minutesToTime(timeToMinutes(time) + duration) : null;
+
+  const suggestions = useMemo(() => {
+    const q = customerName.trim().toLowerCase();
+    if (!q) return [];
+    if (customers.some((c) => c.name.toLowerCase() === q)) return [];
+    return customers.filter((c) => c.name.toLowerCase().includes(q)).slice(0, MAX_SUGGESTIONS);
+  }, [customers, customerName]);
+
+  const clearError = (field: Field) => {
+    if (!errors[field]) return;
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
 
   const handleServiceChange = (next: ServiceType) => {
     setService(next);
     if (!priceEdited) setPrice(priceText(next));
   };
 
-  const validate = (): string | null => {
-    if (!customerName.trim()) return '請輸入顧客姓名';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
-      return '日期格式請用 YYYY-MM-DD（例如 2026-10-25）';
-    }
-    if (!/^\d{2}:\d{2}$/.test(time.trim())) {
-      return '時間格式請用 HH:mm（例如 14:30）';
-    }
-    if (price.trim() && !/^\d+$/.test(price.trim())) {
-      return '收費請只輸入數字（例如 200）';
-    }
-    return null;
+  const validate = (): Partial<Record<Field, string>> => {
+    const next: Partial<Record<Field, string>> = {};
+    if (!customerName.trim()) next.customerName = '請輸入顧客姓名';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) next.date = '請選擇日期';
+    if (!time) next.time = '請選擇時間';
+    else if (!validTime) next.time = '時間格式請用 HH:mm（例如 14:30）';
+    if (price.trim() && !/^\d+$/.test(price.trim())) next.price = '收費請只輸入數字';
+    return next;
   };
 
   const handleSubmit = async () => {
-    const error = validate();
-    if (error) {
-      showAlert('資料不完整', error);
-      return;
-    }
+    const found = validate();
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
 
     try {
       setSaving(true);
@@ -85,7 +119,7 @@ export default function AddAppointmentScreen() {
         time,
         service,
         notes,
-        durationMinutes: defaultDurationFor(service),
+        durationMinutes: duration,
         handOrFoot,
         price: price.trim() ? Number(price.trim()) : undefined,
       });
@@ -94,13 +128,12 @@ export default function AddAppointmentScreen() {
         isUsingMockApi ? '已儲存（模擬）' : '已儲存',
         isUsingMockApi
           ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
-          : '預約已寫入 Google Sheet。',
+          : `${customerName.trim()} ${formatDateHeader(date)} ${time} 的預約已寫入 Google Sheet。`,
         [
           {
             text: '好',
             // On web the page may be opened directly, with no history to go back to
-            onPress: () =>
-              router.canGoBack() ? router.back() : router.replace('/'),
+            onPress: () => (router.canGoBack() ? router.back() : router.replace('/')),
           },
         ]
       );
@@ -111,142 +144,215 @@ export default function AddAppointmentScreen() {
     }
   };
 
+  const hasErrors = Object.keys(errors).length > 0;
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 56 : 0}
     >
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
-        <FieldLabel text="顧客姓名" />
-        <TextInput
-          style={styles.input}
-          value={customerName}
-          onChangeText={setCustomerName}
-          placeholder="例如：陳小美"
-          placeholderTextColor={colors.textSecondary}
-          autoCapitalize="words"
-        />
+        <Section title="顧客">
+          <TextInput
+            style={[styles.input, errors.customerName && styles.inputInvalid]}
+            value={customerName}
+            onChangeText={(text) => {
+              setCustomerName(text);
+              setSuggesting(true);
+              clearError('customerName');
+            }}
+            placeholder="輸入姓名搜尋或新增"
+            placeholderTextColor={colors.textTertiary}
+            autoCorrect={false}
+            returnKeyType="done"
+          />
+          {suggesting && suggestions.length > 0 ? (
+            <View style={styles.suggestions}>
+              {suggestions.map((c, i) => (
+                <Pressable
+                  key={c.id || c.name}
+                  onPress={() => {
+                    setCustomerName(c.name);
+                    setSuggesting(false);
+                    clearError('customerName');
+                    Keyboard.dismiss();
+                  }}
+                  style={({ pressed }) => [
+                    styles.suggestion,
+                    i > 0 && styles.suggestionDivider,
+                    pressed && styles.suggestionPressed,
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.suggestionName}>{c.name}</Text>
+                  {c.phone ? <Text style={styles.suggestionPhone}>{c.phone}</Text> : null}
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          <FieldError message={errors.customerName} />
+        </Section>
 
-        <FieldLabel text="日期 (YYYY-MM-DD)" />
-        <TextInput
-          style={styles.input}
-          value={date}
-          onChangeText={setDate}
-          placeholder="2026-10-25"
-          placeholderTextColor={colors.textSecondary}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        <Section title="日期">
+          <DatePicker
+            value={date}
+            onChange={(d) => {
+              setDate(d);
+              clearError('date');
+            }}
+            invalid={Boolean(errors.date)}
+          />
+          <FieldError message={errors.date} />
+        </Section>
 
-        <FieldLabel text="時間 (HH:mm)" />
-        <TextInput
-          style={styles.input}
-          value={time}
-          onChangeText={setTime}
-          placeholder="14:30"
-          placeholderTextColor={colors.textSecondary}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        <Section title="時間" hint={endTime ? `${time} – ${endTime}（${duration} 分鐘）` : undefined}>
+          {date ? (
+            <TimeSlotPicker
+              value={time}
+              onChange={(t) => {
+                setTime(t);
+                clearError('time');
+              }}
+              durationMinutes={duration}
+              bookings={dayBookings.appointments}
+              loadingBookings={dayBookings.loading}
+              invalid={Boolean(errors.time)}
+            />
+          ) : (
+            <Text style={styles.placeholderNote}>先選擇日期，再揀時段</Text>
+          )}
+          <FieldError message={errors.time} />
+        </Section>
 
-        <FieldLabel text="服務 (活動)" />
-        <ChipGroup
-          options={SERVICE_NAMES}
-          value={service}
-          onChange={handleServiceChange}
-        />
+        <Section title="服務">
+          <View style={styles.chipRow}>
+            {SERVICES.map(({ name }) => {
+              const selected = service === name;
+              const color = serviceColor(name);
+              return (
+                <Pressable
+                  key={name}
+                  onPress={() => handleServiceChange(name)}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    selected && { backgroundColor: tint(color, 0.28), borderColor: color },
+                    pressed && pressedStyle,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                >
+                  <View style={[styles.chipDot, { backgroundColor: color }]} />
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                    {name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-        <FieldLabel text="手/腳" />
-        <ChipGroup
-          options={HAND_OR_FOOT_OPTIONS}
-          value={handOrFoot}
-          onChange={setHandOrFoot}
-        />
+          <Text style={styles.subLabel}>手/腳</Text>
+          <View style={styles.segmented}>
+            {HAND_OR_FOOT_OPTIONS.map((option) => {
+              const selected = handOrFoot === option;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => setHandOrFoot(option)}
+                  style={[styles.segment, selected && styles.segmentSelected]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                >
+                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                    {option}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Section>
 
-        <FieldLabel text="收費 ($)" />
-        <TextInput
-          style={styles.input}
-          value={price}
-          onChangeText={(text) => {
-            setPrice(text);
-            setPriceEdited(true);
-          }}
-          placeholder="可選填"
-          placeholderTextColor={colors.textSecondary}
-          keyboardType="number-pad"
-        />
+        <Section title="收費及備注">
+          <View style={[styles.priceField, errors.price && styles.inputInvalid]}>
+            <Text style={styles.pricePrefix}>$</Text>
+            <TextInput
+              style={styles.priceInput}
+              value={price}
+              onChangeText={(text) => {
+                setPrice(text);
+                setPriceEdited(true);
+                clearError('price');
+              }}
+              placeholder="可選填"
+              placeholderTextColor={colors.textTertiary}
+              keyboardType="number-pad"
+            />
+          </View>
+          <FieldError message={errors.price} />
 
-        <FieldLabel text="備注" />
-        <TextInput
-          style={[styles.input, styles.notesInput]}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="可選填"
-          placeholderTextColor={colors.textSecondary}
-          multiline
-          textAlignVertical="top"
-        />
+          <TextInput
+            style={[styles.input, styles.notesInput]}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="備注（可選填）"
+            placeholderTextColor={colors.textTertiary}
+            multiline
+            textAlignVertical="top"
+          />
+        </Section>
+      </ScrollView>
 
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+        <Text style={[styles.summary, hasErrors && styles.summaryError]} numberOfLines={1}>
+          {hasErrors
+            ? '請完成紅色標示的欄位'
+            : date && validTime
+              ? `${formatDateHeader(date)} ${time}${endTime ? `–${endTime}` : ''} · ${service}`
+              : service}
+        </Text>
         <Pressable
           onPress={() => void handleSubmit()}
           disabled={saving}
-          style={({ pressed }) => [
-            styles.submitBtn,
-            (pressed || saving) && styles.submitBtnPressed,
-          ]}
+          style={({ pressed }) => [styles.submitBtn, (pressed || saving) && pressedStyle]}
+          accessibilityRole="button"
         >
           {saving ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={colors.onAccent} />
           ) : (
             <Text style={styles.submitText}>儲存預約</Text>
           )}
         </Pressable>
-      </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
-function FieldLabel({ text }: { text: string }) {
-  return <Text style={styles.label}>{text}</Text>;
-}
-
-function ChipGroup<T extends string>({
-  options,
-  value,
-  onChange,
+function Section({
+  title,
+  hint,
+  children,
 }: {
-  options: readonly T[];
-  value: T;
-  onChange: (next: T) => void;
+  title: string;
+  hint?: string;
+  children: ReactNode;
 }) {
   return (
-    <View style={styles.serviceRow}>
-      {options.map((option) => {
-        const selected = value === option;
-        return (
-          <Pressable
-            key={option}
-            onPress={() => onChange(option)}
-            style={[styles.serviceChip, selected && styles.serviceChipSelected]}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-          >
-            <Text
-              style={[
-                styles.serviceChipText,
-                selected && styles.serviceChipTextSelected,
-              ]}
-            >
-              {option}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        {hint ? <Text style={styles.sectionHint}>{hint}</Text> : null}
+      </View>
+      {children}
     </View>
   );
+}
+
+function FieldError({ message }: { message?: string }) {
+  return message ? <Text style={styles.error}>{message}</Text> : null;
 }
 
 const styles = StyleSheet.create({
@@ -258,64 +364,187 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     paddingBottom: spacing.xl,
   },
-  label: {
-    fontSize: 14,
+  section: {
+    marginBottom: spacing.lg,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  sectionTitle: {
+    ...type.label,
+  },
+  sectionHint: {
+    ...type.time,
+    color: colors.accent,
+    fontSize: 13,
     fontWeight: '600',
-    color: colors.text,
-    marginBottom: spacing.xs,
+  },
+  subLabel: {
+    ...type.label,
     marginTop: spacing.md,
+    marginBottom: spacing.sm,
   },
   input: {
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.surface,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
-    paddingVertical: Platform.OS === 'ios' ? spacing.md : spacing.sm,
+    paddingVertical: Platform.OS === 'ios' ? spacing.sm + 6 : spacing.sm + 2,
     fontSize: 16,
     color: colors.text,
   },
-  notesInput: {
-    minHeight: 96,
-    paddingTop: spacing.md,
+  inputInvalid: {
+    borderColor: colors.danger,
   },
-  serviceRow: {
+  notesInput: {
+    minHeight: 88,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm + 4,
+  },
+  suggestions: {
+    marginTop: spacing.xs,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceRaised,
+    overflow: 'hidden',
+  },
+  suggestion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 4,
+  },
+  suggestionDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  suggestionPressed: {
+    backgroundColor: colors.border,
+  },
+  suggestionName: {
+    ...type.body,
+    fontWeight: '600',
+  },
+  suggestionPhone: {
+    ...type.caption,
+    ...type.time,
+  },
+  placeholderNote: {
+    ...type.caption,
+    paddingVertical: spacing.md,
+    textAlign: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+  },
+  chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  serviceChip: {
-    borderWidth: 1,
-    borderColor: colors.border,
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.md - 4,
+    paddingVertical: spacing.sm + 1,
+    borderRadius: radius.pill,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.surface,
+  },
+  chipDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  chipText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  chipTextSelected: {
+    color: colors.text,
+    fontWeight: '700',
+  },
+  segmented: {
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: radius.sm + 2,
+    backgroundColor: colors.surface,
+  },
+  segment: {
+    flex: 1,
+    alignItems: 'center',
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
   },
-  serviceChipSelected: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accentMuted,
+  segmentSelected: {
+    backgroundColor: colors.surfaceRaised,
   },
-  serviceChipText: {
+  segmentText: {
     color: colors.textSecondary,
+    fontSize: 15,
     fontWeight: '500',
   },
-  serviceChipTextSelected: {
-    color: colors.accent,
+  segmentTextSelected: {
+    color: colors.text,
     fontWeight: '700',
   },
+  priceField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surface,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+  },
+  pricePrefix: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginRight: spacing.xs,
+  },
+  priceInput: {
+    flex: 1,
+    paddingVertical: Platform.OS === 'ios' ? spacing.sm + 6 : spacing.sm + 2,
+    fontSize: 16,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  error: {
+    marginTop: spacing.xs,
+    color: colors.danger,
+    fontSize: 13,
+  },
+  footer: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm + 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  summary: {
+    ...type.caption,
+    ...type.time,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  summaryError: {
+    color: colors.danger,
+  },
   submitBtn: {
-    marginTop: spacing.xl,
     backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
+    paddingVertical: spacing.md - 2,
+    borderRadius: radius.pill,
     alignItems: 'center',
   },
-  submitBtnPressed: {
-    opacity: 0.85,
-  },
   submitText: {
-    color: '#FFFFFF',
+    color: colors.onAccent,
     fontSize: 16,
     fontWeight: '700',
   },
