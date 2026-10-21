@@ -94,3 +94,11 @@ export function minutesToTime(minutes: number): string {
   const m = String(minutes % 60).padStart(2, '0');
   return `${h}:${m}`;
 }
+
+/** e.g. 2026年10月21日（三） */
+export function formatShortDate(iso: string): string {
+  const date = parseIsoDate(iso);
+  if (isNaN(date.getTime())) return iso;
+  const weekday = WEEKDAY_LABELS[date.getDay()];
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${weekday}）`;
+}

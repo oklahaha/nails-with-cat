@@ -1,6 +1,7 @@
 /**
  * 時間表 tab (home) — Day / Week / Month calendar, modelled on the AppSheet
- * timetable (reference/timetable.png). Tapping a day opens it in Day view.
+ * timetable (reference/timetable.png). Tapping a day opens it in Day view;
+ * tapping an appointment opens its details (with 修改 / 刪除).
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -20,7 +21,7 @@ import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
 import type { Appointment } from '@/types/appointment';
-import { showAppointmentDetails } from '@/utils/appointmentActions';
+import { openAppointmentDetails } from '@/utils/appointmentActions';
 import {
   addDays,
   addMonths,
@@ -159,7 +160,7 @@ export default function TimetableScreen() {
         <TimeGrid
           days={mode === 'week' ? weekDates(anchor) : [anchor]}
           byDate={byDate}
-          onPressAppointment={showAppointmentDetails}
+          onPressAppointment={openAppointmentDetails}
           onPressDay={openDay}
         />
       )}

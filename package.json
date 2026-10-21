@@ -29,6 +29,7 @@
   },
   "scripts": {
     "start": "expo start --port 8080",
+    "start:tunnel": "bash scripts/start-tunnel.sh",
     "android": "expo start --android --port 8080",
     "ios": "expo start --ios --port 8080",
     "web": "expo start --port 8080",

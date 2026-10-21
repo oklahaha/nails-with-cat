@@ -7,18 +7,22 @@ import { colors, pressedStyle, spacing } from '@/constants/theme';
 type Props = {
   /** Prefill the form's date (YYYY-MM-DD). */
   date?: string;
+  /** Do something else instead of opening Add Appointment (e.g. add a customer). */
+  onPress?: () => void;
+  accessibilityLabel?: string;
 };
 
-/** Round floating "+" button that opens the Add Appointment modal. */
-export function AddButton({ date }: Props) {
+/** Round floating "+" button; opens the Add Appointment modal by default. */
+export function AddButton({ date, onPress, accessibilityLabel = '新增預約' }: Props) {
   return (
     <Pressable
-      onPress={() =>
-        router.push({ pathname: '/add-appointment', params: date ? { date } : {} })
+      onPress={
+        onPress ??
+        (() => router.push({ pathname: '/add-appointment', params: date ? { date } : {} }))
       }
       style={({ pressed }) => [styles.fab, pressed && pressedStyle]}
       accessibilityRole="button"
-      accessibilityLabel="新增預約"
+      accessibilityLabel={accessibilityLabel}
     >
       <Icon name="add" color={colors.onAccent} size={30} />
     </Pressable>

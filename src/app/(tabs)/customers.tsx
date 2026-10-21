@@ -1,6 +1,8 @@
 /**
  * 顧客資料 tab — searchable customer list from the 顧客 sheet.
- * Each row can WhatsApp the customer or start a booking with their name filled in.
+ * Tapping a customer opens their details (edit / delete). Each row can also
+ * WhatsApp the customer or start a booking with their name filled in; the ＋
+ * button adds a customer.
  */
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -14,11 +16,13 @@ import {
   View,
 } from 'react-native';
 
+import { AddButton } from '@/components/AddButton';
 import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useCustomers } from '@/hooks/useCustomers';
 import type { Customer } from '@/types/customer';
+import { formatPhone } from '@/utils/phone';
 import { openWhatsApp } from '@/utils/whatsapp';
 
 export default function CustomersScreen() {
@@ -95,8 +99,21 @@ export default function CustomersScreen() {
           />
         }
       />
+
+      <AddButton
+        // A search with no match is often a new customer, so prefill it
+        onPress={() => router.push({ pathname: '/add-customer', params: prefillFrom(query, filtered) })}
+        accessibilityLabel="新增顧客"
+      />
     </View>
   );
+}
+
+/** The unmatched search as the new customer's name, or phone if it's a number. */
+function prefillFrom(query: string, matches: Customer[]): { name?: string; phone?: string } {
+  const q = query.trim();
+  if (!q || matches.length > 0) return {};
+  return /^[\d\s+()-]+$/.test(q) ? { phone: q.replace(/[^\d]/g, '') } : { name: q };
 }
 
 const keyExtractor = (c: Customer, index: number) => c.id || `${c.name}-${index}`;
@@ -104,21 +121,35 @@ const keyExtractor = (c: Customer, index: number) => c.id || `${c.name}-${index}
 const renderItem = ({ item }: { item: Customer }) => <CustomerRow customer={item} />;
 
 function CustomerRow({ customer }: { customer: Customer }) {
+  // The buttons sit beside the tappable area, not inside it, since buttons
+  // can't nest on web
   return (
     <View style={styles.row}>
-      <View style={styles.avatar}>
-        {/* Array.from keeps emoji (surrogate pairs) whole */}
-        <Text style={styles.avatarText}>{Array.from(customer.name)[0] ?? ''}</Text>
-      </View>
+      <Pressable
+        onPress={() =>
+          router.push({
+            pathname: '/customer-details',
+            params: customer.id ? { id: customer.id, name: customer.name } : { name: customer.name },
+          })
+        }
+        style={({ pressed }) => [styles.rowMain, pressed && pressedStyle]}
+        accessibilityRole="button"
+        accessibilityLabel={`${customer.name} 的顧客資料`}
+      >
+        <View style={styles.avatar}>
+          {/* Array.from keeps emoji (surrogate pairs) whole */}
+          <Text style={styles.avatarText}>{Array.from(customer.name)[0] ?? ''}</Text>
+        </View>
 
-      <View style={styles.rowInfo}>
-        <Text style={styles.name} numberOfLines={1}>
-          {customer.name}
-        </Text>
-        <Text style={[styles.phone, !customer.phone && styles.phoneMissing]}>
-          {formatPhone(customer.phone) || '未有電話'}
-        </Text>
-      </View>
+        <View style={styles.rowInfo}>
+          <Text style={styles.name} numberOfLines={1}>
+            {customer.name}
+          </Text>
+          <Text style={[styles.phone, !customer.phone && styles.phoneMissing]}>
+            {formatPhone(customer.phone) || '未有電話'}
+          </Text>
+        </View>
+      </Pressable>
 
       {customer.phone ? (
         <Pressable
@@ -149,12 +180,6 @@ function CustomerRow({ customer }: { customer: Customer }) {
   );
 }
 
-/** 85291234567 → +852 9123 4567; other numbers are shown as stored. */
-function formatPhone(phone: string): string {
-  const m = phone.match(/^852(\d{4})(\d{4})$/);
-  return m ? `+852 ${m[1]} ${m[2]}` : phone;
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -179,6 +204,8 @@ const styles = StyleSheet.create({
   listContent: {
     flexGrow: 1,
     padding: spacing.md,
+    // Keep the last row clear of the ＋ button
+    paddingBottom: 56 + spacing.md * 2,
   },
   count: {
     ...type.caption,
@@ -195,6 +222,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 4,
     paddingHorizontal: spacing.md - 4,
     marginBottom: spacing.sm,
+  },
+  rowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 4,
   },
   avatar: {
     width: 40,

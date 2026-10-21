@@ -11,8 +11,12 @@
  */
 
 import { MOCK_APPOINTMENTS } from '@/data/mockAppointments';
-import type { Appointment, NewAppointmentInput } from '@/types/appointment';
-import type { Customer } from '@/types/customer';
+import type {
+  Appointment,
+  NewAppointmentInput,
+  UpdateAppointmentInput,
+} from '@/types/appointment';
+import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
 const APPS_SCRIPT_TOKEN = process.env.EXPO_PUBLIC_APPS_SCRIPT_TOKEN ?? '';
@@ -51,6 +55,28 @@ export async function listAppointments(
   });
   if (options.from) params.set('from', options.from);
   if (options.to) params.set('to', options.to);
+
+  const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const data = await parseResponse<{ appointments: Appointment[] }>(res);
+  return data.appointments;
+}
+
+/**
+ * Fetch every appointment for one customer, past and upcoming, for the
+ * history in 顧客資料. Rows that store the 顧客ID or the name both match.
+ */
+export async function listCustomerAppointments(key: CustomerKey): Promise<Appointment[]> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return MOCK_APPOINTMENTS.filter((apt) => apt.customerName === key.name);
+  }
+
+  const params = new URLSearchParams({
+    action: 'listCustomerAppointments',
+    token: APPS_SCRIPT_TOKEN,
+    name: key.name,
+  });
+  if (key.id) params.set('id', key.id);
 
   const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ appointments: Appointment[] }>(res);
@@ -99,6 +125,71 @@ export async function createAppointment(
 }
 
 /**
+ * Edit an existing appointment — overwrites its row in 預約資料 (found by 預約ID).
+ */
+export async function updateAppointment(
+  id: string,
+  input: UpdateAppointmentInput
+): Promise<Appointment> {
+  if (isUsingMockApi) {
+    await delay(300);
+
+    // Mock "updated" record — not persisted; list still reads MOCK_APPOINTMENTS
+    const updated: Appointment = {
+      id,
+      customerName: input.customerName.trim(),
+      date: input.date.trim(),
+      time: input.time.trim(),
+      service: input.service,
+      notes: input.notes.trim(),
+      durationMinutes: input.durationMinutes,
+      handOrFoot: input.handOrFoot,
+      price: input.price,
+      status: input.status ?? '預約',
+    };
+
+    console.log('[appointmentsApi] mock updateAppointment:', updated);
+    return updated;
+  }
+
+  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'updateAppointment',
+      id,
+      appointment: input,
+    }),
+  });
+  const data = await parseResponse<{ appointment: Appointment }>(res);
+  return data.appointment;
+}
+
+/**
+ * Delete an appointment — removes its row from 預約資料 (found by 預約ID).
+ */
+export async function deleteAppointment(id: string): Promise<void> {
+  if (isUsingMockApi) {
+    await delay(300);
+    // Not persisted; list still reads MOCK_APPOINTMENTS
+    console.log('[appointmentsApi] mock deleteAppointment:', id);
+    return;
+  }
+
+  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'deleteAppointment',
+      id,
+    }),
+  });
+  await parseResponse<object>(res);
+}
+
+/**
  * Fetch all customers from the 顧客 sheet.
  */
 export async function listCustomers(): Promise<Customer[]> {
@@ -123,6 +214,93 @@ export async function listCustomers(): Promise<Customer[]> {
   const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ customers: Customer[] }>(res);
   return data.customers;
+}
+
+/**
+ * Add a customer to 顧客. The script picks the 顧客ID.
+ */
+export async function createCustomer(input: CustomerInput): Promise<Customer> {
+  if (isUsingMockApi) {
+    await delay(300);
+    // Not persisted; the list is rebuilt from MOCK_APPOINTMENTS
+    const digits = input.phone.replace(/[^\d]/g, '');
+    const created: Customer = {
+      id: `CUST-MOCK-${Date.now()}`,
+      name: input.name.trim(),
+      phone: digits.length === 8 ? `852${digits}` : digits,
+    };
+    console.log('[appointmentsApi] mock createCustomer:', created);
+    return created;
+  }
+
+  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'createCustomer',
+      customer: input,
+    }),
+  });
+  const data = await parseResponse<{ customer: Customer }>(res);
+  return data.customer;
+}
+
+/**
+ * Edit a customer's name / phone in 顧客. Renaming also renames their
+ * bookings that store the name, so they stay linked.
+ */
+export async function updateCustomer(
+  key: CustomerKey,
+  input: CustomerInput
+): Promise<Customer> {
+  if (isUsingMockApi) {
+    await delay(300);
+    // Not persisted; the list is rebuilt from MOCK_APPOINTMENTS
+    const digits = input.phone.replace(/[^\d]/g, '');
+    const updated: Customer = {
+      id: key.id ?? '',
+      name: input.name.trim(),
+      phone: digits.length === 8 ? `852${digits}` : digits,
+    };
+    console.log('[appointmentsApi] mock updateCustomer:', updated);
+    return updated;
+  }
+
+  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'updateCustomer',
+      key,
+      customer: input,
+    }),
+  });
+  const data = await parseResponse<{ customer: Customer }>(res);
+  return data.customer;
+}
+
+/**
+ * Delete a customer from 顧客. Their bookings are kept.
+ */
+export async function deleteCustomer(key: CustomerKey): Promise<void> {
+  if (isUsingMockApi) {
+    await delay(300);
+    console.log('[appointmentsApi] mock deleteCustomer:', key);
+    return;
+  }
+
+  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'deleteCustomer',
+      key,
+    }),
+  });
+  await parseResponse<object>(res);
 }
 
 /** Apps Script always replies 200; real errors come back as { ok: false }. */

@@ -12,6 +12,11 @@
  *   GET  ?action=listAppointments&token=...[&from=YYYY-MM-DD][&to=YYYY-MM-DD]
  *   GET  ?action=listCustomers&token=...
  *   POST body (text/plain JSON): { token, action: 'createAppointment', appointment: {...} }
+ *   POST body (text/plain JSON): { token, action: 'updateAppointment', id, appointment: {...} }
+ *   POST body (text/plain JSON): { token, action: 'deleteAppointment', id }
+ *   POST body (text/plain JSON): { token, action: 'createCustomer', customer: { name, phone } }
+ *   POST body (text/plain JSON): { token, action: 'updateCustomer', key: { id, name }, customer: { name, phone } }
+ *   POST body (text/plain JSON): { token, action: 'deleteCustomer', key: { id, name } }
  *
  * Columns are looked up by header name (row 1), so column order doesn't matter.
  */
@@ -66,6 +71,10 @@ function doGet(e) {
         return { appointments: listAppointments_(params.from, params.to) };
       case 'listCustomers':
         return { customers: readCustomers_(openSpreadsheet_()).list };
+      case 'listCustomerAppointments':
+        return {
+          appointments: listCustomerAppointments_({ id: params.id, name: params.name }),
+        };
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -80,6 +89,18 @@ function doPost(e) {
     switch (body.action) {
       case 'createAppointment':
         return { appointment: createAppointment_(body.appointment || {}) };
+      case 'updateAppointment':
+        return { appointment: updateAppointment_(body.id, body.appointment || {}) };
+      case 'deleteAppointment':
+        deleteAppointment_(body.id);
+        return {};
+      case 'createCustomer':
+        return { customer: createCustomer_(body.customer || {}) };
+      case 'updateCustomer':
+        return { customer: updateCustomer_(body.key || {}, body.customer || {}) };
+      case 'deleteCustomer':
+        deleteCustomer_(body.key || {});
+        return {};
       default:
         throw new Error('Unknown action: ' + body.action);
     }
@@ -124,41 +145,90 @@ function listAppointments_(from, to) {
 
   const out = [];
   table.rows.forEach(function (row) {
-    const id = cellText_(row, COL.id);
-    if (!id) return; // skip blank rows
+    if (!cellText_(row, COL.id)) return; // skip blank rows
 
     const date = toIsoDate_(row.values[COL.date], row.display[COL.date], tz);
     if (from && date && date < from) return;
     if (to && date && date > to) return;
 
-    // 顧客姓名 may hold the name itself, or a 顧客ID (AppSheet Ref column).
-    const rawCustomer = cellText_(row, COL.customerName);
-    const customer = customers.byId[rawCustomer] || customers.byName[rawCustomer];
-
-    const apt = {
-      id: id,
-      service: cellText_(row, COL.service),
-      notes: cellText_(row, COL.notes),
-      customerName: customer ? customer.name : rawCustomer,
-      date: date,
-      time: toHHmm_(row.display[COL.time]),
-      status: cellText_(row, COL.status),
-    };
-
-    if (customer && customer.phone) apt.phone = customer.phone;
-    const duration = toMinutes_(row.values[COL.duration], row.display[COL.duration]);
-    if (duration != null) apt.durationMinutes = duration;
-    const handOrFoot = cellText_(row, COL.handOrFoot);
-    if (handOrFoot) apt.handOrFoot = handOrFoot;
-    const price = toNumber_(row.values[COL.price]);
-    if (price != null) apt.price = price;
-    const endTime = toHHmm_(row.display[COL.endTime]);
-    if (endTime) apt.endTime = endTime;
-
-    out.push(apt);
+    out.push(toAppointment_(row, customers, tz));
   });
 
   return out;
+}
+
+/**
+ * Every appointment for one customer (any date), for the history in 顧客資料.
+ * Rows store either the 顧客ID or the name, so both are matched. Only the
+ * 顧客姓名 column is scanned first; full rows are read for the block between
+ * the first and last match, like readTableInDateRange_.
+ */
+function listCustomerAppointments_(key) {
+  const id = String(key.id || '').trim();
+  const name = String(key.name || '').trim();
+  if (!id && !name) throw new Error('id or name is required');
+
+  const ss = openSpreadsheet_();
+  const tz = ss.getSpreadsheetTimeZone();
+  const customers = readCustomers_(ss);
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  const headers = readHeaders_(sheet);
+  const customerCol = headers.indexOf(COL.customerName);
+  const lastRow = sheet.getLastRow();
+  if (customerCol === -1) throw new Error('Column not found: ' + COL.customerName);
+  if (lastRow < 2) return [];
+
+  const matches = function (value) {
+    return (id && value === id) || (name && value === name);
+  };
+  const cells = sheet.getRange(2, customerCol + 1, lastRow - 1, 1).getDisplayValues();
+  let first = -1;
+  let last = -1;
+  cells.forEach(function (cell, i) {
+    if (!matches(String(cell[0]).trim())) return;
+    if (first === -1) first = i;
+    last = i;
+  });
+  if (first === -1) return [];
+
+  const block = sheet.getRange(first + 2, 1, last - first + 1, headers.length);
+  const rows = toRows_(headers, block.getValues(), block.getDisplayValues());
+  return rows
+    .filter(function (row) {
+      return cellText_(row, COL.id) && matches(cellText_(row, COL.customerName));
+    })
+    .map(function (row) {
+      return toAppointment_(row, customers, tz);
+    });
+}
+
+/** One 預約資料 row as the app's Appointment shape. */
+function toAppointment_(row, customers, tz) {
+  // 顧客姓名 may hold the name itself, or a 顧客ID (AppSheet Ref column).
+  const rawCustomer = cellText_(row, COL.customerName);
+  const customer = customers.byId[rawCustomer] || customers.byName[rawCustomer];
+
+  const apt = {
+    id: cellText_(row, COL.id),
+    service: cellText_(row, COL.service),
+    notes: cellText_(row, COL.notes),
+    customerName: customer ? customer.name : rawCustomer,
+    date: toIsoDate_(row.values[COL.date], row.display[COL.date], tz),
+    time: toHHmm_(row.display[COL.time]),
+    status: cellText_(row, COL.status),
+  };
+
+  if (customer && customer.phone) apt.phone = customer.phone;
+  const duration = toMinutes_(row.values[COL.duration], row.display[COL.duration]);
+  if (duration != null) apt.durationMinutes = duration;
+  const handOrFoot = cellText_(row, COL.handOrFoot);
+  if (handOrFoot) apt.handOrFoot = handOrFoot;
+  const price = toNumber_(row.values[COL.price]);
+  if (price != null) apt.price = price;
+  const endTime = toHHmm_(row.display[COL.endTime]);
+  if (endTime) apt.endTime = endTime;
+
+  return apt;
 }
 
 function readCustomers_(ss) {
@@ -264,12 +334,12 @@ function toRows_(headers, values, display) {
 // Write
 // ---------------------------------------------------------------------------
 
-function createAppointment_(input) {
+/** Validate and normalize the appointment fields shared by create and update. */
+function parseAppointmentInput_(input) {
   const customerName = String(input.customerName || '').trim();
   const date = String(input.date || '').trim();
   const time = String(input.time || '').trim();
   const service = String(input.service || '').trim();
-  const notes = String(input.notes || '').trim();
 
   if (!customerName) throw new Error('customerName is required');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('date must be YYYY-MM-DD');
@@ -277,10 +347,41 @@ function createAppointment_(input) {
   if (!service) throw new Error('service is required');
 
   const durationMinutes = toNumber_(input.durationMinutes);
-  const price = toNumber_(input.price);
-  const handOrFoot = String(input.handOrFoot || '').trim();
-  // Matches AppSheet: rows without a duration (e.g. 特別事項) have End Time = start.
-  const endTime = durationMinutes != null ? addMinutes_(time, durationMinutes) : time;
+  return {
+    customerName: customerName,
+    date: date,
+    time: time,
+    service: service,
+    notes: String(input.notes || '').trim(),
+    durationMinutes: durationMinutes,
+    price: toNumber_(input.price),
+    handOrFoot: String(input.handOrFoot || '').trim(),
+    // Matches AppSheet: rows without a duration (e.g. 特別事項) have End Time = start.
+    endTime: durationMinutes != null ? addMinutes_(time, durationMinutes) : time,
+  };
+}
+
+/** The JSON shape the app expects back after a write. */
+function appointmentResponse_(id, a, status, customer) {
+  const out = {
+    id: id,
+    service: a.service,
+    notes: a.notes,
+    customerName: a.customerName,
+    date: a.date,
+    time: a.time,
+    status: status,
+  };
+  if (customer && customer.phone) out.phone = customer.phone;
+  if (a.durationMinutes != null) out.durationMinutes = a.durationMinutes;
+  if (a.handOrFoot) out.handOrFoot = a.handOrFoot;
+  if (a.price != null) out.price = a.price;
+  if (a.endTime) out.endTime = a.endTime;
+  return out;
+}
+
+function createAppointment_(input) {
+  const a = parseAppointmentInput_(input);
 
   // Both users may save at the same moment — serialize appends.
   const lock = LockService.getScriptLock();
@@ -290,24 +391,24 @@ function createAppointment_(input) {
     const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
     const table = readTable_(sheet);
     const customers = readCustomers_(ss);
-    const customer = customers.byName[customerName];
+    const customer = customers.byName[a.customerName];
 
     const id = newId_(table);
-    const [y, m, d] = date.split('-').map(Number);
+    const [y, m, d] = a.date.split('-').map(Number);
 
     const cells = {};
     cells[COL.id] = id;
-    cells[COL.service] = service;
-    cells[COL.notes] = notes;
-    cells[COL.customerName] = customerValueForSheet_(table, customers, customer, customerName);
+    cells[COL.service] = a.service;
+    cells[COL.notes] = a.notes;
+    cells[COL.customerName] = customerValueForSheet_(table, customers, customer, a.customerName);
     cells[COL.date] = new Date(y, m - 1, d);
-    cells[COL.time] = time + ':00';
+    cells[COL.time] = a.time + ':00';
     cells[COL.duration] =
-      durationMinutes != null ? durationCellValue_(table, durationMinutes) : '';
-    cells[COL.handOrFoot] = handOrFoot;
-    cells[COL.price] = price != null ? price : '';
+      a.durationMinutes != null ? durationCellValue_(table, a.durationMinutes) : '';
+    cells[COL.handOrFoot] = a.handOrFoot;
+    cells[COL.price] = a.price != null ? a.price : '';
     cells[COL.status] = DEFAULT_STATUS;
-    cells[COL.endTime] = endTime ? endTime + ':00' : '';
+    cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
 
     // Only fill columns we know; leave any other columns (e.g. AppSheet
     // virtual/formula columns) blank so the sheet computes them.
@@ -317,24 +418,289 @@ function createAppointment_(input) {
     sheet.appendRow(row);
     SpreadsheetApp.flush();
 
-    const created = {
-      id: id,
-      service: service,
-      notes: notes,
-      customerName: customerName,
-      date: date,
-      time: time,
-      status: DEFAULT_STATUS,
-    };
-    if (customer && customer.phone) created.phone = customer.phone;
-    if (durationMinutes != null) created.durationMinutes = durationMinutes;
-    if (handOrFoot) created.handOrFoot = handOrFoot;
-    if (price != null) created.price = price;
-    if (endTime) created.endTime = endTime;
-    return created;
+    return appointmentResponse_(id, a, DEFAULT_STATUS, customer);
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Overwrite an existing 預約資料 row, found by 預約ID. Only the columns the
+ * app edits are written, one cell at a time, so any other columns (formulas,
+ * AppSheet extras) are left untouched. 狀態 is only written when sent.
+ */
+function updateAppointment_(id, input) {
+  const a = parseAppointmentInput_(input);
+  const hasStatus = input.status != null;
+  const status = hasStatus ? String(input.status).trim() : null;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = openSpreadsheet_();
+    const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+    const found = findAppointmentRow_(sheet, id);
+    const headers = found.headers;
+    const rowIndex = found.rowIndex;
+
+    const range = sheet.getRange(rowIndex, 1, 1, headers.length);
+    const current = toRows_(headers, range.getValues(), range.getDisplayValues())[0];
+
+    const customers = readCustomers_(ss);
+    const customer = customers.byName[a.customerName];
+    // Keep the row's existing style: a 顧客ID (AppSheet Ref) or a plain name
+    const currentCustomer = cellText_(current, COL.customerName);
+    const storesId =
+      currentCustomer && customers.byId[currentCustomer] && !customers.byName[currentCustomer];
+    const [y, m, d] = a.date.split('-').map(Number);
+
+    const cells = {};
+    cells[COL.service] = a.service;
+    cells[COL.notes] = a.notes;
+    cells[COL.customerName] = storesId && customer && customer.id ? customer.id : a.customerName;
+    cells[COL.date] = new Date(y, m - 1, d);
+    cells[COL.time] = a.time + ':00';
+    cells[COL.duration] =
+      a.durationMinutes != null
+        ? durationValueLike_(cellText_(current, COL.duration), a.durationMinutes)
+        : '';
+    cells[COL.handOrFoot] = a.handOrFoot;
+    cells[COL.price] = a.price != null ? a.price : '';
+    if (hasStatus) cells[COL.status] = status;
+    cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
+
+    Object.keys(cells).forEach(function (h) {
+      const c = headers.indexOf(h);
+      if (c !== -1) sheet.getRange(rowIndex, c + 1).setValue(cells[h]);
+    });
+    SpreadsheetApp.flush();
+
+    return appointmentResponse_(
+      id,
+      a,
+      hasStatus ? status : cellText_(current, COL.status),
+      customer
+    );
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Remove an appointment's row from 預約資料, found by 預約ID. */
+function deleteAppointment_(id) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sheet = getSheet_(openSpreadsheet_(), SHEET_APPOINTMENTS);
+    sheet.deleteRow(findAppointmentRow_(sheet, id).rowIndex);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Find the row holding `id` in 預約ID, scanning only that column.
+ * Returns its 1-based row number and the sheet's headers.
+ */
+function findAppointmentRow_(sheet, id) {
+  id = String(id || '').trim();
+  if (!id) throw new Error('id is required');
+
+  const lastRow = sheet.getLastRow();
+  const headers = readHeaders_(sheet);
+  const idCol = headers.indexOf(COL.id);
+  if (idCol === -1) throw new Error('Column not found: ' + COL.id);
+
+  if (lastRow >= 2) {
+    const ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getDisplayValues();
+    // Recent bookings are near the bottom
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0]).trim() === id) return { rowIndex: i + 2, headers: headers };
+    }
+  }
+  throw new Error('找不到此預約，可能已被刪除（' + id + '）');
+}
+
+/** Append a 顧客 row, with a new 顧客ID shaped like the existing ones. */
+function createCustomer_(input) {
+  const name = String(input.name || '').trim();
+  // Stored as typed (digits only); reads add the 852 prefix
+  const phone = String(input.phone || '').replace(/[^\d]/g, '');
+  if (!name) throw new Error('請輸入顧客姓名');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = openSpreadsheet_();
+    const sheet = getSheet_(ss, SHEET_CUSTOMERS);
+    const table = readTable_(sheet);
+    if (table.headers.indexOf(CUST_COL.name) === -1) {
+      throw new Error('Column not found: ' + CUST_COL.name);
+    }
+
+    const ids = [];
+    table.rows.forEach(function (row) {
+      if (cellText_(row, CUST_COL.name) === name) throw new Error('已有同名顧客：' + name);
+      const id = cellText_(row, CUST_COL.id);
+      if (id) ids.push(id);
+    });
+    const id = table.headers.indexOf(CUST_COL.id) === -1 ? '' : newCustomerId_(ids);
+
+    const cells = {};
+    cells[CUST_COL.id] = id;
+    cells[CUST_COL.name] = name;
+    cells[CUST_COL.phone] = phone;
+    // Leave any other columns blank, as createAppointment_ does
+    sheet.appendRow(
+      table.headers.map(function (h) {
+        return Object.prototype.hasOwnProperty.call(cells, h) ? cells[h] : '';
+      })
+    );
+    SpreadsheetApp.flush();
+
+    return { id: id, name: name, phone: normalizePhone_(phone) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * A 顧客ID in the same style as the latest existing one: the next number
+ * when IDs are numeric, otherwise a random key of the same length and
+ * character set (AppSheet keys); 8 hex characters for an empty sheet.
+ */
+function newCustomerId_(ids) {
+  const existing = {};
+  ids.forEach(function (id) {
+    existing[id] = true;
+  });
+
+  const sample = ids.length ? ids[ids.length - 1] : '';
+  if (/^\d+$/.test(sample)) {
+    const max = ids.reduce(function (m, id) {
+      return /^\d+$/.test(id) ? Math.max(m, Number(id)) : m;
+    }, 0);
+    return String(max + 1);
+  }
+
+  let chars = '0123456789abcdef';
+  if (/[G-Zg-z]/.test(sample) || (/[a-f]/.test(sample) && /[A-F]/.test(sample))) {
+    chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  } else if (/[A-F]/.test(sample)) {
+    chars = '0123456789ABCDEF';
+  }
+  const length = sample.length || 8;
+
+  let id;
+  do {
+    id = '';
+    for (let i = 0; i < length; i++) id += chars[Math.floor(Math.random() * chars.length)];
+  } while (existing[id]);
+  return id;
+}
+
+/**
+ * Edit a 顧客 row (found by 顧客ID, or by name when it has none). Renaming
+ * also renames the bookings that store the old name, so they stay linked.
+ */
+function updateCustomer_(key, input) {
+  const name = String(input.name || '').trim();
+  // Stored as typed (digits only); reads add the 852 prefix
+  const phone = String(input.phone || '').replace(/[^\d]/g, '');
+  if (!name) throw new Error('請輸入顧客姓名');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = openSpreadsheet_();
+    const sheet = getSheet_(ss, SHEET_CUSTOMERS);
+    const found = findCustomerRow_(sheet, key);
+
+    if (name !== found.name && readCustomers_(ss).byName[name]) {
+      throw new Error('已有同名顧客：' + name);
+    }
+
+    sheet.getRange(found.rowIndex, found.nameCol + 1).setValue(name);
+    const phoneCol = found.headers.indexOf(CUST_COL.phone);
+    if (phoneCol !== -1) sheet.getRange(found.rowIndex, phoneCol + 1).setValue(phone);
+    if (name !== found.name) replaceCustomerRefs_(ss, found.name, name);
+    SpreadsheetApp.flush();
+
+    return { id: found.id, name: name, phone: normalizePhone_(phone) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Remove a 顧客 row. Their bookings are kept; any that store the 顧客ID
+ * (AppSheet Ref) get the name instead, so the history still reads properly.
+ */
+function deleteCustomer_(key) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = openSpreadsheet_();
+    const sheet = getSheet_(ss, SHEET_CUSTOMERS);
+    const found = findCustomerRow_(sheet, key);
+    if (found.id) replaceCustomerRefs_(ss, found.id, found.name);
+    sheet.deleteRow(found.rowIndex);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Find a 顧客 row by 顧客ID, or by name when the customer has no ID. */
+function findCustomerRow_(sheet, key) {
+  const id = String(key.id || '').trim();
+  const name = String(key.name || '').trim();
+  if (!id && !name) throw new Error('id or name is required');
+
+  const headers = readHeaders_(sheet);
+  const idCol = headers.indexOf(CUST_COL.id);
+  const nameCol = headers.indexOf(CUST_COL.name);
+  if (nameCol === -1) throw new Error('Column not found: ' + CUST_COL.name);
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    const rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getDisplayValues();
+    for (let i = 0; i < rows.length; i++) {
+      const rowId = idCol === -1 ? '' : String(rows[i][idCol]).trim();
+      const rowName = String(rows[i][nameCol]).trim();
+      if (id ? rowId === id : rowName === name) {
+        return { rowIndex: i + 2, headers: headers, nameCol: nameCol, id: rowId, name: rowName };
+      }
+    }
+  }
+  throw new Error('找不到此顧客，可能已被刪除（' + (id || name) + '）');
+}
+
+/** In 預約資料, change every 顧客姓名 cell holding `from` to `to`. */
+function replaceCustomerRefs_(ss, from, to) {
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  const col = readHeaders_(sheet).indexOf(COL.customerName);
+  const lastRow = sheet.getLastRow();
+  if (col === -1 || lastRow < 2) return;
+
+  const cells = [];
+  sheet
+    .getRange(2, col + 1, lastRow - 1, 1)
+    .getDisplayValues()
+    .forEach(function (row, i) {
+      if (String(row[0]).trim() === from) cells.push(sheet.getRange(i + 2, col + 1).getA1Notation());
+    });
+  if (cells.length) sheet.getRangeList(cells).setValue(to);
+}
+
+function readHeaders_(sheet) {
+  return sheet
+    .getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1))
+    .getValues()[0]
+    .map(function (h) {
+      return String(h).trim();
+    });
 }
 
 /**
@@ -374,10 +740,14 @@ function newId_(table) {
 function durationCellValue_(table, minutes) {
   for (let i = table.rows.length - 1; i >= 0; i--) {
     const sample = cellText_(table.rows[i], COL.duration);
-    if (!sample) continue;
-    return /^\d+$/.test(sample) ? minutes : minutesToDuration_(minutes);
+    if (sample) return durationValueLike_(sample, minutes);
   }
   return minutesToDuration_(minutes);
+}
+
+/** Minutes in the same format as `sample`; a duration string when it's blank. */
+function durationValueLike_(sample, minutes) {
+  return /^\d+$/.test(sample) ? minutes : minutesToDuration_(minutes);
 }
 
 // ---------------------------------------------------------------------------

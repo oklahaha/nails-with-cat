@@ -1,9 +1,11 @@
 /**
- * Add Appointment screen.
+ * Add / Edit Appointment screen.
  *
  * Customer name suggests existing customers; date and time are picked rather
  * than typed, and the time slots flag clashes with that day's bookings.
- * On submit, calls appointmentsApi.createAppointment().
+ * With an `id` param it edits that appointment (taken from the loaded
+ * appointments) and saves via appointmentsApi.updateAppointment(); otherwise
+ * it calls appointmentsApi.createAppointment().
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { type ReactNode, useMemo, useState } from 'react';
@@ -22,6 +24,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DatePicker } from '@/components/form/DatePicker';
+import { StateView } from '@/components/StateView';
 import { TimeSlotPicker } from '@/components/form/TimeSlotPicker';
 import {
   defaultDurationFor,
@@ -32,9 +35,13 @@ import {
   serviceColor,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
-import { useAppointments } from '@/hooks/useAppointments';
+import { findCachedAppointment, useAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
-import { createAppointment, isUsingMockApi } from '@/services/appointmentsApi';
+import {
+  createAppointment,
+  isUsingMockApi,
+  updateAppointment,
+} from '@/services/appointmentsApi';
 import type { ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
@@ -45,6 +52,9 @@ type Field = 'customerName' | 'date' | 'time' | 'price';
 /** Customer suggestions shown under the name field. */
 const MAX_SUGGESTIONS = 5;
 
+/** 狀態 choices when editing (特別事項 rows may also be blank). */
+const STATUS_OPTIONS = ['預約', '已完成'] as const;
+
 function priceText(service: ServiceType): string {
   const price = defaultPriceFor(service);
   return price == null ? '' : String(price);
@@ -52,26 +62,46 @@ function priceText(service: ServiceType): string {
 
 export default function AddAppointmentScreen() {
   const insets = useSafeAreaInsets();
-  // Optional prefill from the calendar (date) or the customer list (customerName)
-  const params = useLocalSearchParams<{ date?: string; customerName?: string }>();
-  const [customerName, setCustomerName] = useState(params.customerName ?? '');
+  // Optional prefill from the calendar (date) or the customer list (customerName),
+  // or the appointment to edit (id)
+  const params = useLocalSearchParams<{ id?: string; date?: string; customerName?: string }>();
+  // Snapshot at open, so a background reload doesn't reset the form
+  const [editing] = useState(() => (params.id ? findCachedAppointment(params.id) : undefined));
+  const [customerName, setCustomerName] = useState(
+    editing?.customerName ?? params.customerName ?? ''
+  );
   // Suggestions show while typing and hide once one is picked
   const [suggesting, setSuggesting] = useState(false);
-  const [date, setDate] = useState(params.date ?? '');
-  const [time, setTime] = useState('');
-  const [service, setService] = useState<ServiceType>('整甲');
-  const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>('手');
-  const [price, setPrice] = useState(priceText('整甲'));
+  const [date, setDate] = useState(editing?.date ?? params.date ?? '');
+  const [time, setTime] = useState(editing?.time ?? '');
+  // Old rows may hold services / 手腳 values not in the lists; they're kept as-is
+  const [service, setService] = useState<ServiceType>(
+    (editing?.service as ServiceType | undefined) ?? '整甲'
+  );
+  const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
+    (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
+  );
+  const [price, setPrice] = useState(
+    editing ? (editing.price != null ? String(editing.price) : '') : priceText('整甲')
+  );
   // Once the price is typed by hand, changing service no longer overwrites it
-  const [priceEdited, setPriceEdited] = useState(false);
-  const [notes, setNotes] = useState('');
+  const [priceEdited, setPriceEdited] = useState(editing != null);
+  // An edited booking keeps its own Duration until the service is changed
+  const [keepDuration, setKeepDuration] = useState(editing != null);
+  const [status, setStatus] = useState(editing?.status ?? '');
+  const [notes, setNotes] = useState(editing?.notes ?? '');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
 
   const { customers } = useCustomers();
   const dayBookings = useAppointments({ from: date, to: date }, { enabled: date !== '' });
+  // The booking being edited shouldn't clash with itself
+  const otherBookings = useMemo(
+    () => dayBookings.appointments.filter((apt) => apt.id !== editing?.id),
+    [dayBookings.appointments, editing]
+  );
 
-  const duration = defaultDurationFor(service);
+  const duration = keepDuration ? editing?.durationMinutes : defaultDurationFor(service);
   const validTime = /^\d{2}:\d{2}$/.test(time);
   const endTime = validTime && duration ? minutesToTime(timeToMinutes(time) + duration) : null;
 
@@ -93,6 +123,7 @@ export default function AddAppointmentScreen() {
 
   const handleServiceChange = (next: ServiceType) => {
     setService(next);
+    setKeepDuration(false);
     if (!priceEdited) setPrice(priceText(next));
   };
 
@@ -113,7 +144,7 @@ export default function AddAppointmentScreen() {
 
     try {
       setSaving(true);
-      await createAppointment({
+      const input = {
         customerName,
         date,
         time,
@@ -122,13 +153,15 @@ export default function AddAppointmentScreen() {
         durationMinutes: duration,
         handOrFoot,
         price: price.trim() ? Number(price.trim()) : undefined,
-      });
+      };
+      if (editing) await updateAppointment(editing.id, { ...input, status });
+      else await createAppointment(input);
 
       showAlert(
         isUsingMockApi ? '已儲存（模擬）' : '已儲存',
         isUsingMockApi
           ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
-          : `${customerName.trim()} ${formatDateHeader(date)} ${time} 的預約已寫入 Google Sheet。`,
+          : `${customerName.trim()} ${formatDateHeader(date)} ${time} 的預約已${editing ? '更新' : '寫入'} Google Sheet。`,
         [
           {
             text: '好',
@@ -145,6 +178,21 @@ export default function AddAppointmentScreen() {
   };
 
   const hasErrors = Object.keys(errors).length > 0;
+
+  // e.g. the web page was reloaded, so the appointment list isn't loaded
+  if (params.id && !editing) {
+    return (
+      <StateView
+        icon="calendar"
+        title="找不到此預約"
+        message="請返回時間表，再揀選要修改的預約。"
+        action={{
+          label: '返回',
+          onPress: () => (router.canGoBack() ? router.back() : router.replace('/')),
+        }}
+      />
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -219,7 +267,7 @@ export default function AddAppointmentScreen() {
                 clearError('time');
               }}
               durationMinutes={duration}
-              bookings={dayBookings.appointments}
+              bookings={otherBookings}
               loadingBookings={dayBookings.loading}
               invalid={Boolean(errors.time)}
             />
@@ -276,6 +324,29 @@ export default function AddAppointmentScreen() {
           </View>
         </Section>
 
+        {editing ? (
+          <Section title="狀態">
+            <View style={styles.segmented}>
+              {STATUS_OPTIONS.map((option) => {
+                const selected = status === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => setStatus(option)}
+                    style={[styles.segment, selected && styles.segmentSelected]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                  >
+                    <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Section>
+        ) : null}
+
         <Section title="收費及備注">
           <View style={[styles.priceField, errors.price && styles.inputInvalid]}>
             <Text style={styles.pricePrefix}>$</Text>
@@ -323,7 +394,7 @@ export default function AddAppointmentScreen() {
           {saving ? (
             <ActivityIndicator color={colors.onAccent} />
           ) : (
-            <Text style={styles.submitText}>儲存預約</Text>
+            <Text style={styles.submitText}>{editing ? '儲存變更' : '儲存預約'}</Text>
           )}
         </Pressable>
       </View>

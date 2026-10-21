@@ -63,3 +63,9 @@ export type NewAppointmentInput = {
   /** 收費 */
   price?: number;
 };
+
+/** Payload for editing an appointment (Edit screen → API). */
+export type UpdateAppointmentInput = NewAppointmentInput & {
+  /** 狀態 — left unchanged in the sheet when omitted */
+  status?: AppointmentStatus;
+};

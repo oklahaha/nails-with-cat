@@ -18,6 +18,9 @@ const ICONS = {
   check: { ios: 'checkmark', android: 'check', web: 'check' },
   chevronDown: { ios: 'chevron.down', android: 'expand_more', web: 'expand_more' },
   chevronUp: { ios: 'chevron.up', android: 'expand_less', web: 'expand_less' },
+  edit: { ios: 'pencil', android: 'edit', web: 'edit' },
+  trash: { ios: 'trash', android: 'delete', web: 'delete' },
+  chart: { ios: 'chart.bar', android: 'bar_chart', web: 'bar_chart' },
 } as const;
 
 export type IconName = keyof typeof ICONS;

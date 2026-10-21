@@ -1,6 +1,6 @@
 /**
  * Bottom tabs, in the same order as the AppSheet app:
- * 預約 (opens the add modal) · 顧客資料 · 預約資料 · 時間表 (home).
+ * 預約 (opens the add modal) · 顧客資料 · 預約資料 · 時間表 (home), then 統計.
  */
 import { router, Tabs } from 'expo-router';
 
@@ -58,6 +58,13 @@ export default function TabLayout() {
           title: '時間表',
           headerShown: false,
           tabBarIcon: ({ color }) => <Icon name="calendar" color={color} size={22} />,
+        }}
+      />
+      <Tabs.Screen
+        name="stats"
+        options={{
+          title: '統計',
+          tabBarIcon: ({ color }) => <Icon name="chart" color={color} size={22} />,
         }}
       />
     </Tabs>

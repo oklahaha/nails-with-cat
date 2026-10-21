@@ -4,7 +4,7 @@ import { Icon } from '@/components/Icon';
 import { serviceColor } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import type { Appointment } from '@/types/appointment';
-import { showAppointmentDetails } from '@/utils/appointmentActions';
+import { openAppointmentDetails } from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { openWhatsApp, reminderMessage } from '@/utils/whatsapp';
 
@@ -34,7 +34,7 @@ export function AppointmentCard({ appointment }: Props) {
   return (
     <View style={styles.card}>
       <Pressable
-        onPress={() => showAppointmentDetails(appointment)}
+        onPress={() => openAppointmentDetails(appointment)}
         style={({ pressed }) => [styles.main, pressed && styles.mainPressed]}
         accessibilityRole="button"
         accessibilityLabel={`${appointment.time} ${title} ${appointment.service}`}
