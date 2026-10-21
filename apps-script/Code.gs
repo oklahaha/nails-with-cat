@@ -36,6 +36,8 @@ const COL = {
   price: '收費',
   status: '狀態',
   endTime: 'End Time',
+  // AppSheet column holding the 特別事項 text (same as 備注)
+  view: 'View',
 };
 
 const CUST_COL = {
@@ -45,6 +47,9 @@ const CUST_COL = {
 };
 
 const DEFAULT_STATUS = '預約';
+
+/** 活動 for notes rather than customer bookings: no customer and a blank 狀態. */
+const SPECIAL_SERVICE = '特別事項';
 
 /**
  * How to read dates stored as plain text (not real date cells) with slashes.
@@ -341,7 +346,7 @@ function parseAppointmentInput_(input) {
   const time = String(input.time || '').trim();
   const service = String(input.service || '').trim();
 
-  if (!customerName) throw new Error('customerName is required');
+  if (!customerName && service !== SPECIAL_SERVICE) throw new Error('customerName is required');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('date must be YYYY-MM-DD');
   if (!/^\d{2}:\d{2}$/.test(time)) throw new Error('time must be HH:mm');
   if (!service) throw new Error('service is required');
@@ -356,6 +361,8 @@ function parseAppointmentInput_(input) {
     durationMinutes: durationMinutes,
     price: toNumber_(input.price),
     handOrFoot: String(input.handOrFoot || '').trim(),
+    // Only written when sent
+    view: input.view != null ? String(input.view).trim() : null,
     // Matches AppSheet: rows without a duration (e.g. 特別事項) have End Time = start.
     endTime: durationMinutes != null ? addMinutes_(time, durationMinutes) : time,
   };
@@ -395,6 +402,7 @@ function createAppointment_(input) {
 
     const id = newId_(table);
     const [y, m, d] = a.date.split('-').map(Number);
+    const status = a.service === SPECIAL_SERVICE ? '' : DEFAULT_STATUS;
 
     const cells = {};
     cells[COL.id] = id;
@@ -407,8 +415,9 @@ function createAppointment_(input) {
       a.durationMinutes != null ? durationCellValue_(table, a.durationMinutes) : '';
     cells[COL.handOrFoot] = a.handOrFoot;
     cells[COL.price] = a.price != null ? a.price : '';
-    cells[COL.status] = DEFAULT_STATUS;
+    cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
+    if (a.view != null) cells[COL.view] = a.view;
 
     // Only fill columns we know; leave any other columns (e.g. AppSheet
     // virtual/formula columns) blank so the sheet computes them.
@@ -418,7 +427,7 @@ function createAppointment_(input) {
     sheet.appendRow(row);
     SpreadsheetApp.flush();
 
-    return appointmentResponse_(id, a, DEFAULT_STATUS, customer);
+    return appointmentResponse_(id, a, status, customer);
   } finally {
     lock.releaseLock();
   }
@@ -468,6 +477,7 @@ function updateAppointment_(id, input) {
     cells[COL.price] = a.price != null ? a.price : '';
     if (hasStatus) cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
+    if (a.view != null) cells[COL.view] = a.view;
 
     Object.keys(cells).forEach(function (h) {
       const c = headers.indexOf(h);

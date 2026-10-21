@@ -1,6 +1,11 @@
 /**
  * Add / Edit Appointment screen.
  *
+ * 活動 is picked first, from a dropdown that starts empty; the rest of the
+ * form only appears once it's chosen. 特別事項 has its own short form (備注,
+ * 日期, 時間, End Time) and is saved without a customer, with Duration taken
+ * from End Time − 時間 and 備注 copied into View.
+ *
  * Customer name suggests existing customers; date and time are picked rather
  * than typed, and the time slots flag clashes with that day's bookings.
  * With an `id` param it edits that appointment (taken from the loaded
@@ -24,6 +29,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DatePicker } from '@/components/form/DatePicker';
+import { ServicePicker } from '@/components/form/ServicePicker';
 import { StateView } from '@/components/StateView';
 import { TimeSlotPicker } from '@/components/form/TimeSlotPicker';
 import {
@@ -31,10 +37,8 @@ import {
   defaultPriceFor,
   HAND_OR_FOOT_OPTIONS,
   type HandOrFoot,
-  SERVICES,
-  serviceColor,
 } from '@/constants/services';
-import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
+import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { findCachedAppointment, useAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
 import {
@@ -47,7 +51,10 @@ import { showAlert } from '@/utils/alert';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 
-type Field = 'customerName' | 'date' | 'time' | 'price';
+type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
+
+const SPECIAL: ServiceType = '特別事項';
+const HHMM = /^\d{2}:\d{2}$/;
 
 /** Customer suggestions shown under the name field. */
 const MAX_SUGGESTIONS = 5;
@@ -55,7 +62,8 @@ const MAX_SUGGESTIONS = 5;
 /** 狀態 choices when editing (特別事項 rows may also be blank). */
 const STATUS_OPTIONS = ['預約', '已完成'] as const;
 
-function priceText(service: ServiceType): string {
+function priceText(service: ServiceType | ''): string {
+  if (!service) return '';
   const price = defaultPriceFor(service);
   return price == null ? '' : String(price);
 }
@@ -74,15 +82,17 @@ export default function AddAppointmentScreen() {
   const [suggesting, setSuggesting] = useState(false);
   const [date, setDate] = useState(editing?.date ?? params.date ?? '');
   const [time, setTime] = useState(editing?.time ?? '');
+  // Only used by 特別事項, where it's picked rather than derived from the service
+  const [endTimeInput, setEndTimeInput] = useState(editing?.endTime ?? '');
   // Old rows may hold services / 手腳 values not in the lists; they're kept as-is
-  const [service, setService] = useState<ServiceType>(
-    (editing?.service as ServiceType | undefined) ?? '整甲'
+  const [service, setService] = useState<ServiceType | ''>(
+    (editing?.service as ServiceType | undefined) ?? ''
   );
   const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
     (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
   );
   const [price, setPrice] = useState(
-    editing ? (editing.price != null ? String(editing.price) : '') : priceText('整甲')
+    editing?.price != null ? String(editing.price) : ''
   );
   // Once the price is typed by hand, changing service no longer overwrites it
   const [priceEdited, setPriceEdited] = useState(editing != null);
@@ -101,9 +111,26 @@ export default function AddAppointmentScreen() {
     [dayBookings.appointments, editing]
   );
 
-  const duration = keepDuration ? editing?.durationMinutes : defaultDurationFor(service);
-  const validTime = /^\d{2}:\d{2}$/.test(time);
+  const isSpecial = service === SPECIAL;
+  const validTime = HHMM.test(time);
+  const validEndTime = HHMM.test(endTimeInput);
+  // 特別事項: Duration = End Time − 時間 (none when they're equal)
+  const specialDuration =
+    validTime && validEndTime ? timeToMinutes(endTimeInput) - timeToMinutes(time) : undefined;
+  const duration = isSpecial
+    ? specialDuration && specialDuration > 0
+      ? specialDuration
+      : undefined
+    : keepDuration
+      ? editing?.durationMinutes
+      : service
+        ? defaultDurationFor(service)
+        : undefined;
   const endTime = validTime && duration ? minutesToTime(timeToMinutes(time) + duration) : null;
+  // Shown as soon as a typed end time is before the start, not only on save
+  const endTimeError =
+    errors.endTime ??
+    (specialDuration != null && specialDuration < 0 ? '完結時間不可早於開始時間' : undefined);
 
   const suggestions = useMemo(() => {
     const q = customerName.trim().toLowerCase();
@@ -123,45 +150,61 @@ export default function AddAppointmentScreen() {
 
   const handleServiceChange = (next: ServiceType) => {
     setService(next);
+    clearError('service');
     setKeepDuration(false);
     if (!priceEdited) setPrice(priceText(next));
   };
 
   const validate = (): Partial<Record<Field, string>> => {
     const next: Partial<Record<Field, string>> = {};
-    if (!customerName.trim()) next.customerName = '請輸入顧客姓名';
+    if (!service) next.service = '請選擇活動';
+    if (!isSpecial && !customerName.trim()) next.customerName = '請輸入顧客姓名';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) next.date = '請選擇日期';
     if (!time) next.time = '請選擇時間';
     else if (!validTime) next.time = '時間格式請用 HH:mm（例如 14:30）';
-    if (price.trim() && !/^\d+$/.test(price.trim())) next.price = '收費請只輸入數字';
+    if (isSpecial) {
+      if (!endTimeInput) next.endTime = '請選擇完結時間';
+      else if (!validEndTime) next.endTime = '時間格式請用 HH:mm（例如 14:30）';
+      else if (specialDuration != null && specialDuration < 0)
+        next.endTime = '完結時間不可早於開始時間';
+    } else if (price.trim() && !/^\d+$/.test(price.trim())) {
+      next.price = '收費請只輸入數字';
+    }
     return next;
   };
 
   const handleSubmit = async () => {
     const found = validate();
     setErrors(found);
-    if (Object.keys(found).length > 0) return;
+    if (Object.keys(found).length > 0 || !service) return;
 
     try {
       setSaving(true);
-      const input = {
-        customerName,
-        date,
-        time,
-        service,
-        notes,
-        durationMinutes: duration,
-        handOrFoot,
-        price: price.trim() ? Number(price.trim()) : undefined,
-      };
-      if (editing) await updateAppointment(editing.id, { ...input, status });
-      else await createAppointment(input);
+      // 特別事項 rows have no customer, 手/腳, 收費 or 狀態, and View repeats 備注
+      const input = isSpecial
+        ? { customerName: '', date, time, service, notes, view: notes, durationMinutes: duration }
+        : {
+            customerName,
+            date,
+            time,
+            service,
+            notes,
+            durationMinutes: duration,
+            handOrFoot,
+            price: price.trim() ? Number(price.trim()) : undefined,
+          };
+      if (editing) {
+        await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status });
+      } else {
+        await createAppointment(input);
+      }
 
       showAlert(
         isUsingMockApi ? '已儲存（模擬）' : '已儲存',
         isUsingMockApi
           ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
-          : `${customerName.trim()} ${formatDateHeader(date)} ${time} 的預約已${editing ? '更新' : '寫入'} Google Sheet。`,
+          : `${isSpecial ? '' : `${customerName.trim()} `}${formatDateHeader(date)} ${time} ` +
+            `的${isSpecial ? '特別事項' : '預約'}已${editing ? '更新' : '寫入'} Google Sheet。`,
         [
           {
             text: '好',
@@ -194,6 +237,46 @@ export default function AddAppointmentScreen() {
     );
   }
 
+  const dateSection = (
+    <Section title="日期">
+      <DatePicker
+        value={date}
+        onChange={(d) => {
+          setDate(d);
+          clearError('date');
+        }}
+        invalid={Boolean(errors.date)}
+      />
+      <FieldError message={errors.date} />
+    </Section>
+  );
+
+  const timeSection = (
+    <Section
+      title="時間"
+      hint={endTime ? `${time} – ${endTime}（${duration} 分鐘）` : undefined}
+    >
+      {date ? (
+        <TimeSlotPicker
+          value={time}
+          onChange={(t) => {
+            setTime(t);
+            clearError('time');
+            // An end time now before the start has to be picked again
+            if (HHMM.test(t) && validEndTime && endTimeInput < t) setEndTimeInput('');
+          }}
+          durationMinutes={duration}
+          bookings={otherBookings}
+          loadingBookings={dayBookings.loading}
+          invalid={Boolean(errors.time)}
+        />
+      ) : (
+        <Text style={styles.placeholderNote}>先選擇日期，再揀時段</Text>
+      )}
+      <FieldError message={errors.time} />
+    </Section>
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -205,199 +288,194 @@ export default function AddAppointmentScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <Section title="顧客">
-          <TextInput
-            style={[styles.input, errors.customerName && styles.inputInvalid]}
-            value={customerName}
-            onChangeText={(text) => {
-              setCustomerName(text);
-              setSuggesting(true);
-              clearError('customerName');
-            }}
-            placeholder="輸入姓名搜尋或新增"
-            placeholderTextColor={colors.textTertiary}
-            autoCorrect={false}
-            returnKeyType="done"
+        <Section title="活動">
+          <ServicePicker
+            value={service}
+            onChange={handleServiceChange}
+            invalid={Boolean(errors.service)}
           />
-          {suggesting && suggestions.length > 0 ? (
-            <View style={styles.suggestions}>
-              {suggestions.map((c, i) => (
-                <Pressable
-                  key={c.id || c.name}
-                  onPress={() => {
-                    setCustomerName(c.name);
-                    setSuggesting(false);
-                    clearError('customerName');
-                    Keyboard.dismiss();
+          <FieldError message={errors.service} />
+        </Section>
+
+        {!service ? null : isSpecial ? (
+          <>
+            <Section title="備注">
+              <TextInput
+                style={[styles.input, styles.notesInput, styles.notesInputFirst]}
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="輸入特別事項內容"
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                textAlignVertical="top"
+              />
+            </Section>
+
+            {dateSection}
+            {timeSection}
+
+            <Section title="完結時間">
+              {validTime ? (
+                <TimeSlotPicker
+                  value={endTimeInput}
+                  onChange={(t) => {
+                    setEndTimeInput(t);
+                    clearError('endTime');
                   }}
-                  style={({ pressed }) => [
-                    styles.suggestion,
-                    i > 0 && styles.suggestionDivider,
-                    pressed && styles.suggestionPressed,
-                  ]}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.suggestionName}>{c.name}</Text>
-                  {c.phone ? <Text style={styles.suggestionPhone}>{c.phone}</Text> : null}
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-          <FieldError message={errors.customerName} />
-        </Section>
+                  minTime={time}
+                  invalid={Boolean(endTimeError)}
+                />
+              ) : (
+                <Text style={styles.placeholderNote}>先選擇時間，再揀完結時間</Text>
+              )}
+              <FieldError message={endTimeError} />
+            </Section>
+          </>
+        ) : (
+          <>
+            <Section title="顧客">
+              <TextInput
+                style={[styles.input, errors.customerName && styles.inputInvalid]}
+                value={customerName}
+                onChangeText={(text) => {
+                  setCustomerName(text);
+                  setSuggesting(true);
+                  clearError('customerName');
+                }}
+                placeholder="輸入姓名搜尋或新增"
+                placeholderTextColor={colors.textTertiary}
+                autoCorrect={false}
+                returnKeyType="done"
+              />
+              {suggesting && suggestions.length > 0 ? (
+                <View style={styles.suggestions}>
+                  {suggestions.map((c, i) => (
+                    <Pressable
+                      key={c.id || c.name}
+                      onPress={() => {
+                        setCustomerName(c.name);
+                        setSuggesting(false);
+                        clearError('customerName');
+                        Keyboard.dismiss();
+                      }}
+                      style={({ pressed }) => [
+                        styles.suggestion,
+                        i > 0 && styles.suggestionDivider,
+                        pressed && styles.suggestionPressed,
+                      ]}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.suggestionName}>{c.name}</Text>
+                      {c.phone ? <Text style={styles.suggestionPhone}>{c.phone}</Text> : null}
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              <FieldError message={errors.customerName} />
+            </Section>
 
-        <Section title="日期">
-          <DatePicker
-            value={date}
-            onChange={(d) => {
-              setDate(d);
-              clearError('date');
-            }}
-            invalid={Boolean(errors.date)}
-          />
-          <FieldError message={errors.date} />
-        </Section>
+            {dateSection}
+            {timeSection}
 
-        <Section title="時間" hint={endTime ? `${time} – ${endTime}（${duration} 分鐘）` : undefined}>
-          {date ? (
-            <TimeSlotPicker
-              value={time}
-              onChange={(t) => {
-                setTime(t);
-                clearError('time');
-              }}
-              durationMinutes={duration}
-              bookings={otherBookings}
-              loadingBookings={dayBookings.loading}
-              invalid={Boolean(errors.time)}
-            />
-          ) : (
-            <Text style={styles.placeholderNote}>先選擇日期，再揀時段</Text>
-          )}
-          <FieldError message={errors.time} />
-        </Section>
+            <Section title="手/腳">
+              <View style={styles.segmented}>
+                {HAND_OR_FOOT_OPTIONS.map((option) => {
+                  const selected = handOrFoot === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => setHandOrFoot(option)}
+                      style={[styles.segment, selected && styles.segmentSelected]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                        {option}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Section>
 
-        <Section title="服務">
-          <View style={styles.chipRow}>
-            {SERVICES.map(({ name }) => {
-              const selected = service === name;
-              const color = serviceColor(name);
-              return (
-                <Pressable
-                  key={name}
-                  onPress={() => handleServiceChange(name)}
-                  style={({ pressed }) => [
-                    styles.chip,
-                    selected && { backgroundColor: tint(color, 0.28), borderColor: color },
-                    pressed && pressedStyle,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                >
-                  <View style={[styles.chipDot, { backgroundColor: color }]} />
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                    {name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+            {editing ? (
+              <Section title="狀態">
+                <View style={styles.segmented}>
+                  {STATUS_OPTIONS.map((option) => {
+                    const selected = status === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setStatus(option)}
+                        style={[styles.segment, selected && styles.segmentSelected]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Section>
+            ) : null}
 
-          <Text style={styles.subLabel}>手/腳</Text>
-          <View style={styles.segmented}>
-            {HAND_OR_FOOT_OPTIONS.map((option) => {
-              const selected = handOrFoot === option;
-              return (
-                <Pressable
-                  key={option}
-                  onPress={() => setHandOrFoot(option)}
-                  style={[styles.segment, selected && styles.segmentSelected]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                >
-                  <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                    {option}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Section>
+            <Section title="收費及備注">
+              <View style={[styles.priceField, errors.price && styles.inputInvalid]}>
+                <Text style={styles.pricePrefix}>$</Text>
+                <TextInput
+                  style={styles.priceInput}
+                  value={price}
+                  onChangeText={(text) => {
+                    setPrice(text);
+                    setPriceEdited(true);
+                    clearError('price');
+                  }}
+                  placeholder="可選填"
+                  placeholderTextColor={colors.textTertiary}
+                  keyboardType="number-pad"
+                />
+              </View>
+              <FieldError message={errors.price} />
 
-        {editing ? (
-          <Section title="狀態">
-            <View style={styles.segmented}>
-              {STATUS_OPTIONS.map((option) => {
-                const selected = status === option;
-                return (
-                  <Pressable
-                    key={option}
-                    onPress={() => setStatus(option)}
-                    style={[styles.segment, selected && styles.segmentSelected]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                  >
-                    <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                      {option}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </Section>
-        ) : null}
-
-        <Section title="收費及備注">
-          <View style={[styles.priceField, errors.price && styles.inputInvalid]}>
-            <Text style={styles.pricePrefix}>$</Text>
-            <TextInput
-              style={styles.priceInput}
-              value={price}
-              onChangeText={(text) => {
-                setPrice(text);
-                setPriceEdited(true);
-                clearError('price');
-              }}
-              placeholder="可選填"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="number-pad"
-            />
-          </View>
-          <FieldError message={errors.price} />
-
-          <TextInput
-            style={[styles.input, styles.notesInput]}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="備注（可選填）"
-            placeholderTextColor={colors.textTertiary}
-            multiline
-            textAlignVertical="top"
-          />
-        </Section>
+              <TextInput
+                style={[styles.input, styles.notesInput]}
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="備注（可選填）"
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                textAlignVertical="top"
+              />
+            </Section>
+          </>
+        )}
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-        <Text style={[styles.summary, hasErrors && styles.summaryError]} numberOfLines={1}>
-          {hasErrors
-            ? '請完成紅色標示的欄位'
-            : date && validTime
-              ? `${formatDateHeader(date)} ${time}${endTime ? `–${endTime}` : ''} · ${service}`
-              : service}
-        </Text>
-        <Pressable
-          onPress={() => void handleSubmit()}
-          disabled={saving}
-          style={({ pressed }) => [styles.submitBtn, (pressed || saving) && pressedStyle]}
-          accessibilityRole="button"
-        >
-          {saving ? (
-            <ActivityIndicator color={colors.onAccent} />
-          ) : (
-            <Text style={styles.submitText}>{editing ? '儲存變更' : '儲存預約'}</Text>
-          )}
-        </Pressable>
-      </View>
+      {service ? (
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+          <Text style={[styles.summary, hasErrors && styles.summaryError]} numberOfLines={1}>
+            {hasErrors
+              ? '請完成紅色標示的欄位'
+              : date && validTime
+                ? `${formatDateHeader(date)} ${time}${endTime ? `–${endTime}` : ''} · ${service}`
+                : service}
+          </Text>
+          <Pressable
+            onPress={() => void handleSubmit()}
+            disabled={saving}
+            style={({ pressed }) => [styles.submitBtn, (pressed || saving) && pressedStyle]}
+            accessibilityRole="button"
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.onAccent} />
+            ) : (
+              <Text style={styles.submitText}>{editing ? '儲存變更' : '儲存預約'}</Text>
+            )}
+          </Pressable>
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -475,6 +553,9 @@ const styles = StyleSheet.create({
     minHeight: 88,
     marginTop: spacing.sm,
     paddingTop: spacing.sm + 4,
+  },
+  notesInputFirst: {
+    marginTop: 0,
   },
   suggestions: {
     marginTop: spacing.xs,

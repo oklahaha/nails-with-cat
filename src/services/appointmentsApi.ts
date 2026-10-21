@@ -103,7 +103,7 @@ export async function createAppointment(
       durationMinutes: input.durationMinutes,
       handOrFoot: input.handOrFoot,
       price: input.price,
-      status: '預約',
+      status: input.service === '特別事項' ? '' : '預約',
     };
 
     console.log('[appointmentsApi] mock createAppointment:', created);

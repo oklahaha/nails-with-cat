@@ -10,6 +10,8 @@ const FIRST_SLOT = 9 * 60;
 const LAST_SLOT = 20 * 60 + 30;
 const SLOT_STEP = 30;
 
+const NO_BOOKINGS: Appointment[] = [];
+
 const SLOTS = Array.from(
   { length: (LAST_SLOT - FIRST_SLOT) / SLOT_STEP + 1 },
   (_, i) => minutesToTime(FIRST_SLOT + i * SLOT_STEP)
@@ -21,9 +23,11 @@ type Props = {
   onChange: (time: string) => void;
   /** Length of the booking being made, to find clashes. */
   durationMinutes?: number;
-  /** Other bookings that day. */
-  bookings: Appointment[];
+  /** Other bookings that day. Omit to hide clash marks (e.g. when picking an end time). */
+  bookings?: Appointment[];
   loadingBookings?: boolean;
+  /** HH:mm; earlier slots are left out (e.g. an end time before the start). */
+  minTime?: string;
   invalid?: boolean;
 };
 
@@ -36,10 +40,12 @@ export function TimeSlotPicker({
   value,
   onChange,
   durationMinutes,
-  bookings,
+  bookings = NO_BOOKINGS,
   loadingBookings,
+  minTime,
   invalid,
 }: Props) {
+  const showLegend = bookings !== NO_BOOKINGS;
   const [custom, setCustom] = useState(() => value !== '' && !SLOTS.includes(value));
   const length = Math.max(durationMinutes ?? 0, SLOT_STEP);
   const spans = bookings.map(bookingSpan);
@@ -51,27 +57,30 @@ export function TimeSlotPicker({
   };
 
   const selectedClash = /^\d{2}:\d{2}$/.test(value) ? clashesWith(value) : [];
+  const slots = minTime ? SLOTS.filter((slot) => slot >= minTime) : SLOTS;
 
   return (
     <View>
-      <View style={styles.legendRow}>
-        {loadingBookings ? (
-          <>
-            <ActivityIndicator size="small" color={colors.textTertiary} />
-            <Text style={styles.legendText}>正在查看當日預約…</Text>
-          </>
-        ) : bookings.length > 0 ? (
-          <>
-            <View style={styles.busyDot} />
-            <Text style={styles.legendText}>當日已有 {bookings.length} 個預約，有點的時段會撞期</Text>
-          </>
-        ) : (
-          <Text style={styles.legendText}>當日未有其他預約</Text>
-        )}
-      </View>
+      {showLegend ? (
+        <View style={styles.legendRow}>
+          {loadingBookings ? (
+            <>
+              <ActivityIndicator size="small" color={colors.textTertiary} />
+              <Text style={styles.legendText}>正在查看當日預約…</Text>
+            </>
+          ) : bookings.length > 0 ? (
+            <>
+              <View style={styles.busyDot} />
+              <Text style={styles.legendText}>當日已有 {bookings.length} 個預約，有點的時段會撞期</Text>
+            </>
+          ) : (
+            <Text style={styles.legendText}>當日未有其他預約</Text>
+          )}
+        </View>
+      ) : null}
 
       <View style={[styles.grid, invalid && !value && styles.gridInvalid]}>
-        {SLOTS.map((slot) => {
+        {slots.map((slot) => {
           const selected = !custom && value === slot;
           const busy = clashesWith(slot).length > 0;
           return (

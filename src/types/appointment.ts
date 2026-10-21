@@ -2,7 +2,8 @@
  * Domain types aligned with the Google Sheet columns.
  *
  * Sheet "預約資料" columns:
- *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time
+ *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View
+ *   (View holds the same text as 備注 for 特別事項 rows)
  *
  * Sheet "顧客" columns:
  *   顧客ID, 顧客姓名, 電話
@@ -51,6 +52,7 @@ export type Appointment = {
 
 /** Payload for creating a new appointment (Add screen → API). */
 export type NewAppointmentInput = {
+  /** Blank for 特別事項 */
   customerName: string;
   date: string;
   time: string;
@@ -62,6 +64,8 @@ export type NewAppointmentInput = {
   handOrFoot?: HandOrFoot;
   /** 收費 */
   price?: number;
+  /** View — only written when sent (特別事項 copies 備注 into it) */
+  view?: string;
 };
 
 /** Payload for editing an appointment (Edit screen → API). */
