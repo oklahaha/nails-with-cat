@@ -18,6 +18,7 @@ import {
   font,
   foregroundStyle,
   listStyle,
+  scrollDismissesKeyboard,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -158,7 +159,7 @@ export default function CustomerDetailsScreen() {
       onEdit={startEditing}
     >
       {editing ? (
-        <Form>
+        <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
           <Section title="修改顧客">
             <Text modifiers={[font({ size: 28, weight: 'bold' }), foregroundStyle(colors.accent)]}>
               {Array.from(nameDraft || customer.name)[0] ?? ''}

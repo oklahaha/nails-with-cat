@@ -32,6 +32,7 @@ import {
   labelsHidden,
   multilineTextAlignment,
   pickerStyle,
+  scrollDismissesKeyboard,
   shapes,
   tag,
 } from '@expo/ui/swift-ui/modifiers';
@@ -250,7 +251,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
       onSave={() => void handleSubmit()}
       saveDisabled={saving || !service}
     >
-      <Form>
+      <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
         <Section footer={!service ? <Text>先揀活動，再填其他資料</Text> : undefined}>
           {/* Two columns: the 活動 label stays put on the left, and the right
               column is the Menu, wide enough that tapping anywhere in it opens

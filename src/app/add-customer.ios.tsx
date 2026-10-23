@@ -11,6 +11,7 @@ import {
 import {
   font,
   foregroundStyle,
+  scrollDismissesKeyboard,
 } from '@expo/ui/swift-ui/modifiers';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -85,7 +86,7 @@ export default function AddCustomerScreen() {
 
   return (
     <SwiftModal onClose={close} onSave={() => void handleSubmit()} saveDisabled={saving}>
-      <Form>
+      <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
         <Section title="顧客資料">
           <TextField
             placeholder="顧客姓名"

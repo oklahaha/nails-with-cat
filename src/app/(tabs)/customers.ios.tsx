@@ -20,6 +20,7 @@ import {
   listStyle,
   navigationTitle,
   refreshable,
+  scrollDismissesKeyboard,
   searchable,
   shapes,
   tint,
@@ -79,6 +80,7 @@ export default function CustomersScreen() {
               navigationTitle('顧客資料'),
               listStyle('insetGrouped'),
               refreshable(() => reload(true)),
+              scrollDismissesKeyboard('immediately'),
               searchable(searchText, {
                 prompt: '搜尋姓名或電話',
                 onChange: setQuery,

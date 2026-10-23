@@ -124,7 +124,11 @@ export default function CustomerDetailsScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 56 : 0}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <View style={styles.hero}>
           <View style={styles.avatar}>
             {/* Array.from keeps emoji (surrogate pairs) whole */}

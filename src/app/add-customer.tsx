@@ -98,7 +98,11 @@ export default function AddCustomerScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 56 : 0}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <Text style={styles.label}>顧客姓名</Text>
         <TextInput
           style={[styles.input, errors.name && styles.inputInvalid]}
