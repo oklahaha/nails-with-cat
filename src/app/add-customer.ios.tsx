@@ -2,7 +2,6 @@
  * Add Customer — SwiftUI Form. createCustomer API unchanged.
  */
 import {
-  Button,
   Form,
   Section,
   Text,
@@ -10,16 +9,13 @@ import {
   useNativeState,
 } from '@expo/ui/swift-ui';
 import {
-  buttonStyle,
-  controlSize,
   font,
   foregroundStyle,
-  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
-import { SwiftHost } from '@/components/swiftui/SwiftHost';
+import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { colors } from '@/constants/theme';
 import { addCachedCustomer, findCachedCustomer } from '@/hooks/useCustomers';
 import { createCustomer, isUsingMockApi } from '@/services/appointmentsApi';
@@ -88,7 +84,7 @@ export default function AddCustomerScreen() {
   };
 
   return (
-    <SwiftHost>
+    <SwiftModal onClose={close} onSave={() => void handleSubmit()} saveDisabled={saving}>
       <Form>
         <Section title="顧客資料">
           <TextField
@@ -104,7 +100,7 @@ export default function AddCustomerScreen() {
             }
           />
           {errors.name ? (
-            <Text modifiers={[font({ size: 13 }), tint(colors.danger)]}>{errors.name}</Text>
+            <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>{errors.name}</Text>
           ) : null}
 
           <TextField
@@ -120,7 +116,7 @@ export default function AddCustomerScreen() {
             }
           />
           {errors.phone ? (
-            <Text modifiers={[font({ size: 13 }), tint(colors.danger)]}>{errors.phone}</Text>
+            <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>{errors.phone}</Text>
           ) : (
             <Text
               modifiers={[
@@ -132,19 +128,7 @@ export default function AddCustomerScreen() {
             </Text>
           )}
         </Section>
-
-        <Section>
-          <Button
-            label={saving ? '儲存中…' : '儲存顧客'}
-            onPress={() => void handleSubmit()}
-            modifiers={[
-              buttonStyle('borderedProminent'),
-              controlSize('large'),
-              tint(colors.accent),
-            ]}
-          />
-        </Section>
       </Form>
-    </SwiftHost>
+    </SwiftModal>
   );
 }

@@ -1,8 +1,8 @@
 /**
- * Bottom tabs, in the same order as the AppSheet app:
- * 預約 (opens the add modal) · 顧客資料 · 預約資料 · 時間表 (home), then 統計.
+ * Bottom tabs (Android, web; iOS uses _layout.ios.tsx), in the same order as iOS:
+ * 統計 · 顧客資料 · 預約資料 · 時間表 (home). New bookings start from the ＋ buttons.
  */
-import { router, Tabs } from 'expo-router';
+import { Tabs } from 'expo-router';
 
 import { Icon } from '@/components/Icon';
 import { colors } from '@/constants/theme';
@@ -25,17 +25,10 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="new"
+        name="stats"
         options={{
-          title: '預約',
-          tabBarIcon: ({ color }) => <Icon name="add" color={color} size={22} />,
-        }}
-        listeners={{
-          // Acts as a button: open the add form instead of switching tabs
-          tabPress: (e) => {
-            e.preventDefault();
-            router.push('/add-appointment');
-          },
+          title: '統計',
+          tabBarIcon: ({ color }) => <Icon name="chart" color={color} size={22} />,
         }}
       />
       <Tabs.Screen
@@ -58,13 +51,6 @@ export default function TabLayout() {
           title: '時間表',
           headerShown: false,
           tabBarIcon: ({ color }) => <Icon name="calendar" color={color} size={22} />,
-        }}
-      />
-      <Tabs.Screen
-        name="stats"
-        options={{
-          title: '統計',
-          tabBarIcon: ({ color }) => <Icon name="chart" color={color} size={22} />,
         }}
       />
     </Tabs>

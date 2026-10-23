@@ -30,8 +30,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DatePicker } from '@/components/form/DatePicker';
 import { ServicePicker } from '@/components/form/ServicePicker';
-import { StateView } from '@/components/StateView';
 import { TimeSlotPicker } from '@/components/form/TimeSlotPicker';
+import { StateView } from '@/components/StateView';
 import {
   defaultDurationFor,
   defaultPriceFor,
@@ -160,7 +160,7 @@ export default function AddAppointmentScreen() {
     if (!service) next.service = '請選擇活動';
     if (!isSpecial && !customerName.trim()) next.customerName = '請輸入顧客姓名';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) next.date = '請選擇日期';
-    if (!time) next.time = '請選擇時間';
+    if (!time) next.time = '請選擇開始時間';
     else if (!validTime) next.time = '時間格式請用 HH:mm（例如 14:30）';
     if (isSpecial) {
       if (!endTimeInput) next.endTime = '請選擇完結時間';
@@ -253,7 +253,7 @@ export default function AddAppointmentScreen() {
 
   const timeSection = (
     <Section
-      title="時間"
+      title="開始時間"
       hint={endTime ? `${time} – ${endTime}（${duration} 分鐘）` : undefined}
     >
       {date ? (
@@ -326,7 +326,7 @@ export default function AddAppointmentScreen() {
                   invalid={Boolean(endTimeError)}
                 />
               ) : (
-                <Text style={styles.placeholderNote}>先選擇時間，再揀完結時間</Text>
+                <Text style={styles.placeholderNote}>先選擇開始時間，再揀完結時間</Text>
               )}
               <FieldError message={endTimeError} />
             </Section>

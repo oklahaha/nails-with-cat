@@ -1,11 +1,14 @@
 /**
- * 統計 — SwiftUI Form dashboard. Calculations still from utils/stats.ts.
+ * 統計 — SwiftUI Form dashboard with Swift Charts (`Chart`).
+ * Calculations still from utils/stats.ts.
  */
 import {
   Button,
+  Chart,
   Form,
   HStack,
   LabeledContent,
+  NavigationStack,
   Section,
   Spacer,
   Text,
@@ -13,9 +16,14 @@ import {
 } from '@expo/ui/swift-ui';
 import {
   buttonStyle,
+  contentShape,
   font,
   foregroundStyle,
+  frame,
+  labelStyle,
+  navigationTitle,
   refreshable,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
@@ -23,6 +31,9 @@ import { useMemo, useState } from 'react';
 
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
+import { glassButton } from '@/components/swiftui/glass';
+import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
+import { serviceColor } from '@/constants/services';
 import { colors } from '@/constants/theme';
 import { useAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
@@ -30,7 +41,6 @@ import { addMonths, todayIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 import {
   customerStats,
   formatMoney,
-  formatMoneyShort,
   lapsedCustomers,
   monthStats,
   recentMonths,
@@ -45,6 +55,8 @@ const MONTH_COUNT = 12;
 const LAPSED_MIN_VISITS = 2;
 const LAPSED_MIN_DAYS = 42;
 const LIST_LIMIT = 8;
+/** The accent at ~35% over the dark row background, for the months that aren't selected. */
+const ACCENT_FADED = '#674642';
 
 export default function StatsScreen() {
   const today = todayIsoDate();
@@ -108,185 +120,199 @@ export default function StatsScreen() {
 
   return (
     <SwiftHost>
-      <Form
-        modifiers={[
-          refreshable(async () => {
-            await reload(true);
-          }),
-        ]}
-      >
-        <Section>
-          <HStack>
-            <Button
-              label="上個月"
-              systemImage="chevron.left"
-              onPress={() => index > 0 && setSelected(months[index - 1])}
-              modifiers={[buttonStyle('bordered')]}
-            />
-            <Spacer />
-            <Text modifiers={[font({ size: 17, weight: 'semibold' })]}>
-              {formatMonth(selected)}
-            </Text>
-            <Spacer />
-            <Button
-              label="下個月"
-              systemImage="chevron.right"
-              onPress={() => !isThisMonth && setSelected(months[index + 1])}
-              modifiers={[buttonStyle('bordered')]}
-            />
-          </HStack>
-        </Section>
-
-        <Section title="本月概覽">
-          <LabeledContent label="收入">
-            <VStack alignment="trailing" spacing={2}>
-              <Text modifiers={[font({ weight: 'bold' })]}>{formatMoney(current.revenue)}</Text>
-              {changeLabel(current.revenue, previous?.revenue)}
-            </VStack>
-          </LabeledContent>
-          <LabeledContent label="預約">
-            <Text modifiers={[font({ weight: 'bold' })]}>{current.bookings}</Text>
-          </LabeledContent>
-          <LabeledContent label="顧客人數">
-            <Text modifiers={[font({ weight: 'bold' })]}>{current.customers}</Text>
-          </LabeledContent>
-          <LabeledContent label="平均消費">
-            <Text modifiers={[font({ weight: 'bold' })]}>
-              {current.averageSpend != null ? formatMoney(current.averageSpend) : '—'}
-            </Text>
-          </LabeledContent>
-          {isThisMonth && current.upcomingRevenue > 0 ? (
-            <Text
-              modifiers={[
-                font({ size: 12 }),
-                foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-              ]}
-            >
-              另有 {formatMoney(current.upcomingRevenue)} 已預約
-            </Text>
-          ) : null}
-        </Section>
-
-        <Section title="每月收入" footer={<Text>過去 12 個月 · 點選查看該月</Text>}>
-          {monthly.map((m) => (
-            <Button
-              key={m.month}
-              onPress={() => setSelected(m.month)}
-              modifiers={[buttonStyle('plain')]}
-            >
-              <HStack>
-                <Text
-                  modifiers={
-                    m.month === selected
-                      ? [font({ weight: 'bold' }), tint(colors.accent)]
-                      : []
-                  }
-                >
-                  {Number(m.month.slice(5))}月
-                </Text>
-                <Spacer />
-                <Text
-                  modifiers={[
-                    foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                  ]}
-                >
-                  {formatMoneyShort(m.revenue)}
-                </Text>
-              </HStack>
-            </Button>
-          ))}
-        </Section>
-
-        <Section title="服務分佈" footer={<Text>{formatMonth(selected)}</Text>}>
-          {services.length === 0 ? (
-            <Text
-              modifiers={[
-                foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-              ]}
-            >
-              這個月未有預約
-            </Text>
-          ) : (
-            services.map((s) => (
-              <LabeledContent key={s.service} label={s.service}>
-                <Text>
-                  {s.bookings} 次 · {formatMoney(s.revenue)}
-                </Text>
-              </LabeledContent>
-            ))
-          )}
-        </Section>
-
-        <Section title="最繁忙日子" footer={<Text>過去 12 個月的來店次數</Text>}>
-          {weekdays.map((count, i) => (
-            <LabeledContent key={WEEKDAY_LABELS[i]} label={`星期${WEEKDAY_LABELS[i]}`}>
-              <Text>{count} 次</Text>
-            </LabeledContent>
-          ))}
-        </Section>
-
-        <Section title="熟客排行" footer={<Text>過去 12 個月的消費</Text>}>
-          {top.length === 0 ? (
-            <Text
-              modifiers={[
-                foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-              ]}
-            >
-              未有記錄
-            </Text>
-          ) : (
-            top.map((c, i) => (
-              <CustomerStatRow
-                key={c.name}
-                customer={c}
-                rank={i + 1}
-                detail={`${c.visits} 次 · 最近 ${formatDay(c.lastVisit)}`}
-                value={formatMoney(c.spend)}
-                onPress={() => openCustomer(c.name)}
-              />
-            ))
-          )}
-        </Section>
-
-        <Section
-          title="久未回來"
-          footer={
-            <Text>
-              來過 {LAPSED_MIN_VISITS} 次或以上、超過 {LAPSED_MIN_DAYS / 7} 星期未來，亦未有預約
-            </Text>
-          }
+      <NavigationStack>
+        <Form
+          modifiers={[
+            navigationTitle('統計'),
+            refreshable(async () => {
+              await reload(true);
+            }),
+          ]}
         >
-          {lapsed.length === 0 ? (
-            <Text
-              modifiers={[
-                foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-              ]}
-            >
-              熟客最近都有回來
-            </Text>
-          ) : (
-            <>
-              {(showAllLapsed ? lapsed : lapsed.slice(0, LIST_LIMIT)).map((c) => (
+
+          <Section title="每月收入" footer={<Text>過去 12 個月 · 用上方 ‹ › 切換月份</Text>}>
+            <HStack>
+              <Button
+                label="上個月"
+                systemImage="chevron.left"
+                onPress={() => index > 0 && setSelected(months[index - 1])}
+                modifiers={[glassButton(), labelStyle('iconOnly')]}
+              />
+              <Spacer />
+              <Text modifiers={[font({ size: 17, weight: 'semibold' })]}>
+                {formatMonth(selected)}
+              </Text>
+              <Spacer />
+              <Button
+                label="下個月"
+                systemImage="chevron.right"
+                onPress={() => !isThisMonth && setSelected(months[index + 1])}
+                modifiers={[glassButton(), labelStyle('iconOnly')]}
+              />
+            </HStack>
+          </Section>
+
+          <Section>
+            <Chart
+              type="bar"
+              showGrid
+              data={monthly.map((m) => ({
+                x: `${Number(m.month.slice(5))}月`,
+                y: m.revenue,
+                color: m.month === selected ? colors.accent : ACCENT_FADED,
+              }))}
+              barStyle={{ cornerRadius: 3 }}
+              modifiers={[frame({ height: 180 })]}
+            />
+          </Section>
+
+          <Section title="本月概覽">
+            <LabeledContent label="收入">
+              <VStack alignment="trailing" spacing={2}>
+                <Text modifiers={[font({ weight: 'bold' })]}>{formatMoney(current.revenue)}</Text>
+                {changeLabel(current.revenue, previous?.revenue)}
+              </VStack>
+            </LabeledContent>
+            <LabeledContent label="預約">
+              <Text modifiers={[font({ weight: 'bold' })]}>{current.bookings}</Text>
+            </LabeledContent>
+            <LabeledContent label="顧客人數">
+              <Text modifiers={[font({ weight: 'bold' })]}>{current.customers}</Text>
+            </LabeledContent>
+            <LabeledContent label="平均消費">
+              <Text modifiers={[font({ weight: 'bold' })]}>
+                {current.averageSpend != null ? formatMoney(current.averageSpend) : '—'}
+              </Text>
+            </LabeledContent>
+            {isThisMonth && current.upcomingRevenue > 0 ? (
+              <Text
+                modifiers={[
+                  font({ size: 12 }),
+                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                ]}
+              >
+                另有 {formatMoney(current.upcomingRevenue)} 已預約
+              </Text>
+            ) : null}
+          </Section>
+
+          <Section title="服務分佈" footer={<Text>{formatMonth(selected)}</Text>}>
+            {services.length === 0 ? (
+              <Text
+                modifiers={[
+                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                ]}
+              >
+                這個月未有預約
+              </Text>
+            ) : (
+              <>
+                {/* Donut in the calendar's service colours; the rows below act as its legend */}
+                <Chart
+                  type="pie"
+                  data={services.map((s) => ({
+                    x: s.service,
+                    y: s.bookings,
+                    color: serviceColor(s.service),
+                  }))}
+                  pieStyle={{ innerRadius: 0.6, angularInset: 2, cornerRadius: 4, opacity: 1 }}
+                  modifiers={[frame({ height: 180 })]}
+                />
+                {services.map((s) => (
+                  <HStack key={s.service} spacing={8}>
+                    <Text modifiers={[foregroundStyle(serviceColor(s.service))]}>●</Text>
+                    <Text>{s.service}</Text>
+                    <Spacer />
+                    <Text
+                      modifiers={[
+                        foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                      ]}
+                    >
+                      {s.bookings} 次{s.revenue > 0 ? ` · ${formatMoney(s.revenue)}` : ''}
+                    </Text>
+                  </HStack>
+                ))}
+              </>
+            )}
+          </Section>
+
+          <Section title="最繁忙日子" footer={<Text>過去 12 個月的來店次數</Text>}>
+            <Chart
+              type="bar"
+              showGrid
+              data={weekdays.map((count, i) => ({
+                x: WEEKDAY_LABELS[i],
+                y: count,
+                color: count === Math.max(...weekdays) ? colors.accent : ACCENT_FADED,
+              }))}
+              barStyle={{ cornerRadius: 3 }}
+              modifiers={[frame({ height: 140 })]}
+            />
+          </Section>
+
+          <Section title="熟客排行" footer={<Text>過去 12 個月的消費</Text>}>
+            {top.length === 0 ? (
+              <Text
+                modifiers={[
+                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                ]}
+              >
+                未有記錄
+              </Text>
+            ) : (
+              top.map((c, i) => (
                 <CustomerStatRow
                   key={c.name}
                   customer={c}
-                  detail={`上次 ${formatDay(c.lastVisit)} · ${c.lastService} · 共 ${c.visits} 次`}
-                  value={`${c.daysSince} 日`}
+                  rank={i + 1}
+                  detail={`${c.visits} 次 · 最近 ${formatDay(c.lastVisit)}`}
+                  value={formatMoney(c.spend)}
                   onPress={() => openCustomer(c.name)}
-                  showWhatsApp
                 />
-              ))}
-              {!showAllLapsed && lapsed.length > LIST_LIMIT ? (
-                <Button
-                  label={`顯示全部 ${lapsed.length} 位`}
-                  onPress={() => setShowAllLapsed(true)}
-                  modifiers={[buttonStyle('plain'), tint(colors.accent)]}
-                />
-              ) : null}
-            </>
-          )}
-        </Section>
-      </Form>
+              ))
+            )}
+          </Section>
+
+          <Section
+            title="久未回來"
+            footer={
+              <Text>
+                來過 {LAPSED_MIN_VISITS} 次或以上、超過 {LAPSED_MIN_DAYS / 7} 星期未來，亦未有預約
+              </Text>
+            }
+          >
+            {lapsed.length === 0 ? (
+              <Text
+                modifiers={[
+                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                ]}
+              >
+                熟客最近都有回來
+              </Text>
+            ) : (
+              <>
+                {(showAllLapsed ? lapsed : lapsed.slice(0, LIST_LIMIT)).map((c) => (
+                  <CustomerStatRow
+                    key={c.name}
+                    customer={c}
+                    detail={`上次 ${formatDay(c.lastVisit)} · ${c.lastService} · 共 ${c.visits} 次`}
+                    value={`${c.daysSince} 日`}
+                    onPress={() => openCustomer(c.name)}
+                    showWhatsApp
+                  />
+                ))}
+                {!showAllLapsed && lapsed.length > LIST_LIMIT ? (
+                  <Button
+                    label={`顯示全部 ${lapsed.length} 位`}
+                    onPress={() => setShowAllLapsed(true)}
+                    modifiers={[buttonStyle('plain'), tint(colors.accent)]}
+                  />
+                ) : null}
+              </>
+            )}
+          </Section>
+        </Form>
+      </NavigationStack>
     </SwiftHost>
   );
 }
@@ -296,7 +322,7 @@ function changeLabel(value: number, previous: number | undefined) {
   const pct = Math.round(((value - previous) / previous) * 100);
   const color = pct > 0 ? colors.success : pct < 0 ? colors.danger : colors.textSecondary;
   return (
-    <Text modifiers={[font({ size: 12 }), tint(color)]}>
+    <Text modifiers={[font({ size: 12 }), foregroundStyle(color)]}>
       {pct > 0 ? '▲' : pct < 0 ? '▼' : '–'} {Math.abs(pct)}% 對上月
     </Text>
   );
@@ -329,7 +355,7 @@ function CustomerStatRow({
   return (
     <HStack spacing={8}>
       <Button onPress={onPress} modifiers={[buttonStyle('plain')]}>
-        <HStack spacing={8}>
+        <HStack spacing={8} modifiers={[contentShape(shapes.rectangle())]}>
           {rank != null ? (
             <Text
               modifiers={[
@@ -356,11 +382,9 @@ function CustomerStatRow({
         </HStack>
       </Button>
       {showWhatsApp && customer.phone ? (
-        <Button
-          label="WhatsApp"
-          systemImage="message.fill"
+        <WhatsAppButton
+          label={`用 WhatsApp 聯絡 ${customer.name}`}
           onPress={() => void openWhatsApp(customer.phone!)}
-          modifiers={[buttonStyle('bordered'), tint(colors.whatsapp)]}
         />
       ) : null}
     </HStack>

@@ -8,7 +8,7 @@ import {
   Text,
   VStack,
 } from '@expo/ui/swift-ui';
-import { font, foregroundStyle, padding } from '@expo/ui/swift-ui/modifiers';
+import { font, foregroundStyle, frame, padding } from '@expo/ui/swift-ui/modifiers';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { SwiftHost } from './SwiftHost';
@@ -33,7 +33,7 @@ export function SwiftStateView({
       <SwiftHost>
         <VStack
           spacing={12}
-          modifiers={[padding({ all: 24 })]}
+          modifiers={[padding({ all: 24 }), frame({ maxWidth: Infinity, maxHeight: Infinity })]}
           alignment="center"
         >
           <ProgressView />

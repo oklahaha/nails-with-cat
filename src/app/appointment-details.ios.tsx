@@ -1,36 +1,33 @@
 /**
- * Appointment details modal — SwiftUI Form. Delete / edit still use Apps Script API.
+ * Appointment details modal — SwiftUI Form. 修改 (header) swaps the sheet to
+ * AppointmentForm in place, with 刪除預約 at the end of the form.
+ * Delete / edit still use Apps Script API.
  */
 import {
   Button,
   Form,
-  HStack,
   LabeledContent,
   Section,
   Text,
   VStack,
 } from '@expo/ui/swift-ui';
 import {
-  buttonStyle,
-  controlSize,
   font,
   foregroundStyle,
   padding,
-  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
-import { SwiftHost } from '@/components/swiftui/SwiftHost';
+import { AppointmentForm } from '@/components/swiftui/AppointmentForm';
+import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { serviceColor } from '@/constants/services';
-import { colors } from '@/constants/theme';
 import { findCachedAppointment, removeCachedAppointment } from '@/hooks/useAppointments';
 import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDateHeader } from '@/utils/groupByDate';
-import { openWhatsApp, reminderMessage } from '@/utils/whatsapp';
 
 function close() {
   if (router.canGoBack()) router.back();
@@ -39,7 +36,8 @@ function close() {
 
 export default function AppointmentDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [appointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
+  const [appointment, setAppointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
+  const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   if (!appointment) {
@@ -96,15 +94,37 @@ export default function AppointmentDetailsScreen() {
     );
   };
 
+  if (editing) {
+    // 修改 turns this sheet into the form in place; ✕ goes back to the details
+    return (
+      <AppointmentForm
+        editing={appointment}
+        onClose={() => setEditing(false)}
+        onSaved={(saved) => {
+          setAppointment({ ...appointment, ...saved, phone: saved.phone || appointment.phone });
+          setEditing(false);
+        }}
+      >
+        <Section>
+          <Button
+            label={deleting ? '刪除中…' : '刪除預約'}
+            role="destructive"
+            onPress={confirmDelete}
+          />
+        </Section>
+      </AppointmentForm>
+    );
+  }
+
   return (
-    <SwiftHost>
+    <SwiftModal onClose={close} onEdit={() => setEditing(true)}>
       <Form>
         <Section>
           <VStack spacing={8} alignment="leading" modifiers={[padding({ vertical: 8 })]}>
             <Text modifiers={[font({ size: 22, weight: 'bold' })]}>
               {appointmentTitle(appointment)}
             </Text>
-            <Text modifiers={[font({ size: 15, weight: 'semibold' }), tint(color)]}>
+            <Text modifiers={[font({ size: 15, weight: 'semibold' }), foregroundStyle(color)]}>
               {appointment.service}
             </Text>
           </VStack>
@@ -118,52 +138,7 @@ export default function AppointmentDetailsScreen() {
           ))}
         </Section>
 
-        {phone ? (
-          <Section>
-            <Button
-              label="WhatsApp 聯絡"
-              systemImage="message.fill"
-              onPress={() => void openWhatsApp(phone, reminderMessage(appointment))}
-              modifiers={[buttonStyle('borderedProminent'), tint(colors.whatsapp)]}
-            />
-          </Section>
-        ) : null}
-
-        <Section>
-          <HStack spacing={12}>
-            <Button
-              label={deleting ? '刪除中…' : '刪除'}
-              role="destructive"
-              systemImage="trash"
-              onPress={confirmDelete}
-              modifiers={[buttonStyle('bordered'), controlSize('large')]}
-            />
-            <Button
-              label="修改"
-              systemImage="pencil"
-              onPress={() =>
-                router.replace({
-                  pathname: '/add-appointment',
-                  params: { id: appointment.id },
-                })
-              }
-              modifiers={[
-                buttonStyle('borderedProminent'),
-                controlSize('large'),
-                tint(colors.accent),
-              ]}
-            />
-          </HStack>
-          <Text
-            modifiers={[
-              font({ size: 12 }),
-              foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
-            ]}
-          >
-            修改會開啟編輯表單；儲存後返回時間表。
-          </Text>
-        </Section>
       </Form>
-    </SwiftHost>
+    </SwiftModal>
   );
 }

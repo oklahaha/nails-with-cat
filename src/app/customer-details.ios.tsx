@@ -7,6 +7,7 @@ import {
   HStack,
   LabeledContent,
   List,
+  ProgressView,
   Section,
   Text,
   TextField,
@@ -14,7 +15,6 @@ import {
 } from '@expo/ui/swift-ui';
 import {
   buttonStyle,
-  controlSize,
   font,
   foregroundStyle,
   listStyle,
@@ -24,8 +24,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 
 import { AppointmentRow } from '@/components/swiftui/AppointmentRow';
-import { SwiftHost } from '@/components/swiftui/SwiftHost';
+import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
+import { glassButton } from '@/components/swiftui/glass';
 import { colors } from '@/constants/theme';
 import { useCustomerAppointments } from '@/hooks/useAppointments';
 import {
@@ -38,7 +39,6 @@ import type { Customer, CustomerKey } from '@/types/customer';
 import { showAlert } from '@/utils/alert';
 import { todayIsoDate } from '@/utils/dates';
 import { formatPhone, localPhone } from '@/utils/phone';
-import { openWhatsApp } from '@/utils/whatsapp';
 
 function close() {
   if (router.canGoBack()) router.back();
@@ -52,6 +52,8 @@ export default function CustomerDetailsScreen() {
   );
   const [editing, setEditing] = useState(false);
   const nameText = useNativeState('');
+  // Mirrors nameText for rendering: reading an ObservableState doesn't re-render
+  const [nameDraft, setNameDraft] = useState('');
   const phoneText = useNativeState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'saving' | 'deleting' | null>(null);
@@ -93,6 +95,7 @@ export default function CustomerDetailsScreen() {
 
   const startEditing = () => {
     nameText.set(customer.name);
+    setNameDraft(customer.name);
     phoneText.set(localPhone(customer.phone));
     setNameError(null);
     setEditing(true);
@@ -147,22 +150,31 @@ export default function CustomerDetailsScreen() {
   const visiblePast = showAllPast ? past : past.slice(0, 10);
 
   return (
-    <SwiftHost>
+    <SwiftModal
+      // While editing, ✕ leaves edit mode instead of closing the sheet
+      onClose={editing ? () => setEditing(false) : close}
+      onSave={editing ? () => void handleSave() : undefined}
+      saveDisabled={busy !== null}
+      onEdit={startEditing}
+    >
       {editing ? (
         <Form>
           <Section title="修改顧客">
-            <Text modifiers={[font({ size: 28, weight: 'bold' }), tint(colors.accent)]}>
-              {Array.from(nameText.get() || customer.name)[0] ?? ''}
+            <Text modifiers={[font({ size: 28, weight: 'bold' }), foregroundStyle(colors.accent)]}>
+              {Array.from(nameDraft || customer.name)[0] ?? ''}
             </Text>
             <TextField
               placeholder="顧客姓名"
               text={nameText}
-              onTextChange={() => setNameError(null)}
+              onTextChange={(text) => {
+                setNameDraft(text);
+                setNameError(null);
+              }}
             />
             {nameError ? (
-              <Text modifiers={[font({ size: 13 }), tint(colors.danger)]}>{nameError}</Text>
+              <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>{nameError}</Text>
             ) : null}
-            {nameText.get().trim() !== customer.name ? (
+            {nameDraft.trim() !== customer.name ? (
               <Text
                 modifiers={[
                   font({ size: 12 }),
@@ -175,28 +187,17 @@ export default function CustomerDetailsScreen() {
             <TextField placeholder="電話" text={phoneText} />
           </Section>
           <Section>
-            <HStack spacing={12}>
-              <Button
-                label="取消"
-                onPress={() => setEditing(false)}
-                modifiers={[buttonStyle('bordered'), controlSize('large')]}
-              />
-              <Button
-                label={busy === 'saving' ? '儲存中…' : '儲存'}
-                onPress={() => void handleSave()}
-                modifiers={[
-                  buttonStyle('borderedProminent'),
-                  controlSize('large'),
-                  tint(colors.accent),
-                ]}
-              />
-            </HStack>
+            <Button
+              label={busy === 'deleting' ? '刪除中…' : '刪除顧客'}
+              role="destructive"
+              onPress={confirmDelete}
+            />
           </Section>
         </Form>
       ) : (
         <List modifiers={[listStyle('insetGrouped')]}>
           <Section>
-            <Text modifiers={[font({ size: 28, weight: 'bold' }), tint(colors.accent)]}>
+            <Text modifiers={[font({ size: 28, weight: 'bold' }), foregroundStyle(colors.accent)]}>
               {Array.from(customer.name)[0] ?? ''}
             </Text>
             <Text modifiers={[font({ size: 22, weight: 'bold' })]}>{customer.name}</Text>
@@ -217,43 +218,36 @@ export default function CustomerDetailsScreen() {
           </Section>
 
           <Section>
-            <HStack spacing={8}>
-              {customer.phone ? (
-                <Button
-                  label="WhatsApp"
-                  systemImage="message.fill"
-                  onPress={() => void openWhatsApp(customer.phone)}
-                  modifiers={[buttonStyle('borderedProminent'), tint(colors.whatsapp)]}
-                />
-              ) : null}
-              <Button
-                label="新增預約"
-                systemImage="plus"
-                onPress={() =>
-                  router.replace({
-                    pathname: '/add-appointment',
-                    params: { customerName: customer.name },
-                  })
-                }
-                modifiers={[buttonStyle('bordered'), tint(colors.accent)]}
-              />
-            </HStack>
+            <Button
+              label="新增預約"
+              systemImage="plus"
+              onPress={() =>
+                router.replace({
+                  pathname: '/add-appointment',
+                  params: { customerName: customer.name },
+                })
+              }
+              modifiers={[glassButton(), tint(colors.accent)]}
+            />
           </Section>
 
           <Section title="預約記錄">
             {history.loading ? (
-              <Text
-                modifiers={[
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                載入中…
-              </Text>
+              <HStack spacing={8}>
+                <ProgressView />
+                <Text
+                  modifiers={[
+                    foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                  ]}
+                >
+                  載入中…
+                </Text>
+              </HStack>
             ) : history.error && history.appointments.length === 0 ? (
               <Button
                 label="重試"
                 onPress={() => void history.reload()}
-                modifiers={[buttonStyle('bordered')]}
+                modifiers={[glassButton()]}
               />
             ) : history.appointments.length === 0 ? (
               <Text
@@ -273,7 +267,7 @@ export default function CustomerDetailsScreen() {
           {upcoming.length > 0 ? (
             <Section title="即將預約">
               {upcoming.map((apt) => (
-                <AppointmentRow key={apt.id} appointment={apt} />
+                <AppointmentRow key={apt.id} appointment={apt} showWhatsApp={false} />
               ))}
             </Section>
           ) : null}
@@ -281,7 +275,7 @@ export default function CustomerDetailsScreen() {
           {past.length > 0 ? (
             <Section title="過往記錄">
               {visiblePast.map((apt) => (
-                <AppointmentRow key={apt.id} appointment={apt} />
+                <AppointmentRow key={apt.id} appointment={apt} showWhatsApp={false} />
               ))}
               {!showAllPast && past.length > 10 ? (
                 <Button
@@ -293,29 +287,8 @@ export default function CustomerDetailsScreen() {
             </Section>
           ) : null}
 
-          <Section>
-            <HStack spacing={12}>
-              <Button
-                label={busy === 'deleting' ? '刪除中…' : '刪除'}
-                role="destructive"
-                systemImage="trash"
-                onPress={confirmDelete}
-                modifiers={[buttonStyle('bordered'), controlSize('large')]}
-              />
-              <Button
-                label="修改"
-                systemImage="pencil"
-                onPress={startEditing}
-                modifiers={[
-                  buttonStyle('borderedProminent'),
-                  controlSize('large'),
-                  tint(colors.accent),
-                ]}
-              />
-            </HStack>
-          </Section>
         </List>
       )}
-    </SwiftHost>
+    </SwiftModal>
   );
 }

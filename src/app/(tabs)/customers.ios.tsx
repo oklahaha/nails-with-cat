@@ -5,6 +5,7 @@ import {
   Button,
   HStack,
   List,
+  NavigationStack,
   Section,
   Spacer,
   Text,
@@ -13,11 +14,14 @@ import {
 } from '@expo/ui/swift-ui';
 import {
   buttonStyle,
+  contentShape,
   font,
   foregroundStyle,
   listStyle,
+  navigationTitle,
   refreshable,
   searchable,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
@@ -27,6 +31,8 @@ import { View } from 'react-native';
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
+import { glassButton } from '@/components/swiftui/glass';
+import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
 import { colors } from '@/constants/theme';
 import { useCustomers } from '@/hooks/useCustomers';
 import type { Customer } from '@/types/customer';
@@ -66,50 +72,54 @@ export default function CustomersScreen() {
   return (
     <View style={{ flex: 1 }}>
       <SwiftHost>
-        <List
-          modifiers={[
-            listStyle('insetGrouped'),
-            refreshable(() => reload(true)),
-            searchable(searchText, {
-              prompt: '搜尋姓名或電話',
-              onChange: setQuery,
-            }),
-          ]}
-        >
-          <Section
-            header={
-              <Text
-                modifiers={[
-                  font({ size: 12 }),
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                {query.trim()
-                  ? `找到 ${filtered.length} 位顧客`
-                  : `共 ${filtered.length} 位顧客`}
-              </Text>
-            }
+        {/* searchable only shows its field inside a NavigationStack, whose bar replaces the tab header */}
+        <NavigationStack>
+          <List
+            modifiers={[
+              navigationTitle('顧客資料'),
+              listStyle('insetGrouped'),
+              refreshable(() => reload(true)),
+              searchable(searchText, {
+                prompt: '搜尋姓名或電話',
+                onChange: setQuery,
+              }),
+            ]}
           >
-            {filtered.length === 0 ? (
-              <Text
-                modifiers={[
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                {query.trim()
-                  ? `沒有符合「${query.trim()}」的姓名或電話。`
-                  : '未有顧客資料'}
-              </Text>
-            ) : (
-              filtered.map((customer, index) => (
-                <CustomerRow
-                  key={customer.id || `${customer.name}-${index}`}
-                  customer={customer}
-                />
-              ))
-            )}
-          </Section>
-        </List>
+            <Section
+              header={
+                <Text
+                  modifiers={[
+                    font({ size: 12 }),
+                    foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                  ]}
+                >
+                  {query.trim()
+                    ? `找到 ${filtered.length} 位顧客`
+                    : `共 ${filtered.length} 位顧客`}
+                </Text>
+              }
+            >
+              {filtered.length === 0 ? (
+                <Text
+                  modifiers={[
+                    foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                  ]}
+                >
+                  {query.trim()
+                    ? `沒有符合「${query.trim()}」的姓名或電話。`
+                    : '未有顧客資料'}
+                </Text>
+              ) : (
+                filtered.map((customer, index) => (
+                  <CustomerRow
+                    key={customer.id || `${customer.name}-${index}`}
+                    customer={customer}
+                  />
+                ))
+              )}
+            </Section>
+          </List>
+        </NavigationStack>
       </SwiftHost>
 
       <SwiftFab
@@ -145,8 +155,8 @@ function CustomerRow({ customer }: { customer: Customer }) {
         }
         modifiers={[buttonStyle('plain')]}
       >
-        <HStack spacing={12}>
-          <Text modifiers={[font({ size: 20, weight: 'bold' }), tint(colors.accent)]}>
+        <HStack spacing={12} modifiers={[contentShape(shapes.rectangle())]}>
+          <Text modifiers={[font({ size: 20, weight: 'bold' }), foregroundStyle(colors.accent)]}>
             {Array.from(customer.name)[0] ?? ''}
           </Text>
           <VStack spacing={2} alignment="leading">
@@ -160,17 +170,14 @@ function CustomerRow({ customer }: { customer: Customer }) {
               {formatPhone(customer.phone) || '未有電話'}
             </Text>
           </VStack>
+          <Spacer />
         </HStack>
       </Button>
 
-      <Spacer />
-
       {customer.phone ? (
-        <Button
-          label="WhatsApp"
-          systemImage="message.fill"
+        <WhatsAppButton
+          label={`用 WhatsApp 聯絡 ${customer.name}`}
           onPress={() => void openWhatsApp(customer.phone)}
-          modifiers={[buttonStyle('bordered'), tint(colors.whatsapp)]}
         />
       ) : null}
 
@@ -182,7 +189,7 @@ function CustomerRow({ customer }: { customer: Customer }) {
             params: { customerName: customer.name },
           })
         }
-        modifiers={[buttonStyle('bordered'), tint(colors.accent)]}
+        modifiers={[glassButton(), tint(colors.accent)]}
       />
     </HStack>
   );

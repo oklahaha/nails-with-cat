@@ -8,6 +8,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/Icon';
+import { WhatsAppIcon } from '@/components/WhatsAppIcon';
 import { StateView } from '@/components/StateView';
 import { BarChart } from '@/components/stats/BarChart';
 import { ServiceBreakdown } from '@/components/stats/ServiceBreakdown';
@@ -373,7 +374,7 @@ function CustomerRow({
           accessibilityRole="button"
           accessibilityLabel={`WhatsApp ${customer.name}`}
         >
-          <Icon name="chat" color="#FFFFFF" size={16} />
+          <WhatsAppIcon size={18} />
         </Pressable>
       ) : null}
     </View>

@@ -1,6 +1,6 @@
 /**
  * Customer details — opened by tapping a customer in 顧客資料. Shows the
- * customer with WhatsApp and 新增預約 and their booking history, and lets you
+ * customer with 新增預約 and their booking history, and lets you
  * edit (in place) or delete the 顧客 row.
  */
 import { router, useLocalSearchParams } from 'expo-router';
@@ -32,7 +32,6 @@ import { deleteCustomer, isUsingMockApi, updateCustomer } from '@/services/appoi
 import type { Customer, CustomerKey } from '@/types/customer';
 import { showAlert } from '@/utils/alert';
 import { formatPhone, localPhone } from '@/utils/phone';
-import { openWhatsApp } from '@/utils/whatsapp';
 
 function close() {
   // On web the page may be opened directly, with no history to go back to
@@ -184,16 +183,6 @@ export default function CustomerDetailsScreen() {
             </View>
 
             <View style={styles.actions}>
-              {customer.phone ? (
-                <Pressable
-                  onPress={() => void openWhatsApp(customer.phone)}
-                  style={({ pressed }) => [styles.whatsappBtn, pressed && pressedStyle]}
-                  accessibilityRole="button"
-                >
-                  <Icon name="chat" color="#FFFFFF" size={18} />
-                  <Text style={styles.whatsappText}>WhatsApp</Text>
-                </Pressable>
-              ) : null}
               <Pressable
                 onPress={() =>
                   router.replace({
@@ -344,21 +333,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.md,
-  },
-  whatsappBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.md - 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.whatsapp,
-  },
-  whatsappText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
   },
   bookBtn: {
     flex: 1,

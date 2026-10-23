@@ -1,7 +1,7 @@
 /**
  * Appointment details — opened by tapping a booking in the timetable or the
- * 預約資料 list. Shows the booking, with WhatsApp (when there's a phone),
- * 修改 (opens the form in edit mode) and 刪除.
+ * 預約資料 list. Shows the booking, with 修改 (opens the form in edit mode)
+ * and 刪除.
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -17,7 +17,6 @@ import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDateHeader } from '@/utils/groupByDate';
-import { openWhatsApp, reminderMessage } from '@/utils/whatsapp';
 
 function close() {
   // On web the page may be opened directly, with no history to go back to
@@ -107,17 +106,6 @@ export default function AppointmentDetailsScreen() {
             </View>
           ))}
         </View>
-
-        {phone ? (
-          <Pressable
-            onPress={() => void openWhatsApp(phone, reminderMessage(appointment))}
-            style={({ pressed }) => [styles.whatsappBtn, pressed && pressedStyle]}
-            accessibilityRole="button"
-          >
-            <Icon name="chat" color="#FFFFFF" size={18} />
-            <Text style={styles.whatsappText}>WhatsApp 聯絡</Text>
-          </Pressable>
-        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
@@ -212,21 +200,6 @@ const styles = StyleSheet.create({
     ...type.time,
     flex: 1,
     lineHeight: 21,
-  },
-  whatsappBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.md - 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.whatsapp,
-  },
-  whatsappText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
   },
   footer: {
     flexDirection: 'row',

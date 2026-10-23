@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Icon } from '@/components/Icon';
+import { WhatsAppIcon } from '@/components/WhatsAppIcon';
 import { serviceColor } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import type { Appointment } from '@/types/appointment';
@@ -70,7 +70,7 @@ export function AppointmentCard({ appointment }: Props) {
           accessibilityRole="button"
           accessibilityLabel={`用 WhatsApp 聯絡 ${appointment.customerName}`}
         >
-          <Icon name="chat" color="#FFFFFF" size={18} />
+          <WhatsAppIcon size={20} />
         </Pressable>
       ) : null}
     </View>

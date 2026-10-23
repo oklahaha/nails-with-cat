@@ -18,6 +18,7 @@ import {
 
 import { AddButton } from '@/components/AddButton';
 import { Icon } from '@/components/Icon';
+import { WhatsAppIcon } from '@/components/WhatsAppIcon';
 import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useCustomers } from '@/hooks/useCustomers';
@@ -159,7 +160,7 @@ function CustomerRow({ customer }: { customer: Customer }) {
           accessibilityRole="button"
           accessibilityLabel={`用 WhatsApp 聯絡 ${customer.name}`}
         >
-          <Icon name="chat" color="#FFFFFF" size={18} />
+          <WhatsAppIcon size={20} />
         </Pressable>
       ) : null}
 
