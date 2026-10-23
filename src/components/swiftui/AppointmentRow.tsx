@@ -1,0 +1,107 @@
+/**
+ * Native list row for an appointment — tap opens details; optional WhatsApp.
+ */
+import {
+  Button,
+  HStack,
+  Spacer,
+  Text,
+  VStack,
+} from '@expo/ui/swift-ui';
+import {
+  buttonStyle,
+  font,
+  foregroundStyle,
+  padding,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
+
+import { serviceColor } from '@/constants/services';
+import { colors } from '@/constants/theme';
+import type { Appointment } from '@/types/appointment';
+import { openAppointmentDetails } from '@/utils/appointmentActions';
+import { appointmentTitle } from '@/utils/appointmentTitle';
+import { openWhatsApp, reminderMessage } from '@/utils/whatsapp';
+
+type Props = {
+  appointment: Appointment;
+};
+
+export function AppointmentRow({ appointment }: Props) {
+  const phone = appointment.phone?.trim();
+  const title = appointmentTitle(appointment);
+  const hasEnd = Boolean(appointment.endTime && appointment.endTime !== appointment.time);
+  const color = serviceColor(appointment.service);
+  const meta = [
+    appointment.service.includes('甲') ? appointment.handOrFoot : null,
+    appointment.price ? `$${appointment.price}` : null,
+    appointment.status === '已完成' ? '已完成' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <HStack spacing={8}>
+      <Button
+        onPress={() => openAppointmentDetails(appointment)}
+        modifiers={[buttonStyle('plain'), padding({ vertical: 4 })]}
+      >
+        <HStack spacing={10}>
+          <VStack spacing={2} alignment="leading" modifiers={[padding({ trailing: 4 })]}>
+            <Text modifiers={[font({ size: 16, weight: 'bold' })]}>{appointment.time}</Text>
+            {hasEnd ? (
+              <Text
+                modifiers={[
+                  font({ size: 13 }),
+                  foregroundStyle({ type: 'hierarchical', style: 'tertiary' }),
+                ]}
+              >
+                {appointment.endTime}
+              </Text>
+            ) : null}
+          </VStack>
+
+          <VStack spacing={3} alignment="leading">
+            <Text modifiers={[font({ size: 17, weight: 'semibold' })]}>{title}</Text>
+            <HStack spacing={4}>
+              <Text modifiers={[font({ size: 14, weight: 'semibold' }), tint(color)]}>
+                {appointment.service}
+              </Text>
+              {meta ? (
+                <Text
+                  modifiers={[
+                    font({ size: 14 }),
+                    foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                  ]}
+                >
+                  · {meta}
+                </Text>
+              ) : null}
+            </HStack>
+            {appointment.notes && appointment.notes !== title ? (
+              <Text
+                modifiers={[
+                  font({ size: 13 }),
+                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                ]}
+              >
+                {appointment.notes}
+              </Text>
+            ) : null}
+          </VStack>
+        </HStack>
+      </Button>
+
+      <Spacer />
+
+      {phone ? (
+        <Button
+          label="WhatsApp"
+          systemImage="message.fill"
+          onPress={() => void openWhatsApp(phone, reminderMessage(appointment))}
+          modifiers={[buttonStyle('bordered'), tint(colors.whatsapp)]}
+        />
+      ) : null}
+    </HStack>
+  );
+}
