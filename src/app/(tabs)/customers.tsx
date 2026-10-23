@@ -89,7 +89,7 @@ export default function CustomersScreen() {
             <Text style={styles.count}>
               {query.trim() ? `找到 ${filtered.length} 位顧客` : `共 ${filtered.length} 位顧客`}
             </Text>
-          ) : null
+          ) : undefined
         }
         ListEmptyComponent={
           <StateView

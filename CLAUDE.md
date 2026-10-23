@@ -31,7 +31,7 @@ There is no test runner set up yet.
 
 ## Architecture
 
-Expo SDK 57, Expo Router with typed routes, and the `@/*` → `src/*` path alias. The UI mirrors the existing AppSheet app (`reference/timetable.png`). The root `Stack` holds the `(tabs)` group and the `add-appointment` modal, which accepts optional `date` / `customerName` params for prefilling, or an `id` param to edit that appointment. Tapping an appointment (timetable or list) opens the `appointment-details` modal, which has WhatsApp, 修改 (replaces itself with the form in edit mode) and 刪除. Both look the appointment up with `findCachedAppointment`, so it must already be loaded. Tabs, in AppSheet order:
+Expo SDK 58, Expo Router with typed routes, and the `@/*` → `src/*` path alias. The UI mirrors the existing AppSheet app (`reference/timetable.png`). The root `Stack` holds the `(tabs)` group and the `add-appointment` modal, which accepts optional `date` / `customerName` params for prefilling, or an `id` param to edit that appointment. Tapping an appointment (timetable or list) opens the `appointment-details` modal, which has WhatsApp, 修改 (replaces itself with the form in edit mode) and 刪除. Both look the appointment up with `findCachedAppointment`, so it must already be loaded. Tabs, in AppSheet order:
 - `new` (預約): `tabPress` is intercepted to push the modal, so the screen file is only a redirect.
 - `customers` (顧客資料): tapping a customer opens the `customer-details` modal, which edits the name/phone in place or deletes the 顧客 row (found via `findCachedCustomer`), and shows their booking history (`useCustomerAppointments`, rendered by `CustomerHistory`). Its ＋ button opens the `add-customer` modal, prefilled from an unmatched search.
 - `appointments` (預約資料): upcoming list.
