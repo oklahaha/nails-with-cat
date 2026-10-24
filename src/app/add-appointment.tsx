@@ -50,6 +50,7 @@ import type { ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 
 type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
 
@@ -173,11 +174,29 @@ export default function AddAppointmentScreen() {
     return next;
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     const found = validate();
     setErrors(found);
     if (Object.keys(found).length > 0 || !service) return;
 
+    // Overlaps are sometimes intended, so they only need confirming
+    const overlaps = findOverlaps(otherBookings, time, duration);
+    if (overlaps.length > 0) {
+      showAlert(
+        '時間重疊',
+        `此時段與以下預約時間重疊：\n${describeOverlaps(overlaps)}\n\n仍然要儲存嗎？`,
+        [
+          { text: '返回修改', style: 'cancel' },
+          { text: '仍然儲存', onPress: () => void save() },
+        ]
+      );
+      return;
+    }
+    void save();
+  };
+
+  const save = async () => {
+    if (!service) return;
     try {
       setSaving(true);
       // 特別事項 rows have no customer, 手/腳, 收費 or 狀態, and View repeats 備注
@@ -463,7 +482,7 @@ export default function AddAppointmentScreen() {
                 : service}
           </Text>
           <Pressable
-            onPress={() => void handleSubmit()}
+            onPress={handleSubmit}
             disabled={saving}
             style={({ pressed }) => [styles.submitBtn, (pressed || saving) && pressedStyle]}
             accessibilityRole="button"

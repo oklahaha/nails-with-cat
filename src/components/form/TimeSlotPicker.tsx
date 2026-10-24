@@ -5,6 +5,7 @@ import { colors, radius, spacing, type } from '@/constants/theme';
 import type { Appointment } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
+import { bookingSpan } from '@/utils/overlap';
 
 const FIRST_SLOT = 9 * 60;
 const LAST_SLOT = 20 * 60 + 30;
@@ -142,15 +143,6 @@ export function TimeSlotPicker({
       ) : null}
     </View>
   );
-}
-
-/** Start/end minutes of a booking; zero-length rows block their half hour. */
-function bookingSpan(apt: Appointment): [number, number] {
-  const start = timeToMinutes(apt.time);
-  let end = apt.endTime ? timeToMinutes(apt.endTime) : NaN;
-  if (!(end > start) && apt.durationMinutes) end = start + apt.durationMinutes;
-  if (!(end > start)) end = start + SLOT_STEP;
-  return [start, end];
 }
 
 const styles = StyleSheet.create({

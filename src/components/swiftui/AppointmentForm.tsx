@@ -24,6 +24,9 @@ import {
 import {
   buttonStyle,
   contentShape,
+  datePickerStyle,
+  environment,
+  id,
   fixedSize,
   font,
   foregroundStyle,
@@ -35,6 +38,7 @@ import {
   scrollDismissesKeyboard,
   shapes,
   tag,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { useMemo, useState, type ReactNode } from 'react';
 
@@ -57,8 +61,9 @@ import {
 import type { Appointment, ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import { minutesToTime, timeToMinutes } from '@/utils/dates';
+import { minutesToTime, timeToMinutes, todayIsoDate } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { formatPhone } from '@/utils/phone';
 
 import { dateToIso, dateToTime, isoToDate, timeToDate } from './dateIso';
@@ -68,7 +73,8 @@ type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
 
 const SPECIAL: ServiceType = '特別事項';
 const STATUS_OPTIONS = ['預約', '已完成'] as const;
-const TIME_SLOTS = buildTimeSlots();
+/** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
+const PICKER_LOOK = [tint(colors.accent), environment('locale', 'zh_Hant_HK')];
 
 function priceText(service: ServiceType | ''): string {
   if (!service) return '';
@@ -102,8 +108,10 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   const [customerQuery, setCustomerQuery] = useState(
     editing?.customerName ?? params.customerName ?? ''
   );
-  const [date, setDate] = useState(editing?.date ?? params.date ?? '');
-  const [time, setTime] = useState(editing?.time ?? '');
+  // Starts on today, so 開始 can be picked straight away
+  const [date, setDate] = useState(editing?.date ?? params.date ?? todayIsoDate());
+  // Starts on a value too, since the time picker always shows one
+  const [time, setTime] = useState(editing?.time ?? defaultStartTime());
   const [endTimeInput, setEndTimeInput] = useState(editing?.endTime ?? '');
   const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
     (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
@@ -169,8 +177,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     if (!time) next.time = '請選擇時間';
     else if (!validTime) next.time = '時間格式請用 HH:mm';
     if (isSpecial) {
-      if (!endTimeInput) next.endTime = '請選擇完結時間';
-      else if (!validEndTime) next.endTime = '時間格式請用 HH:mm';
+      // A blank 完結 shows (and saves as) the start time
+      if (endTimeInput && !validEndTime) next.endTime = '時間格式請用 HH:mm';
       else if (specialDuration != null && specialDuration < 0)
         next.endTime = '完結時間不可早於開始時間';
     } else if (priceTextState.get().trim() && !/^\d+$/.test(priceTextState.get().trim())) {
@@ -179,10 +187,29 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     return next;
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     const found = validate();
     setErrors(found);
     if (Object.keys(found).length > 0 || !service) return;
+
+    // Overlaps are sometimes intended, so they only need confirming
+    const overlaps = findOverlaps(otherBookings, time, duration);
+    if (overlaps.length > 0) {
+      showAlert(
+        '時間重疊',
+        `此時段與以下預約時間重疊：\n${describeOverlaps(overlaps)}\n\n仍然要儲存嗎？`,
+        [
+          { text: '返回修改', style: 'cancel' },
+          { text: '仍然儲存', onPress: () => void save() },
+        ]
+      );
+      return;
+    }
+    void save();
+  };
+
+  const save = async () => {
+    if (!service) return;
 
     const customerName = customerNameText.get();
     const notes = notesText.get();
@@ -226,18 +253,13 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     }
   };
 
+  const endBeforeStart = specialDuration != null && specialDuration < 0;
+  // Shown as soon as 完結 is before 開始, not only on save
+  const endTimeError =
+    errors.endTime ?? (isSpecial && endBeforeStart ? '完結時間不可早於開始時間' : undefined);
+  // Only once the range is valid; save asks to confirm these
   const clashes =
-    !isSpecial && validTime && duration
-      ? otherBookings.filter((apt) => {
-          const start = timeToMinutes(apt.time);
-          const end = apt.endTime
-            ? timeToMinutes(apt.endTime)
-            : start + (apt.durationMinutes ?? 30);
-          const mineStart = timeToMinutes(time);
-          const mineEnd = mineStart + duration;
-          return mineStart < end && mineEnd > start;
-        })
-      : [];
+    validTime && !(isSpecial && endBeforeStart) ? findOverlaps(otherBookings, time, duration) : [];
   const knownCustomer = customers.find((c) => c.name === customerQuery.trim());
 
   const errorText = (field: Field) =>
@@ -248,7 +270,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   return (
     <SwiftModal
       onClose={onClose}
-      onSave={() => void handleSubmit()}
+      onSave={handleSubmit}
       saveDisabled={saving || !service}
     >
       <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
@@ -366,58 +388,55 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
             )}
 
             <Section title="時間">
+              {/* Compact SwiftUI picker. Its calendar popover doesn't close on a
+                  pick, so a new id per date rebuilds the picker, which dismisses it. */}
               <DatePicker
+                key={date}
                 title="日期"
-                selection={date ? isoToDate(date) : new Date()}
+                selection={isoToDate(date)}
                 displayedComponents={['date']}
                 onDateChange={(d) => {
                   setDate(dateToIso(d));
                   clearError('date');
                 }}
+                modifiers={[datePickerStyle('compact'), id(date), ...PICKER_LOOK]}
               />
               {errorText('date')}
 
-              {date ? (
-                <Picker
-                  label="開始"
-                  selection={time || null}
-                  onSelectionChange={(value) => {
-                    if (typeof value !== 'string') return;
-                    setTime(value);
-                    clearError('time');
-                    if (isSpecial && validEndTime && endTimeInput < value) setEndTimeInput('');
-                  }}
-                  modifiers={[pickerStyle('menu')]}
-                >
-                  {TIME_SLOTS.map((slot) => (
-                    <Text key={slot} modifiers={[tag(slot)]}>
-                      {slot}
-                    </Text>
-                  ))}
-                </Picker>
-              ) : (
-                <PlaceholderRow label="開始" text="先揀日期" />
-              )}
+              <DatePicker
+                title="開始"
+                selection={timeToDate(time)}
+                displayedComponents={['hourAndMinute']}
+                modifiers={PICKER_LOOK}
+                onDateChange={(d) => {
+                  const value = dateToTime(d);
+                  setTime(value);
+                  clearError('time');
+                  // An end time now before the start has to be picked again
+                  if (isSpecial && validEndTime && endTimeInput < value) setEndTimeInput('');
+                }}
+              />
               {errorText('time')}
 
               {isSpecial ? (
-                time ? (
-                  <DatePicker
-                    title="完結"
-                    selection={endTimeInput ? timeToDate(endTimeInput) : timeToDate(time)}
-                    displayedComponents={['hourAndMinute']}
-                    onDateChange={(d) => {
-                      setEndTimeInput(dateToTime(d));
-                      clearError('endTime');
-                    }}
-                  />
-                ) : (
-                  <PlaceholderRow label="完結" text="先揀開始時間" />
-                )
+                <DatePicker
+                  title="完結"
+                  selection={timeToDate(endTimeInput || time)}
+                  displayedComponents={['hourAndMinute']}
+                  modifiers={PICKER_LOOK}
+                  onDateChange={(d) => {
+                    setEndTimeInput(dateToTime(d));
+                    clearError('endTime');
+                  }}
+                />
               ) : endTime ? (
                 <PlaceholderRow label="完結" text={`${endTime}（${duration} 分鐘）`} />
               ) : null}
-              {errorText('endTime')}
+              {endTimeError ? (
+                <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>
+                  {endTimeError}
+                </Text>
+              ) : null}
 
               {clashes.length > 0 ? (
                 <VStack spacing={4} alignment="leading">
@@ -529,12 +548,9 @@ function PlaceholderRow({ label, text }: { label: string; text: string }) {
   );
 }
 
-function buildTimeSlots(): string[] {
-  const slots: string[] = [];
-  for (let minutes = 9 * 60; minutes <= 20 * 60 + 30; minutes += 30) {
-    const h = String(Math.floor(minutes / 60)).padStart(2, '0');
-    const m = String(minutes % 60).padStart(2, '0');
-    slots.push(`${h}:${m}`);
-  }
-  return slots;
+/** The next half hour from now, kept within opening hours (09:00–20:30). */
+function defaultStartTime(): string {
+  const now = new Date();
+  const next = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30;
+  return minutesToTime(Math.min(Math.max(next, 9 * 60), 20 * 60 + 30));
 }
