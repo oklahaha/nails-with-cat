@@ -15,6 +15,7 @@ import { ServiceBreakdown } from '@/components/stats/ServiceBreakdown';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
+import { useHideTabBarOnScroll, useTabBarInset } from '@/hooks/useTabBarVisibility';
 import { addMonths, todayIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 import {
   customerStats,
@@ -45,6 +46,8 @@ export default function StatsScreen() {
   });
   // Loaded so tapping a customer can open their details
   const { customers } = useCustomers();
+  const { scrollHandlers } = useHideTabBarOnScroll();
+  const tabBarInset = useTabBarInset();
   const [picked, setSelected] = useState(months[months.length - 1]);
   // Falls back to this month if the app stayed open into a new month
   const selected = months.includes(picked) ? picked : months[months.length - 1];
@@ -103,7 +106,11 @@ export default function StatsScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+          styles.content,
+          { paddingBottom: styles.content.paddingBottom + tabBarInset },
+        ]}
+      {...scrollHandlers}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}

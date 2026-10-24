@@ -10,6 +10,7 @@ import { AppointmentCard } from '@/components/AppointmentCard';
 import { StateView } from '@/components/StateView';
 import { colors, spacing, type } from '@/constants/theme';
 import { useAppointments } from '@/hooks/useAppointments';
+import { useHideTabBarOnScroll, useTabBarInset } from '@/hooks/useTabBarVisibility';
 import type { Appointment } from '@/types/appointment';
 import { addDays, todayIsoDate } from '@/utils/dates';
 import { formatDateHeader, groupAppointmentsByDate } from '@/utils/groupByDate';
@@ -18,6 +19,8 @@ type Section = { date: string; data: Appointment[] };
 
 export default function AppointmentsScreen() {
   const today = todayIsoDate();
+  const { scrollHandlers } = useHideTabBarOnScroll();
+  const tabBarInset = useTabBarInset();
   const { appointments, loading, refreshing, error, reload } = useAppointments({
     from: today,
   });
@@ -71,7 +74,11 @@ export default function AppointmentsScreen() {
         }}
         renderSectionFooter={() => <View style={styles.sectionGap} />}
         stickySectionHeadersEnabled={false}
-        contentContainerStyle={styles.scrollContent}
+        {...scrollHandlers}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: styles.scrollContent.paddingBottom + tabBarInset },
+        ]}
         ListEmptyComponent={
           <StateView
             icon="calendar"

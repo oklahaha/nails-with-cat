@@ -28,6 +28,7 @@ import { View } from 'react-native';
 import { AppointmentRow } from '@/components/swiftui/AppointmentRow';
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
+import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { useAppointments } from '@/hooks/useAppointments';
 import type { Appointment } from '@/types/appointment';
@@ -38,6 +39,7 @@ export default function AppointmentsScreen() {
   const today = todayIsoDate();
   const tomorrow = addDays(today, 1);
   const { appointments, loading, error, reload } = useAppointments({ from: today });
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
 
   const groups = useMemo(() => groupAppointmentsByDate(appointments), [appointments]);
 
@@ -77,6 +79,7 @@ export default function AppointmentsScreen() {
             modifiers={[
               navigationTitle('預約資料'),
               listStyle('insetGrouped'),
+              ...hideTabBarOnScroll,
               refreshable(async () => {
                 await reload(true);
               }),

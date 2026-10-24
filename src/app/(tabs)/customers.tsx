@@ -22,12 +22,15 @@ import { WhatsAppIcon } from '@/components/WhatsAppIcon';
 import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useCustomers } from '@/hooks/useCustomers';
+import { useHideTabBarOnScroll, useTabBarInset } from '@/hooks/useTabBarVisibility';
 import type { Customer } from '@/types/customer';
 import { formatPhone } from '@/utils/phone';
 import { openWhatsApp } from '@/utils/whatsapp';
 
 export default function CustomersScreen() {
   const { customers, loading, refreshing, error, reload } = useCustomers();
+  const { scrollHandlers } = useHideTabBarOnScroll();
+  const tabBarInset = useTabBarInset();
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -75,9 +78,13 @@ export default function CustomersScreen() {
         data={filtered}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: styles.listContent.paddingBottom + tabBarInset },
+        ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        {...scrollHandlers}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

@@ -30,6 +30,7 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
+import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { glassButton } from '@/components/swiftui/glass';
 import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
@@ -68,6 +69,7 @@ export default function StatsScreen() {
   const [picked, setSelected] = useState(months[months.length - 1]);
   const selected = months.includes(picked) ? picked : months[months.length - 1];
   const [showAllLapsed, setShowAllLapsed] = useState(false);
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
 
   const monthly = useMemo(
     () => months.map((m) => monthStats(appointments, m, today)),
@@ -124,6 +126,7 @@ export default function StatsScreen() {
         <Form
           modifiers={[
             navigationTitle('統計'),
+            ...hideTabBarOnScroll,
             refreshable(async () => {
               await reload(true);
             }),

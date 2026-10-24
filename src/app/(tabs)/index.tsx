@@ -20,6 +20,7 @@ import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
+import { useTabBarInset } from '@/hooks/useTabBarVisibility';
 import type { Appointment } from '@/types/appointment';
 import { openAppointmentDetails } from '@/utils/appointmentActions';
 import {
@@ -44,6 +45,7 @@ const VIEW_MODES: { mode: ViewMode; label: string }[] = [
 export default function TimetableScreen() {
   const [mode, setMode] = useState<ViewMode>('month');
   const [anchor, setAnchor] = useState(todayIsoDate);
+  const tabBarInset = useTabBarInset();
 
   const range = useMemo(() => timetableRange(anchor), [anchor]);
 
@@ -155,7 +157,9 @@ export default function TimetableScreen() {
           action={{ label: '重試', onPress: () => void reload() }}
         />
       ) : mode === 'month' ? (
-        <MonthView anchor={anchor} byDate={byDate} onPressDay={openDay} />
+        <View style={{ flex: 1, paddingBottom: tabBarInset }}>
+          <MonthView anchor={anchor} byDate={byDate} onPressDay={openDay} />
+        </View>
       ) : (
         <TimeGrid
           days={mode === 'week' ? weekDates(anchor) : [anchor]}

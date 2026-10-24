@@ -31,6 +31,7 @@ import { View } from 'react-native';
 
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
+import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { glassButton } from '@/components/swiftui/glass';
 import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
@@ -44,6 +45,7 @@ export default function CustomersScreen() {
   const { customers, loading, error, reload } = useCustomers();
   const searchText = useNativeState('');
   const [query, setQuery] = useState('');
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -81,6 +83,7 @@ export default function CustomersScreen() {
               listStyle('insetGrouped'),
               refreshable(() => reload(true)),
               scrollDismissesKeyboard('immediately'),
+              ...hideTabBarOnScroll,
               searchable(searchText, {
                 prompt: '搜尋姓名或電話',
                 onChange: setQuery,

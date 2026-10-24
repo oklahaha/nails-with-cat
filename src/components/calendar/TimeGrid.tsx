@@ -2,6 +2,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { serviceColor } from '@/constants/services';
 import { colors, radius, spacing, tint, type } from '@/constants/theme';
+import { useHideTabBarOnScroll, useTabBarInset } from '@/hooks/useTabBarVisibility';
 import type { Appointment } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import {
@@ -38,6 +39,8 @@ type Block = {
 
 /** Day / Week time grid. Overlapping appointments share the column side by side. */
 export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props) {
+  const { scrollHandlers } = useHideTabBarOnScroll();
+  const tabBarInset = useTabBarInset();
   const compact = days.length > 1;
   const today = todayIsoDate();
   const blocksByDay = days.map((date) => layoutBlocks(byDate.get(date) ?? []));
@@ -77,7 +80,13 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
         </View>
       ) : null}
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: styles.scrollContent.paddingBottom + tabBarInset },
+        ]}
+        {...scrollHandlers}
+      >
         <View style={[styles.grid, { height: gridHeight }]}>
           <View style={{ width: LABEL_WIDTH }}>
             {hours.map((hour) => (

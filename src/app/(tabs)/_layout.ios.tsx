@@ -5,14 +5,27 @@
  *
  * Native tabs have no headers, so each iOS screen draws its own title
  * (a SwiftUI NavigationStack, or the timetable's own top bar).
+ *
+ * The bar hides while scrolling down and returns on scroll up
+ * (useHideTabBarOnScroll in each screen). iOS animates that itself.
  */
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { colors } from '@/constants/theme';
+import { TabBarVisibilityProvider, useTabBarHidden } from '@/hooks/useTabBarVisibility';
 
 export default function TabLayout() {
   return (
-    <NativeTabs tintColor={colors.accent} minimizeBehavior="onScrollDown">
+    <TabBarVisibilityProvider>
+      <Tabs />
+    </TabBarVisibilityProvider>
+  );
+}
+
+function Tabs() {
+  const hidden = useTabBarHidden();
+  return (
+    <NativeTabs tintColor={colors.accent} minimizeBehavior="never" hidden={hidden}>
       <NativeTabs.Trigger name="stats">
         <NativeTabs.Trigger.Icon sf={{ default: 'chart.bar', selected: 'chart.bar.fill' }} />
         <NativeTabs.Trigger.Label>統計</NativeTabs.Trigger.Label>
