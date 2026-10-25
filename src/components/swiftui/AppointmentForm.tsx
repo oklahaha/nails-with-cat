@@ -45,6 +45,8 @@ import { useMemo, useState, type ReactNode } from 'react';
 import {
   defaultDurationFor,
   defaultPriceFor,
+  usesHandOrFoot,
+  viewFor,
   HAND_OR_FOOT_OPTIONS,
   SERVICES,
   serviceColor,
@@ -226,8 +228,9 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
             time,
             service,
             notes,
+            view: viewFor(service, customerName),
             durationMinutes: duration,
-            handOrFoot,
+            handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
             price: price.trim() ? Number(price.trim()) : undefined,
           };
       if (editing) {
@@ -464,22 +467,24 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
             {isSpecial ? null : (
               <>
                 <Section title="詳情">
-                  <LabeledContent label="手/腳">
-                    <Picker
-                      label="手/腳"
-                      selection={handOrFoot || null}
-                      onSelectionChange={(value) => {
-                        if (typeof value === 'string') setHandOrFoot(value as HandOrFoot);
-                      }}
-                      modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 180 })]}
-                    >
-                      {HAND_OR_FOOT_OPTIONS.map((option) => (
-                        <Text key={option} modifiers={[tag(option)]}>
-                          {option}
-                        </Text>
-                      ))}
-                    </Picker>
-                  </LabeledContent>
+                  {usesHandOrFoot(service) ? (
+                    <LabeledContent label="手/腳">
+                      <Picker
+                        label="手/腳"
+                        selection={handOrFoot || null}
+                        onSelectionChange={(value) => {
+                          if (typeof value === 'string') setHandOrFoot(value as HandOrFoot);
+                        }}
+                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 180 })]}
+                      >
+                        {HAND_OR_FOOT_OPTIONS.map((option) => (
+                          <Text key={option} modifiers={[tag(option)]}>
+                            {option}
+                          </Text>
+                        ))}
+                      </Picker>
+                    </LabeledContent>
+                  ) : null}
                   {editing ? (
                     <LabeledContent label="狀態">
                       <Picker

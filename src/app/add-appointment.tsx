@@ -35,6 +35,8 @@ import { StateView } from '@/components/StateView';
 import {
   defaultDurationFor,
   defaultPriceFor,
+  usesHandOrFoot,
+  viewFor,
   HAND_OR_FOOT_OPTIONS,
   type HandOrFoot,
 } from '@/constants/services';
@@ -208,8 +210,9 @@ export default function AddAppointmentScreen() {
             time,
             service,
             notes,
+            view: viewFor(service, customerName),
             durationMinutes: duration,
-            handOrFoot,
+            handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
             price: price.trim() ? Number(price.trim()) : undefined,
           };
       if (editing) {
@@ -396,26 +399,28 @@ export default function AddAppointmentScreen() {
             {dateSection}
             {timeSection}
 
-            <Section title="手/腳">
-              <View style={styles.segmented}>
-                {HAND_OR_FOOT_OPTIONS.map((option) => {
-                  const selected = handOrFoot === option;
-                  return (
-                    <Pressable
-                      key={option}
-                      onPress={() => setHandOrFoot(option)}
-                      style={[styles.segment, selected && styles.segmentSelected]}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                    >
-                      <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                        {option}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </Section>
+            {usesHandOrFoot(service) ? (
+              <Section title="手/腳">
+                <View style={styles.segmented}>
+                  {HAND_OR_FOOT_OPTIONS.map((option) => {
+                    const selected = handOrFoot === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setHandOrFoot(option)}
+                        style={[styles.segment, selected && styles.segmentSelected]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Section>
+            ) : null}
 
             {editing ? (
               <Section title="狀態">

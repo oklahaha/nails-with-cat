@@ -4,6 +4,10 @@
  * - durationMinutes → Duration; End Time is derived from it. Services without
  *   a duration get End Time = start time.
  * - price → 收費, prefilled in the form and still editable.
+ * - noHandOrFoot → the service doesn't ask for 手/腳, so the form hides it and
+ *   saves it blank.
+ * - viewIsCustomer → View is written with the customer's name (as AppSheet
+ *   does for 粉嫩術). 特別事項 copies 備注 into View instead, in the forms.
  * - color → calendar bar/block colour. The first five keep the AppSheet
  *   timetable's hues (toned down so white text reads on them); the rest
  *   weren't visible there, so they're picked to be distinct.
@@ -16,7 +20,14 @@ export const SERVICES = [
   { name: '拆甲', durationMinutes: 60, price: 100, color: '#A88C12' },
   { name: '補眼睫毛', durationMinutes: 60, price: 0, color: '#3C72D6' },
   { name: '拆眼睫毛', durationMinutes: 60, price: undefined, color: '#1A8F9E' },
-  { name: '粉嫩術', durationMinutes: undefined, price: undefined, color: '#C9668E' },
+  {
+    name: '粉嫩術',
+    durationMinutes: 90,
+    price: 2000,
+    color: '#C9668E',
+    noHandOrFoot: true,
+    viewIsCustomer: true,
+  },
   { name: '特別事項', durationMinutes: undefined, price: 0, color: '#AE45A8' },
 ] as const;
 
@@ -31,6 +42,20 @@ const UNKNOWN_SERVICE_COLOR = '#6E655F';
 
 export function defaultDurationFor(service: ServiceType): number | undefined {
   return SERVICES.find((s) => s.name === service)?.durationMinutes;
+}
+
+/** Accepts any sheet value. 特別事項 is handled separately by the forms. */
+export function usesHandOrFoot(service: string): boolean {
+  const found = SERVICES.find((s) => s.name === service);
+  return !(found && 'noHandOrFoot' in found && found.noHandOrFoot);
+}
+
+/** The View value to send for a non-特別事項 booking, or undefined to leave it as is. */
+export function viewFor(service: string, customerName: string): string | undefined {
+  const found = SERVICES.find((s) => s.name === service);
+  return found && 'viewIsCustomer' in found && found.viewIsCustomer
+    ? customerName.trim()
+    : undefined;
 }
 
 export function defaultPriceFor(service: ServiceType): number | undefined {

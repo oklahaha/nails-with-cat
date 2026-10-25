@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
-import { serviceColor } from '@/constants/services';
+import { serviceColor, usesHandOrFoot } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
 import { findCachedAppointment, removeCachedAppointment } from '@/hooks/useAppointments';
 import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
@@ -54,7 +54,10 @@ export default function AppointmentDetailsScreen() {
         appointment.durationMinutes ? `（${appointment.durationMinutes} 分鐘）` : ''
       }`,
     },
-    { label: '手/腳', value: appointment.handOrFoot },
+    {
+      label: '手/腳',
+      value: usesHandOrFoot(appointment.service) ? appointment.handOrFoot : undefined,
+    },
     { label: '收費', value: appointment.price != null ? `$${appointment.price}` : '' },
     { label: '狀態', value: appointment.status },
     { label: '電話', value: phone },
