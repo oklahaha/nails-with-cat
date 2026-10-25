@@ -41,7 +41,7 @@ import {
   tag,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
   defaultDurationFor,
@@ -65,8 +65,9 @@ import {
 import type { Appointment, ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import { minutesToTime, timeToMinutes, todayIsoDate } from '@/utils/dates';
+import { addDays, minutesToTime, timeToMinutes, todayIsoDate } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { LASH_TOP_UP_LOOKBACK_DAYS, lashTopUpPrice } from '@/utils/lashTopUpPrice';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { formatPhone } from '@/utils/phone';
 
@@ -76,6 +77,7 @@ import { SwiftModal } from './SwiftModal';
 type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
 
 const SPECIAL: ServiceType = '特別事項';
+const LASH_TOP_UP: ServiceType = '補眼睫毛';
 const STATUS_OPTIONS = ['預約', '已完成'] as const;
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
 const PICKER_LOOK = [tint(colors.accent), environment('locale', 'zh_Hant_HK')];
@@ -133,6 +135,21 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     () => dayBookings.appointments.filter((apt) => apt.id !== editing?.id),
     [dayBookings.appointments, editing]
   );
+
+  // 補眼睫毛: once a known customer is picked, 收費 follows their last lash set
+  const isTopUp = service === LASH_TOP_UP;
+  const customerPicked = customers.some((c) => c.name === customerQuery.trim());
+  const lashHistory = useAppointments(
+    { from: addDays(date, -LASH_TOP_UP_LOOKBACK_DAYS), to: date },
+    { enabled: isTopUp && customerPicked }
+  );
+  const topUpPrice =
+    isTopUp && customerPicked && !lashHistory.loading && !lashHistory.error
+      ? lashTopUpPrice(lashHistory.appointments, customerQuery, date, editing?.id)
+      : undefined;
+  useEffect(() => {
+    if (topUpPrice != null && !priceEdited) priceTextState.set(String(topUpPrice));
+  }, [topUpPrice, priceEdited, priceTextState]);
 
   const isSpecial = service === SPECIAL;
   const HHMM = /^\d{2}:\d{2}$/;

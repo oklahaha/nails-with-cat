@@ -51,8 +51,9 @@ import {
 } from '@/services/appointmentsApi';
 import type { ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
-import { minutesToTime, timeToMinutes } from '@/utils/dates';
+import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { LASH_TOP_UP_LOOKBACK_DAYS, lashTopUpPrice } from '@/utils/lashTopUpPrice';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 
 type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
@@ -64,6 +65,7 @@ const DEPOSIT_OPTIONS = [
 ] as const;
 
 const SPECIAL: ServiceType = '特別事項';
+const LASH_TOP_UP: ServiceType = '補眼睫毛';
 const HHMM = /^\d{2}:\d{2}$/;
 
 /** Customer suggestions shown under the name field. */
@@ -121,6 +123,24 @@ export default function AddAppointmentScreen() {
     () => dayBookings.appointments.filter((apt) => apt.id !== editing?.id),
     [dayBookings.appointments, editing]
   );
+
+  // 補眼睫毛: once a known customer is picked, 收費 follows their last lash set
+  const isTopUp = service === LASH_TOP_UP;
+  const customerPicked = customers.some((c) => c.name === customerName.trim());
+  const lashHistory = useAppointments(
+    { from: date && addDays(date, -LASH_TOP_UP_LOOKBACK_DAYS), to: date },
+    { enabled: isTopUp && customerPicked && date !== '' }
+  );
+  const topUpPrice =
+    isTopUp && customerPicked && date && !lashHistory.loading && !lashHistory.error
+      ? lashTopUpPrice(lashHistory.appointments, customerName, date, editing?.id)
+      : undefined;
+  // Applied during render when it changes, rather than in an effect
+  const [appliedTopUpPrice, setAppliedTopUpPrice] = useState<number>();
+  if (topUpPrice !== appliedTopUpPrice) {
+    setAppliedTopUpPrice(topUpPrice);
+    if (topUpPrice != null && !priceEdited) setPrice(String(topUpPrice));
+  }
 
   const isSpecial = service === SPECIAL;
   const validTime = HHMM.test(time);
