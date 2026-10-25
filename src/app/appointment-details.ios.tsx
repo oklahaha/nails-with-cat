@@ -22,7 +22,7 @@ import { useState } from 'react';
 import { AppointmentForm } from '@/components/swiftui/AppointmentForm';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
-import { serviceColor, usesHandOrFoot } from '@/constants/services';
+import { serviceColor, usesDeposit, usesHandOrFoot } from '@/constants/services';
 import { findCachedAppointment, removeCachedAppointment } from '@/hooks/useAppointments';
 import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
 import { showAlert } from '@/utils/alert';
@@ -64,6 +64,15 @@ export default function AppointmentDetailsScreen() {
     {
       label: '手/腳',
       value: usesHandOrFoot(appointment.service) ? appointment.handOrFoot : undefined,
+    },
+    {
+      label: '訂金',
+      value:
+        usesDeposit(appointment.service) && appointment.deposit != null
+          ? appointment.deposit
+            ? '已付'
+            : '未付'
+          : undefined,
     },
     { label: '收費', value: appointment.price != null ? `$${appointment.price}` : '' },
     { label: '狀態', value: appointment.status },

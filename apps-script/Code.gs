@@ -38,6 +38,8 @@ const COL = {
   endTime: 'End Time',
   // AppSheet column holding the 特別事項 text (same as 備注)
   view: 'View',
+  // Only used by 拆眼睫毛
+  deposit: '訂金',
 };
 
 const CUST_COL = {
@@ -230,6 +232,7 @@ function toAppointment_(row, customers, tz) {
   if (handOrFoot) apt.handOrFoot = handOrFoot;
   const price = toNumber_(row.values[COL.price]);
   if (price != null) apt.price = price;
+  if (cellText_(row, COL.deposit)) apt.deposit = toBoolean_(row.values[COL.deposit]);
   const endTime = toHHmm_(row.display[COL.endTime]);
   if (endTime) apt.endTime = endTime;
 
@@ -363,9 +366,17 @@ function parseAppointmentInput_(input) {
     handOrFoot: String(input.handOrFoot || '').trim(),
     // Only written when sent
     view: input.view != null ? String(input.view).trim() : null,
+    // TRUE / FALSE, only written when sent
+    hasDeposit: input.deposit != null,
+    deposit: toBoolean_(input.deposit),
     // Matches AppSheet: rows without a duration (e.g. 特別事項) have End Time = start.
     endTime: durationMinutes != null ? addMinutes_(time, durationMinutes) : time,
   };
+}
+
+/** Columns the app relies on but the sheet may not have yet (e.g. 訂金). */
+function requireColumn_(headers, name) {
+  if (headers.indexOf(name) === -1) throw new Error('預約資料沒有「' + name + '」欄');
 }
 
 /** The JSON shape the app expects back after a write. */
@@ -383,6 +394,7 @@ function appointmentResponse_(id, a, status, customer) {
   if (a.durationMinutes != null) out.durationMinutes = a.durationMinutes;
   if (a.handOrFoot) out.handOrFoot = a.handOrFoot;
   if (a.price != null) out.price = a.price;
+  if (a.hasDeposit) out.deposit = a.deposit;
   if (a.endTime) out.endTime = a.endTime;
   return out;
 }
@@ -418,6 +430,10 @@ function createAppointment_(input) {
     cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     if (a.view != null) cells[COL.view] = a.view;
+    if (a.hasDeposit) {
+      requireColumn_(table.headers, COL.deposit);
+      cells[COL.deposit] = a.deposit;
+    }
 
     // Only fill columns we know; leave any other columns (e.g. AppSheet
     // virtual/formula columns) blank so the sheet computes them.
@@ -478,6 +494,10 @@ function updateAppointment_(id, input) {
     if (hasStatus) cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     if (a.view != null) cells[COL.view] = a.view;
+    if (a.hasDeposit) {
+      requireColumn_(headers, COL.deposit);
+      cells[COL.deposit] = a.deposit;
+    }
 
     Object.keys(cells).forEach(function (h) {
       const c = headers.indexOf(h);
@@ -840,6 +860,11 @@ function toNumber_(value) {
   if (value === '' || value == null) return null;
   const n = Number(String(value).replace(/[^\d.-]/g, ''));
   return isNaN(n) ? null : n;
+}
+
+/** Checkbox cells come back as booleans; typed cells as "TRUE" / "FALSE". */
+function toBoolean_(value) {
+  return value === true || String(value).trim().toUpperCase() === 'TRUE';
 }
 
 function normalizePhone_(phone) {

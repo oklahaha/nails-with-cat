@@ -6,6 +6,8 @@
  * - price → 收費, prefilled in the form and still editable.
  * - noHandOrFoot → the service doesn't ask for 手/腳, so the form hides it and
  *   saves it blank.
+ * - hasDeposit → the form asks whether 訂金 was paid (TRUE / FALSE in the
+ *   sheet's 訂金 column).
  * - viewIsCustomer → View is written with the customer's name (as AppSheet
  *   does for 粉嫩術). 特別事項 copies 備注 into View instead, in the forms.
  * - color → calendar bar/block colour. The first five keep the AppSheet
@@ -19,7 +21,15 @@ export const SERVICES = [
   { name: '補甲', durationMinutes: 60, price: 0, color: '#D17A1E' },
   { name: '拆甲', durationMinutes: 60, price: 100, color: '#A88C12' },
   { name: '補眼睫毛', durationMinutes: 60, price: 0, color: '#3C72D6' },
-  { name: '拆眼睫毛', durationMinutes: 60, price: undefined, color: '#1A8F9E' },
+  {
+    name: '拆眼睫毛',
+    durationMinutes: 60,
+    price: 100,
+    color: '#1A8F9E',
+    noHandOrFoot: true,
+    viewIsCustomer: true,
+    hasDeposit: true,
+  },
   {
     name: '粉嫩術',
     durationMinutes: 90,
@@ -48,6 +58,11 @@ export function defaultDurationFor(service: ServiceType): number | undefined {
 export function usesHandOrFoot(service: string): boolean {
   const found = SERVICES.find((s) => s.name === service);
   return !(found && 'noHandOrFoot' in found && found.noHandOrFoot);
+}
+
+export function usesDeposit(service: string): boolean {
+  const found = SERVICES.find((s) => s.name === service);
+  return !!(found && 'hasDeposit' in found && found.hasDeposit);
 }
 
 /** The View value to send for a non-特別事項 booking, or undefined to leave it as is. */

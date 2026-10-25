@@ -18,6 +18,7 @@ import {
   Spacer,
   Text,
   TextField,
+  Toggle,
   useNativeState,
   VStack,
 } from '@expo/ui/swift-ui';
@@ -45,6 +46,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import {
   defaultDurationFor,
   defaultPriceFor,
+  usesDeposit,
   usesHandOrFoot,
   viewFor,
   HAND_OR_FOOT_OPTIONS,
@@ -107,6 +109,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   const priceTextState = useNativeState(
     editing?.price != null ? String(editing.price) : ''
   );
+  const [deposit, setDeposit] = useState(editing?.deposit ?? false);
   const [customerQuery, setCustomerQuery] = useState(
     editing?.customerName ?? params.customerName ?? ''
   );
@@ -232,6 +235,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
             durationMinutes: duration,
             handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
             price: price.trim() ? Number(price.trim()) : undefined,
+            // Other services leave 訂金 untouched
+            deposit: usesDeposit(service) ? deposit : undefined,
           };
       if (editing) {
         saved = await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status });
@@ -502,6 +507,14 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                         ))}
                       </Picker>
                     </LabeledContent>
+                  ) : null}
+                  {usesDeposit(service) ? (
+                    <Toggle
+                      label="已付訂金"
+                      isOn={deposit}
+                      onIsOnChange={setDeposit}
+                      modifiers={[tint(colors.accent)]}
+                    />
                   ) : null}
                   <LabeledContent label="收費">
                     <HStack spacing={4}>

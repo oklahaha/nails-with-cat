@@ -103,6 +103,7 @@ export async function createAppointment(
       durationMinutes: input.durationMinutes,
       handOrFoot: input.handOrFoot,
       price: input.price,
+      deposit: input.deposit,
       status: input.service === '特別事項' ? '' : '預約',
     };
 
@@ -145,6 +146,7 @@ export async function updateAppointment(
       durationMinutes: input.durationMinutes,
       handOrFoot: input.handOrFoot,
       price: input.price,
+      deposit: input.deposit,
       status: input.status ?? '預約',
     };
 

@@ -51,7 +51,7 @@ On web, `Alert.alert` from react-native-web is a no-op. Use `showAlert` from `sr
 - Writes happen under `LockService`, since both users may save at the same moment. Code changes have to be redeployed as a new version of the existing deployment, which keeps the `/exec` URL.
 
 **Sheet ↔ type mapping** lives in `src/types/appointment.ts`, which documents the sheet tabs and their columns:
-- `預約資料` (appointments): 預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View (特別事項 rows copy 備注 into View, 粉嫩術 rows copy 顧客姓名)
+- `預約資料` (appointments): 預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金 (特別事項 rows copy 備注 into View, 粉嫩術 and 拆眼睫毛 rows copy 顧客姓名; only 拆眼睫毛 uses 訂金, a TRUE / FALSE "paid" flag, and the script errors if a 訂金 is sent but the column is missing)
 - `顧客` (customers): 顧客ID, 顧客姓名, 電話
 
 Real-data conventions (from AppSheet): 狀態 is `預約` / `已完成` (blank for 特別事項), and new 預約ID values are 22-char alphanumeric. The service list and each service's default Duration live in `src/constants/services.ts`. End Time = 時間 + Duration, or 時間 itself when there's no duration.

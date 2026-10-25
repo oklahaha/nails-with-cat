@@ -2,8 +2,9 @@
  * Domain types aligned with the Google Sheet columns.
  *
  * Sheet "預約資料" columns:
- *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View
- *   (View holds the same text as 備注 for 特別事項 rows, and 顧客姓名 for 粉嫩術)
+ *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金
+ *   (View holds the same text as 備注 for 特別事項 rows, and 顧客姓名 for 粉嫩術 and 拆眼睫毛)
+ *   (訂金 is only used by 拆眼睫毛)
  *
  * Sheet "顧客" columns:
  *   顧客ID, 顧客姓名, 電話
@@ -44,6 +45,8 @@ export type Appointment = {
   handOrFoot?: string;
   /** 收費 */
   price?: number;
+  /** 訂金 — TRUE / FALSE in the sheet (whether a deposit was paid) */
+  deposit?: boolean;
   /** 狀態 */
   status: AppointmentStatus;
   /** End Time — HH:mm */
@@ -64,7 +67,9 @@ export type NewAppointmentInput = {
   handOrFoot?: HandOrFoot;
   /** 收費 */
   price?: number;
-  /** View — only written when sent (特別事項 copies 備注 into it, 粉嫩術 the customer name) */
+  /** 訂金 — written as TRUE / FALSE, only when sent */
+  deposit?: boolean;
+  /** View — only written when sent (特別事項 copies 備注 into it, 粉嫩術 / 拆眼睫毛 the customer name) */
   view?: string;
 };
 

@@ -35,6 +35,7 @@ import { StateView } from '@/components/StateView';
 import {
   defaultDurationFor,
   defaultPriceFor,
+  usesDeposit,
   usesHandOrFoot,
   viewFor,
   HAND_OR_FOOT_OPTIONS,
@@ -55,6 +56,12 @@ import { formatDateHeader } from '@/utils/groupByDate';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 
 type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
+
+/** 訂金 is TRUE / FALSE in the sheet. */
+const DEPOSIT_OPTIONS = [
+  { label: '已付', value: true },
+  { label: '未付', value: false },
+] as const;
 
 const SPECIAL: ServiceType = '特別事項';
 const HHMM = /^\d{2}:\d{2}$/;
@@ -97,6 +104,7 @@ export default function AddAppointmentScreen() {
   const [price, setPrice] = useState(
     editing?.price != null ? String(editing.price) : ''
   );
+  const [deposit, setDeposit] = useState(editing?.deposit ?? false);
   // Once the price is typed by hand, changing service no longer overwrites it
   const [priceEdited, setPriceEdited] = useState(editing != null);
   // An edited booking keeps its own Duration until the service is changed
@@ -214,6 +222,8 @@ export default function AddAppointmentScreen() {
             durationMinutes: duration,
             handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
             price: price.trim() ? Number(price.trim()) : undefined,
+            // Other services leave 訂金 untouched
+            deposit: usesDeposit(service) ? deposit : undefined,
           };
       if (editing) {
         await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status });
@@ -437,6 +447,29 @@ export default function AddAppointmentScreen() {
                       >
                         <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
                           {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Section>
+            ) : null}
+
+            {usesDeposit(service) ? (
+              <Section title="訂金">
+                <View style={styles.segmented}>
+                  {DEPOSIT_OPTIONS.map((option) => {
+                    const selected = deposit === option.value;
+                    return (
+                      <Pressable
+                        key={option.label}
+                        onPress={() => setDeposit(option.value)}
+                        style={[styles.segment, selected && styles.segmentSelected]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {option.label}
                         </Text>
                       </Pressable>
                     );
