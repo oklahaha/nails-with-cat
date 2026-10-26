@@ -18,9 +18,17 @@ export const SERVICES = [
   { name: '整甲', durationMinutes: 150, price: 200, color: '#D2453E' },
   { name: '眼睫毛', durationMinutes: 120, price: 380, color: '#2E9E58' },
   { name: '整甲 + 眼睫毛', durationMinutes: 240, price: 580, color: '#8150D6' },
-  { name: '補甲', durationMinutes: 60, price: 0, color: '#D17A1E' },
+  // price is the full price; the forms lower it after a recent set (topUpPrice)
+  {
+    name: '補甲',
+    durationMinutes: 60,
+    price: 30,
+    color: '#D17A1E',
+    noHandOrFoot: true,
+    hasDeposit: true,
+  },
   { name: '拆甲', durationMinutes: 60, price: 100, color: '#A88C12' },
-  // price is the full price; the forms lower it after a recent set (lashTopUpPrice)
+  // price is the full price; the forms lower it after a recent set (topUpPrice)
   {
     name: '補眼睫毛',
     durationMinutes: 60,

@@ -67,12 +67,7 @@ import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { addDays, minutesToTime, timeToMinutes, todayIsoDate } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
-import {
-  LASH_TOP_UP_LOOKBACK_DAYS,
-  lashTopUpPrice,
-  lastLashSetDate,
-  lastLashSetHint,
-} from '@/utils/lashTopUpPrice';
+import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { formatPhone } from '@/utils/phone';
 
@@ -82,7 +77,6 @@ import { SwiftModal } from './SwiftModal';
 type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
 
 const SPECIAL: ServiceType = '特別事項';
-const LASH_TOP_UP: ServiceType = '補眼睫毛';
 const STATUS_OPTIONS = ['預約', '已完成'] as const;
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
 const PICKER_LOOK = [tint(colors.accent), environment('locale', 'zh_Hant_HK')];
@@ -141,29 +135,30 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     [dayBookings.appointments, editing]
   );
 
-  // 補眼睫毛: once a known customer is picked, 收費 follows their last lash set
-  const isTopUp = service === LASH_TOP_UP;
+  // 補眼睫毛 / 補甲: once a known customer is picked, 收費 follows their last set
+  const topUp = topUpRuleFor(service);
+  const isTopUp = topUp != null;
   const customerPicked = customers.some((c) => c.name === customerQuery.trim());
-  const lashHistory = useAppointments(
-    { from: addDays(date, -LASH_TOP_UP_LOOKBACK_DAYS), to: date },
+  const setHistory = useAppointments(
+    { from: addDays(date, -(topUp?.lookbackDays ?? 0)), to: date },
     { enabled: isTopUp && customerPicked }
   );
-  const topUpReady = Boolean(
-    isTopUp && customerPicked && !lashHistory.loading && !lashHistory.error
-  );
+  const topUpReady = topUp != null && customerPicked && !setHistory.loading && !setHistory.error;
   const topUpPrice = topUpReady
-    ? lashTopUpPrice(lashHistory.appointments, customerQuery, date, editing?.id)
+    ? topUpPriceFor(topUp, setHistory.appointments, customerQuery, date, editing?.id)
     : undefined;
   // Shown under 收費 so it's clear where the price came from
   const topUpHint = topUpReady
-    ? lastLashSetHint(
-        lastLashSetDate(lashHistory.appointments, customerQuery, date, editing?.id),
+    ? lastSetHint(
+        topUp,
+        lastSetDate(topUp, setHistory.appointments, customerQuery, date, editing?.id),
         date
       )
     : undefined;
   useEffect(() => {
     if (topUpPrice != null && !priceEdited) priceTextState.set(String(topUpPrice));
-  }, [topUpPrice, priceEdited, priceTextState]);
+    // service too, since switching between top-ups resets 收費 first
+  }, [service, topUpPrice, priceEdited, priceTextState]);
 
   const isSpecial = service === SPECIAL;
   const HHMM = /^\d{2}:\d{2}$/;

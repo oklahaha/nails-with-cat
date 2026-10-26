@@ -53,12 +53,7 @@ import type { ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
-import {
-  LASH_TOP_UP_LOOKBACK_DAYS,
-  lashTopUpPrice,
-  lastLashSetDate,
-  lastLashSetHint,
-} from '@/utils/lashTopUpPrice';
+import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 
 type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
@@ -70,7 +65,6 @@ const DEPOSIT_OPTIONS = [
 ] as const;
 
 const SPECIAL: ServiceType = '特別事項';
-const LASH_TOP_UP: ServiceType = '補眼睫毛';
 const HHMM = /^\d{2}:\d{2}$/;
 
 /** Customer suggestions shown under the name field. */
@@ -129,30 +123,33 @@ export default function AddAppointmentScreen() {
     [dayBookings.appointments, editing]
   );
 
-  // 補眼睫毛: once a known customer is picked, 收費 follows their last lash set
-  const isTopUp = service === LASH_TOP_UP;
+  // 補眼睫毛 / 補甲: once a known customer is picked, 收費 follows their last set
+  const topUp = topUpRuleFor(service);
+  const isTopUp = topUp != null;
   const customerPicked = customers.some((c) => c.name === customerName.trim());
-  const lashHistory = useAppointments(
-    { from: date && addDays(date, -LASH_TOP_UP_LOOKBACK_DAYS), to: date },
+  const setHistory = useAppointments(
+    { from: date && addDays(date, -(topUp?.lookbackDays ?? 0)), to: date },
     { enabled: isTopUp && customerPicked && date !== '' }
   );
-  const topUpReady = Boolean(
-    isTopUp && customerPicked && date && !lashHistory.loading && !lashHistory.error
-  );
+  const topUpReady =
+    topUp != null && customerPicked && date !== '' && !setHistory.loading && !setHistory.error;
   const topUpPrice = topUpReady
-    ? lashTopUpPrice(lashHistory.appointments, customerName, date, editing?.id)
+    ? topUpPriceFor(topUp, setHistory.appointments, customerName, date, editing?.id)
     : undefined;
   // Shown under 收費 so it's clear where the price came from
   const topUpHint = topUpReady
-    ? lastLashSetHint(
-        lastLashSetDate(lashHistory.appointments, customerName, date, editing?.id),
+    ? lastSetHint(
+        topUp,
+        lastSetDate(topUp, setHistory.appointments, customerName, date, editing?.id),
         date
       )
     : undefined;
   // Applied during render when it changes, rather than in an effect
-  const [appliedTopUpPrice, setAppliedTopUpPrice] = useState<number>();
-  if (topUpPrice !== appliedTopUpPrice) {
-    setAppliedTopUpPrice(topUpPrice);
+  // Keyed by service too, since switching between top-ups resets 收費 first
+  const topUpKey = topUpPrice == null ? undefined : `${service}:${topUpPrice}`;
+  const [appliedTopUpKey, setAppliedTopUpKey] = useState<string>();
+  if (topUpKey !== appliedTopUpKey) {
+    setAppliedTopUpKey(topUpKey);
     if (topUpPrice != null && !priceEdited) setPrice(String(topUpPrice));
   }
 

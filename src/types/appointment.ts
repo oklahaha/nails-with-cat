@@ -4,7 +4,7 @@
  * Sheet "預約資料" columns:
  *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金
  *   (View holds the same text as 備注 for 特別事項 rows, and 顧客姓名 for 粉嫩術 and 拆眼睫毛)
- *   (訂金 is only used by 拆眼睫毛 and 補眼睫毛)
+ *   (訂金 is only used by 拆眼睫毛, 補眼睫毛 and 補甲)
  *
  * Sheet "顧客" columns:
  *   顧客ID, 顧客姓名, 電話
