@@ -38,8 +38,20 @@ const COL = {
   endTime: 'End Time',
   // AppSheet column holding the 特別事項 text (same as 備注)
   view: 'View',
-  // Only used by 拆眼睫毛, 補眼睫毛, 補甲 and 拆甲
+  // 不是複雜款 / 半個鐘 / 一個鐘, only used by 整甲 and 整甲 + 眼睫毛
+  complexDesign: '複雜款',
+};
+
+/**
+ * TRUE / FALSE columns, keyed by the app's field name. Each is only read when
+ * filled in and only written when sent, so services that don't use it leave
+ * it blank. 訂金 is used by the 整甲 and top-up / removal services; 拆甲 and
+ * 延長 are 整甲 add-ons.
+ */
+const FLAG_COL = {
   deposit: '訂金',
+  removal: '拆甲',
+  extension: '延長',
 };
 
 const CUST_COL = {
@@ -232,7 +244,12 @@ function toAppointment_(row, customers, tz) {
   if (handOrFoot) apt.handOrFoot = handOrFoot;
   const price = toNumber_(row.values[COL.price]);
   if (price != null) apt.price = price;
-  if (cellText_(row, COL.deposit)) apt.deposit = toBoolean_(row.values[COL.deposit]);
+  const complexDesign = cellText_(row, COL.complexDesign);
+  if (complexDesign) apt.complexDesign = complexDesign;
+  Object.keys(FLAG_COL).forEach(function (key) {
+    const col = FLAG_COL[key];
+    if (cellText_(row, col)) apt[key] = toBoolean_(row.values[col]);
+  });
   const endTime = toHHmm_(row.display[COL.endTime]);
   if (endTime) apt.endTime = endTime;
 
@@ -366,17 +383,41 @@ function parseAppointmentInput_(input) {
     handOrFoot: String(input.handOrFoot || '').trim(),
     // Only written when sent
     view: input.view != null ? String(input.view).trim() : null,
-    // TRUE / FALSE, only written when sent
-    hasDeposit: input.deposit != null,
-    deposit: toBoolean_(input.deposit),
+    complexDesign: input.complexDesign != null ? String(input.complexDesign).trim() : null,
+    // FLAG_COL fields that were sent, as TRUE / FALSE
+    flags: parseFlags_(input),
     // Matches AppSheet: rows without a duration (e.g. 特別事項) have End Time = start.
     endTime: durationMinutes != null ? addMinutes_(time, durationMinutes) : time,
   };
 }
 
+function parseFlags_(input) {
+  const flags = {};
+  Object.keys(FLAG_COL).forEach(function (key) {
+    if (input[key] != null) flags[key] = toBoolean_(input[key]);
+  });
+  return flags;
+}
+
 /** Columns the app relies on but the sheet may not have yet (e.g. 訂金). */
 function requireColumn_(headers, name) {
   if (headers.indexOf(name) === -1) throw new Error('預約資料沒有「' + name + '」欄');
+}
+
+/**
+ * Adds the sent 複雜款 and flags to `cells`, erroring if the sheet lacks one's
+ * column.
+ */
+function putOptionalCells_(cells, headers, a) {
+  if (a.complexDesign != null) {
+    requireColumn_(headers, COL.complexDesign);
+    cells[COL.complexDesign] = a.complexDesign;
+  }
+  const flags = a.flags;
+  Object.keys(flags).forEach(function (key) {
+    requireColumn_(headers, FLAG_COL[key]);
+    cells[FLAG_COL[key]] = flags[key];
+  });
 }
 
 /** The JSON shape the app expects back after a write. */
@@ -394,7 +435,10 @@ function appointmentResponse_(id, a, status, customer) {
   if (a.durationMinutes != null) out.durationMinutes = a.durationMinutes;
   if (a.handOrFoot) out.handOrFoot = a.handOrFoot;
   if (a.price != null) out.price = a.price;
-  if (a.hasDeposit) out.deposit = a.deposit;
+  if (a.complexDesign != null) out.complexDesign = a.complexDesign;
+  Object.keys(a.flags).forEach(function (key) {
+    out[key] = a.flags[key];
+  });
   if (a.endTime) out.endTime = a.endTime;
   return out;
 }
@@ -430,10 +474,7 @@ function createAppointment_(input) {
     cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     if (a.view != null) cells[COL.view] = a.view;
-    if (a.hasDeposit) {
-      requireColumn_(table.headers, COL.deposit);
-      cells[COL.deposit] = a.deposit;
-    }
+    putOptionalCells_(cells, table.headers, a);
 
     // Only fill columns we know; leave any other columns (e.g. AppSheet
     // virtual/formula columns) blank so the sheet computes them.
@@ -494,10 +535,7 @@ function updateAppointment_(id, input) {
     if (hasStatus) cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     if (a.view != null) cells[COL.view] = a.view;
-    if (a.hasDeposit) {
-      requireColumn_(headers, COL.deposit);
-      cells[COL.deposit] = a.deposit;
-    }
+    putOptionalCells_(cells, headers, a);
 
     Object.keys(cells).forEach(function (h) {
       const c = headers.indexOf(h);

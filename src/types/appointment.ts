@@ -2,9 +2,12 @@
  * Domain types aligned with the Google Sheet columns.
  *
  * Sheet "預約資料" columns:
- *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金
+ *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金,
+ *   複雜款, 拆甲, 延長
  *   (View holds the same text as 備注 for 特別事項 rows, and 顧客姓名 for 粉嫩術 and 拆眼睫毛)
- *   (訂金 is only used by 拆眼睫毛, 補眼睫毛, 補甲 and 拆甲)
+ *   (訂金 is used by 整甲, 整甲 + 眼睫毛, 拆眼睫毛, 補眼睫毛, 補甲 and 拆甲)
+ *   (複雜款 is 不是複雜款 / 半個鐘 / 一個鐘, and 拆甲 and 延長 are TRUE / FALSE; only 整甲 and
+ *   整甲 + 眼睫毛 use them)
  *
  * Sheet "顧客" columns:
  *   顧客ID, 顧客姓名, 電話
@@ -13,7 +16,7 @@
  * (or rename these fields to match your API response 1:1).
  */
 
-import type { HandOrFoot, ServiceType } from '@/constants/services';
+import type { ComplexDesign, HandOrFoot, NailExtras, ServiceType } from '@/constants/services';
 
 export type { ServiceType };
 
@@ -47,6 +50,11 @@ export type Appointment = {
   price?: number;
   /** 訂金 — TRUE / FALSE in the sheet (whether a deposit was paid) */
   deposit?: boolean;
+  /** 複雜款 — 不是複雜款 / 半個鐘 / 一個鐘 */
+  complexDesign?: string;
+  /** 拆甲 / 延長 — TRUE / FALSE in the sheet */
+  removal?: boolean;
+  extension?: boolean;
   /** 狀態 */
   status: AppointmentStatus;
   /** End Time — HH:mm */
@@ -54,7 +62,7 @@ export type Appointment = {
 };
 
 /** Payload for creating a new appointment (Add screen → API). */
-export type NewAppointmentInput = {
+export type NewAppointmentInput = Partial<NailExtras> & {
   /** Blank for 特別事項 */
   customerName: string;
   date: string;
@@ -67,8 +75,10 @@ export type NewAppointmentInput = {
   handOrFoot?: HandOrFoot;
   /** 收費 */
   price?: number;
-  /** 訂金 — written as TRUE / FALSE, only when sent */
+  /** 訂金 — written as TRUE / FALSE, only when sent (拆甲 / 延長 too) */
   deposit?: boolean;
+  /** 複雜款 — only written when sent */
+  complexDesign?: ComplexDesign;
   /** View — only written when sent (特別事項 copies 備注 into it, 粉嫩術 / 拆眼睫毛 the customer name) */
   view?: string;
 };

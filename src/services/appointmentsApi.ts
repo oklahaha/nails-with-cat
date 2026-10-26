@@ -120,6 +120,9 @@ export async function createAppointment(
       handOrFoot: input.handOrFoot,
       price: input.price,
       deposit: input.deposit,
+      complexDesign: input.complexDesign,
+      removal: input.removal,
+      extension: input.extension,
       status: input.service === '特別事項' ? '' : '預約',
     };
 
@@ -164,6 +167,9 @@ export async function updateAppointment(
       handOrFoot: input.handOrFoot,
       price: input.price,
       deposit: input.deposit,
+      complexDesign: input.complexDesign,
+      removal: input.removal,
+      extension: input.extension,
       status: input.status ?? '預約',
     };
 

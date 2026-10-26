@@ -37,9 +37,18 @@ import {
   defaultPriceFor,
   usesDeposit,
   usesHandOrFoot,
+  nailExtrasOf,
+  toComplexDesign,
+  showsNailExtras,
+  usesNailExtras,
   viewFor,
   HAND_OR_FOOT_OPTIONS,
+  COMPLEX_DESIGN_OPTIONS,
+  NO_NAIL_EXTRAS,
+  NAIL_EXTRAS,
+  type ComplexDesign,
   type HandOrFoot,
+  type NailExtra,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { findCachedAppointment, useAppointments } from '@/hooks/useAppointments';
@@ -73,12 +82,6 @@ const MAX_SUGGESTIONS = 5;
 /** 狀態 choices when editing (特別事項 rows may also be blank). */
 const STATUS_OPTIONS = ['預約', '已完成'] as const;
 
-function priceText(service: ServiceType | ''): string {
-  if (!service) return '';
-  const price = defaultPriceFor(service);
-  return price == null ? '' : String(price);
-}
-
 export default function AddAppointmentScreen() {
   const insets = useSafeAreaInsets();
   // Optional prefill from the calendar (date) or the customer list (customerName),
@@ -99,13 +102,32 @@ export default function AddAppointmentScreen() {
   const [service, setService] = useState<ServiceType | ''>(
     (editing?.service as ServiceType | undefined) ?? ''
   );
-  const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
+  const [handOrFoot, setHandOrFootState] = useState<HandOrFoot>(
     (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
   );
   const [price, setPrice] = useState(
     editing?.price != null ? String(editing.price) : ''
   );
   const [deposit, setDeposit] = useState(editing?.deposit ?? false);
+  const [complexDesign, setComplexDesignState] = useState(() =>
+    toComplexDesign(editing?.complexDesign)
+  );
+  const setHandOrFoot = (value: HandOrFoot) => {
+    setHandOrFootState(value);
+    // 整甲 takes a different default Duration for 腳 and 手 + 腳
+    setKeepDuration(false);
+  };
+  const setComplexDesign = (value: ComplexDesign) => {
+    setComplexDesignState(value);
+    // Changes the default Duration, so an edited booking takes it up too
+    setKeepDuration(false);
+  };
+  const [nailExtras, setNailExtras] = useState(() => nailExtrasOf(editing));
+  const setNailExtra = (key: NailExtra, on: boolean) => {
+    setNailExtras((prev) => ({ ...prev, [key]: on }));
+    // 拆甲 and 延長 change the default Duration too
+    setKeepDuration(false);
+  };
   // Once the price is typed by hand, changing service no longer overwrites it
   const [priceEdited, setPriceEdited] = useState(editing != null);
   // An edited booking keeps its own Duration until the service is changed
@@ -122,6 +144,10 @@ export default function AddAppointmentScreen() {
     () => dayBookings.appointments.filter((apt) => apt.id !== editing?.id),
     [dayBookings.appointments, editing]
   );
+
+  const showNailExtras = showsNailExtras(service, handOrFoot);
+  // Hidden add-ons are saved cleared, so a booking switched to 腳 drops them
+  const appliedNailExtras = showNailExtras ? { complexDesign, ...nailExtras } : NO_NAIL_EXTRAS;
 
   // 補眼睫毛 / 補甲: once a known customer is picked, 收費 follows their last set
   const topUp = topUpRuleFor(service);
@@ -144,13 +170,15 @@ export default function AddAppointmentScreen() {
         date
       )
     : undefined;
+  // Follows the service, 手/腳 and add-ons until 收費 is typed by hand
+  const autoPrice =
+    topUpPrice ??
+    (service ? defaultPriceFor(service, { handOrFoot, ...appliedNailExtras }) : undefined);
   // Applied during render when it changes, rather than in an effect
-  // Keyed by service too, since switching between top-ups resets 收費 first
-  const topUpKey = topUpPrice == null ? undefined : `${service}:${topUpPrice}`;
-  const [appliedTopUpKey, setAppliedTopUpKey] = useState<string>();
-  if (topUpKey !== appliedTopUpKey) {
-    setAppliedTopUpKey(topUpKey);
-    if (topUpPrice != null && !priceEdited) setPrice(String(topUpPrice));
+  const [appliedAutoPrice, setAppliedAutoPrice] = useState<number>();
+  if (autoPrice !== appliedAutoPrice) {
+    setAppliedAutoPrice(autoPrice);
+    if (autoPrice != null && !priceEdited) setPrice(String(autoPrice));
   }
 
   const isSpecial = service === SPECIAL;
@@ -166,7 +194,7 @@ export default function AddAppointmentScreen() {
     : keepDuration
       ? editing?.durationMinutes
       : service
-        ? defaultDurationFor(service)
+        ? defaultDurationFor(service, { handOrFoot, ...appliedNailExtras })
         : undefined;
   const endTime = validTime && duration ? minutesToTime(timeToMinutes(time) + duration) : null;
   // Shown as soon as a typed end time is before the start, not only on save
@@ -194,7 +222,6 @@ export default function AddAppointmentScreen() {
     setService(next);
     clearError('service');
     setKeepDuration(false);
-    if (!priceEdited) setPrice(priceText(next));
   };
 
   const validate = (): Partial<Record<Field, string>> => {
@@ -253,8 +280,9 @@ export default function AddAppointmentScreen() {
             durationMinutes: duration,
             handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
             price: price.trim() ? Number(price.trim()) : undefined,
-            // Other services leave 訂金 untouched
+            // Other services leave 訂金 and the add-ons untouched
             deposit: usesDeposit(service) ? deposit : undefined,
+            ...(usesNailExtras(service) ? appliedNailExtras : {}),
           };
       if (editing) {
         await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status });
@@ -463,21 +491,44 @@ export default function AddAppointmentScreen() {
               </Section>
             ) : null}
 
-            {editing ? (
-              <Section title="狀態">
+            {showNailExtras ? (
+              <Section title="複雜款">
                 <View style={styles.segmented}>
-                  {STATUS_OPTIONS.map((option) => {
-                    const selected = status === option;
+                  {COMPLEX_DESIGN_OPTIONS.map((option) => {
+                    const selected = complexDesign === option;
                     return (
                       <Pressable
                         key={option}
-                        onPress={() => setStatus(option)}
+                        onPress={() => setComplexDesign(option)}
                         style={[styles.segment, selected && styles.segmentSelected]}
                         accessibilityRole="button"
                         accessibilityState={{ selected }}
                       >
                         <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
                           {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Section>
+            ) : null}
+
+            {showNailExtras ? (
+              <Section title="附加">
+                <View style={styles.chipRow}>
+                  {NAIL_EXTRAS.map(({ key, label }) => {
+                    const selected = nailExtras[key];
+                    return (
+                      <Pressable
+                        key={key}
+                        onPress={() => setNailExtra(key, !selected)}
+                        style={[styles.chip, selected && styles.extraChipSelected]}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selected }}
+                      >
+                        <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                          {label}
                         </Text>
                       </Pressable>
                     );
@@ -501,6 +552,29 @@ export default function AddAppointmentScreen() {
                       >
                         <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
                           {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Section>
+            ) : null}
+
+            {editing ? (
+              <Section title="狀態">
+                <View style={styles.segmented}>
+                  {STATUS_OPTIONS.map((option) => {
+                    const selected = status === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setStatus(option)}
+                        style={[styles.segment, selected && styles.segmentSelected]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {option}
                         </Text>
                       </Pressable>
                     );
@@ -697,6 +771,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.surface,
+  },
+  extraChipSelected: {
+    backgroundColor: colors.accentMuted,
+    borderColor: colors.accent,
   },
   chipDot: {
     width: 8,

@@ -22,7 +22,13 @@ import { useState } from 'react';
 import { AppointmentForm } from '@/components/swiftui/AppointmentForm';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
-import { serviceColor, usesDeposit, usesHandOrFoot } from '@/constants/services';
+import {
+  serviceColor,
+  usesDeposit,
+  usesHandOrFoot,
+  usesNailExtras,
+  describeNailExtras,
+} from '@/constants/services';
 import { findCachedAppointment, removeCachedAppointment } from '@/hooks/useAppointments';
 import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
 import { showAlert } from '@/utils/alert';
@@ -64,6 +70,10 @@ export default function AppointmentDetailsScreen() {
     {
       label: '手/腳',
       value: usesHandOrFoot(appointment.service) ? appointment.handOrFoot : undefined,
+    },
+    {
+      label: '附加',
+      value: usesNailExtras(appointment.service) ? describeNailExtras(appointment) : undefined,
     },
     {
       label: '訂金',

@@ -46,13 +46,22 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   defaultDurationFor,
   defaultPriceFor,
+  nailExtrasOf,
+  toComplexDesign,
   usesDeposit,
   usesHandOrFoot,
+  showsNailExtras,
+  usesNailExtras,
   viewFor,
   HAND_OR_FOOT_OPTIONS,
+  COMPLEX_DESIGN_OPTIONS,
+  NO_NAIL_EXTRAS,
+  NAIL_EXTRAS,
   SERVICES,
   serviceColor,
+  type ComplexDesign,
   type HandOrFoot,
+  type NailExtra,
 } from '@/constants/services';
 import { colors } from '@/constants/theme';
 import { useAppointments } from '@/hooks/useAppointments';
@@ -81,12 +90,6 @@ const STATUS_OPTIONS = ['預約', '已完成'] as const;
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
 const PICKER_LOOK = [tint(colors.accent), environment('locale', 'zh_Hant_HK')];
 
-function priceText(service: ServiceType | ''): string {
-  if (!service) return '';
-  const price = defaultPriceFor(service);
-  return price == null ? '' : String(price);
-}
-
 type Props = {
   /** The appointment to edit; leave out to add a new one. */
   editing?: Appointment;
@@ -111,6 +114,25 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     editing?.price != null ? String(editing.price) : ''
   );
   const [deposit, setDeposit] = useState(editing?.deposit ?? false);
+  const [complexDesign, setComplexDesignState] = useState(() =>
+    toComplexDesign(editing?.complexDesign)
+  );
+  const setHandOrFoot = (value: HandOrFoot) => {
+    setHandOrFootState(value);
+    // 整甲 takes a different default Duration for 腳 and 手 + 腳
+    setKeepDuration(false);
+  };
+  const setComplexDesign = (value: ComplexDesign) => {
+    setComplexDesignState(value);
+    // Changes the default Duration, so an edited booking takes it up too
+    setKeepDuration(false);
+  };
+  const [nailExtras, setNailExtras] = useState(() => nailExtrasOf(editing));
+  const setNailExtra = (key: NailExtra, on: boolean) => {
+    setNailExtras((prev) => ({ ...prev, [key]: on }));
+    // 拆甲 and 延長 change the default Duration too
+    setKeepDuration(false);
+  };
   const [customerQuery, setCustomerQuery] = useState(
     editing?.customerName ?? params.customerName ?? ''
   );
@@ -119,7 +141,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   // Starts on a value too, since the time picker always shows one
   const [time, setTime] = useState(editing?.time ?? defaultStartTime());
   const [endTimeInput, setEndTimeInput] = useState(editing?.endTime ?? '');
-  const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
+  const [handOrFoot, setHandOrFootState] = useState<HandOrFoot>(
     (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
   );
   const [priceEdited, setPriceEdited] = useState(editing != null);
@@ -134,6 +156,10 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     () => dayBookings.appointments.filter((apt) => apt.id !== editing?.id),
     [dayBookings.appointments, editing]
   );
+
+  const showNailExtras = showsNailExtras(service, handOrFoot);
+  // Hidden add-ons are saved cleared, so a booking switched to 腳 drops them
+  const appliedNailExtras = showNailExtras ? { complexDesign, ...nailExtras } : NO_NAIL_EXTRAS;
 
   // 補眼睫毛 / 補甲: once a known customer is picked, 收費 follows their last set
   const topUp = topUpRuleFor(service);
@@ -155,10 +181,13 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
         date
       )
     : undefined;
+  // Follows the service, 手/腳 and add-ons until 收費 is typed by hand
+  const autoPrice =
+    topUpPrice ??
+    (service ? defaultPriceFor(service, { handOrFoot, ...appliedNailExtras }) : undefined);
   useEffect(() => {
-    if (topUpPrice != null && !priceEdited) priceTextState.set(String(topUpPrice));
-    // service too, since switching between top-ups resets 收費 first
-  }, [service, topUpPrice, priceEdited, priceTextState]);
+    if (autoPrice != null && !priceEdited) priceTextState.set(String(autoPrice));
+  }, [autoPrice, priceEdited, priceTextState]);
 
   const isSpecial = service === SPECIAL;
   const HHMM = /^\d{2}:\d{2}$/;
@@ -173,7 +202,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     : keepDuration
       ? editing?.durationMinutes
       : service
-        ? defaultDurationFor(service)
+        ? defaultDurationFor(service, { handOrFoot, ...appliedNailExtras })
         : undefined;
   const endTime = validTime && duration ? minutesToTime(timeToMinutes(time) + duration) : null;
 
@@ -197,7 +226,6 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     setService(next);
     clearError('service');
     setKeepDuration(false);
-    if (!priceEdited) priceTextState.set(priceText(next));
   };
 
   const validate = (): Partial<Record<Field, string>> => {
@@ -261,8 +289,9 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
             durationMinutes: duration,
             handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
             price: price.trim() ? Number(price.trim()) : undefined,
-            // Other services leave 訂金 untouched
+            // Other services leave 訂金 and the add-ons untouched
             deposit: usesDeposit(service) ? deposit : undefined,
+            ...(usesNailExtras(service) ? appliedNailExtras : {}),
           };
       if (editing) {
         saved = await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status });
@@ -523,6 +552,43 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                       </Picker>
                     </LabeledContent>
                   ) : null}
+                  {showNailExtras ? (
+                    <LabeledContent label="複雜款">
+                      <Picker
+                        label="複雜款"
+                        selection={complexDesign}
+                        onSelectionChange={(value) => {
+                          if (typeof value === 'string') setComplexDesign(toComplexDesign(value));
+                        }}
+                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 240 })]}
+                      >
+                        {COMPLEX_DESIGN_OPTIONS.map((option) => (
+                          <Text key={option} modifiers={[tag(option)]}>
+                            {option}
+                          </Text>
+                        ))}
+                      </Picker>
+                    </LabeledContent>
+                  ) : null}
+                  {showNailExtras
+                    ? NAIL_EXTRAS.map(({ key, label }) => (
+                        <Toggle
+                          key={key}
+                          label={label}
+                          isOn={nailExtras[key]}
+                          onIsOnChange={(isOn) => setNailExtra(key, isOn)}
+                          modifiers={[tint(colors.accent)]}
+                        />
+                      ))
+                    : null}
+                  {usesDeposit(service) ? (
+                    <Toggle
+                      label="已付訂金"
+                      isOn={deposit}
+                      onIsOnChange={setDeposit}
+                      modifiers={[tint(colors.accent)]}
+                    />
+                  ) : null}
                   {editing ? (
                     <LabeledContent label="狀態">
                       <Picker
@@ -540,14 +606,6 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                         ))}
                       </Picker>
                     </LabeledContent>
-                  ) : null}
-                  {usesDeposit(service) ? (
-                    <Toggle
-                      label="已付訂金"
-                      isOn={deposit}
-                      onIsOnChange={setDeposit}
-                      modifiers={[tint(colors.accent)]}
-                    />
                   ) : null}
                   <LabeledContent label="收費">
                     <HStack spacing={4}>

@@ -10,7 +10,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
-import { serviceColor, usesDeposit, usesHandOrFoot } from '@/constants/services';
+import {
+  serviceColor,
+  usesDeposit,
+  usesHandOrFoot,
+  usesNailExtras,
+  describeNailExtras,
+} from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
 import { findCachedAppointment, removeCachedAppointment } from '@/hooks/useAppointments';
 import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
@@ -57,6 +63,10 @@ export default function AppointmentDetailsScreen() {
     {
       label: '手/腳',
       value: usesHandOrFoot(appointment.service) ? appointment.handOrFoot : undefined,
+    },
+    {
+      label: '附加',
+      value: usesNailExtras(appointment.service) ? describeNailExtras(appointment) : undefined,
     },
     {
       label: '訂金',
