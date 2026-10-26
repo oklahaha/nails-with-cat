@@ -38,7 +38,7 @@ const COL = {
   endTime: 'End Time',
   // AppSheet column holding the 特別事項 text (same as 備注)
   view: 'View',
-  // Only used by 拆眼睫毛, 補眼睫毛 and 補甲
+  // Only used by 拆眼睫毛, 補眼睫毛, 補甲 and 拆甲
   deposit: '訂金',
 };
 

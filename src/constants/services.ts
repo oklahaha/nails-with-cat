@@ -27,7 +27,14 @@ export const SERVICES = [
     noHandOrFoot: true,
     hasDeposit: true,
   },
-  { name: '拆甲', durationMinutes: 60, price: 100, color: '#A88C12' },
+  {
+    name: '拆甲',
+    durationMinutes: 60,
+    price: 100,
+    color: '#A88C12',
+    noHandOrFoot: true,
+    hasDeposit: true,
+  },
   // price is the full price; the forms lower it after a recent set (topUpPrice)
   {
     name: '補眼睫毛',
