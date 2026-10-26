@@ -8,7 +8,8 @@
     "scheme": "nailswithcat",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nailswithcat.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -37,7 +38,23 @@
       "expo-font",
       "expo-status-bar",
       "expo-web-browser",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-widgets",
+        {
+          "widgets": [
+            {
+              "name": "TodayWidget",
+              "displayName": "今日預約",
+              "description": "今日預約數目和下一個預約",
+              "ios": {
+                "supportedFamilies": ["systemSmall", "systemMedium"],
+                "initialLayout": "./src/widgets/TodayWidget.tsx"
+              }
+            }
+          ]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -26,6 +26,22 @@ export const isUsingMockApi = !APPS_SCRIPT_WEB_APP_URL;
 
 type ApiResponse<T> = ({ ok: true } & T) | { ok: false; error: string };
 
+const changeListeners = new Set<() => void>();
+
+/**
+ * Call `listener` after every successful write to the sheet (appointments, or
+ * customer renames / deletes, which rewrite bookings too), e.g. to refresh
+ * the home screen widget. Returns an unsubscribe function.
+ */
+export function onAppointmentsChanged(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
+
+function notifyChanged(): void {
+  for (const listener of changeListeners) listener();
+}
+
 export type ListAppointmentsOptions = {
   /** Only include appointments on/after this date (YYYY-MM-DD). */
   from?: string;
@@ -122,6 +138,7 @@ export async function createAppointment(
     }),
   });
   const data = await parseResponse<{ appointment: Appointment }>(res);
+  notifyChanged();
   return data.appointment;
 }
 
@@ -165,6 +182,7 @@ export async function updateAppointment(
     }),
   });
   const data = await parseResponse<{ appointment: Appointment }>(res);
+  notifyChanged();
   return data.appointment;
 }
 
@@ -189,6 +207,7 @@ export async function deleteAppointment(id: string): Promise<void> {
     }),
   });
   await parseResponse<object>(res);
+  notifyChanged();
 }
 
 /**
@@ -280,6 +299,7 @@ export async function updateCustomer(
     }),
   });
   const data = await parseResponse<{ customer: Customer }>(res);
+  notifyChanged();
   return data.customer;
 }
 
@@ -303,6 +323,7 @@ export async function deleteCustomer(key: CustomerKey): Promise<void> {
     }),
   });
   await parseResponse<object>(res);
+  notifyChanged();
 }
 
 /** Apps Script always replies 200; real errors come back as { ok: false }. */

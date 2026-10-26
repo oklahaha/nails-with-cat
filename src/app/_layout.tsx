@@ -10,8 +10,12 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 
 import { colors } from '@/constants/theme';
+import { useTodayWidgetSync } from '@/widgets/useTodayWidgetSync';
 
 export default function RootLayout() {
+  // Pushes today's bookings to the iOS home screen widget
+  useTodayWidgetSync();
+
   return (
     <>
       <StatusBar style="light" />
