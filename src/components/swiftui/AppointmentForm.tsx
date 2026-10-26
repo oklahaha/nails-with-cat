@@ -67,7 +67,12 @@ import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { addDays, minutesToTime, timeToMinutes, todayIsoDate } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
-import { LASH_TOP_UP_LOOKBACK_DAYS, lashTopUpPrice } from '@/utils/lashTopUpPrice';
+import {
+  LASH_TOP_UP_LOOKBACK_DAYS,
+  lashTopUpPrice,
+  lastLashSetDate,
+  lastLashSetHint,
+} from '@/utils/lashTopUpPrice';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { formatPhone } from '@/utils/phone';
 
@@ -143,10 +148,19 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     { from: addDays(date, -LASH_TOP_UP_LOOKBACK_DAYS), to: date },
     { enabled: isTopUp && customerPicked }
   );
-  const topUpPrice =
+  const topUpReady = Boolean(
     isTopUp && customerPicked && !lashHistory.loading && !lashHistory.error
-      ? lashTopUpPrice(lashHistory.appointments, customerQuery, date, editing?.id)
-      : undefined;
+  );
+  const topUpPrice = topUpReady
+    ? lashTopUpPrice(lashHistory.appointments, customerQuery, date, editing?.id)
+    : undefined;
+  // Shown under 收費 so it's clear where the price came from
+  const topUpHint = topUpReady
+    ? lastLashSetHint(
+        lastLashSetDate(lashHistory.appointments, customerQuery, date, editing?.id),
+        date
+      )
+    : undefined;
   useEffect(() => {
     if (topUpPrice != null && !priceEdited) priceTextState.set(String(topUpPrice));
   }, [topUpPrice, priceEdited, priceTextState]);
@@ -488,7 +502,14 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
 
             {isSpecial ? null : (
               <>
-                <Section title="詳情">
+                <Section
+                  title="詳情"
+                  footer={
+                    topUpHint ? (
+                      <Text modifiers={[foregroundStyle(colors.danger)]}>{topUpHint}</Text>
+                    ) : undefined
+                  }
+                >
                   {usesHandOrFoot(service) ? (
                     <LabeledContent label="手/腳">
                       <Picker

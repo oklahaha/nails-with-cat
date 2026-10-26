@@ -53,7 +53,12 @@ import type { ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
-import { LASH_TOP_UP_LOOKBACK_DAYS, lashTopUpPrice } from '@/utils/lashTopUpPrice';
+import {
+  LASH_TOP_UP_LOOKBACK_DAYS,
+  lashTopUpPrice,
+  lastLashSetDate,
+  lastLashSetHint,
+} from '@/utils/lashTopUpPrice';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 
 type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
@@ -131,10 +136,19 @@ export default function AddAppointmentScreen() {
     { from: date && addDays(date, -LASH_TOP_UP_LOOKBACK_DAYS), to: date },
     { enabled: isTopUp && customerPicked && date !== '' }
   );
-  const topUpPrice =
+  const topUpReady = Boolean(
     isTopUp && customerPicked && date && !lashHistory.loading && !lashHistory.error
-      ? lashTopUpPrice(lashHistory.appointments, customerName, date, editing?.id)
-      : undefined;
+  );
+  const topUpPrice = topUpReady
+    ? lashTopUpPrice(lashHistory.appointments, customerName, date, editing?.id)
+    : undefined;
+  // Shown under 收費 so it's clear where the price came from
+  const topUpHint = topUpReady
+    ? lastLashSetHint(
+        lastLashSetDate(lashHistory.appointments, customerName, date, editing?.id),
+        date
+      )
+    : undefined;
   // Applied during render when it changes, rather than in an effect
   const [appliedTopUpPrice, setAppliedTopUpPrice] = useState<number>();
   if (topUpPrice !== appliedTopUpPrice) {
@@ -515,6 +529,7 @@ export default function AddAppointmentScreen() {
                 />
               </View>
               <FieldError message={errors.price} />
+              {topUpHint ? <Text style={styles.priceHint}>{topUpHint}</Text> : null}
 
               <TextInput
                 style={[styles.input, styles.notesInput]}
@@ -744,6 +759,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
     fontVariant: ['tabular-nums'],
+  },
+  priceHint: {
+    marginTop: spacing.xs,
+    color: colors.danger,
+    fontSize: 13,
   },
   error: {
     marginTop: spacing.xs,
