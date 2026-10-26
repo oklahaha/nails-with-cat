@@ -9,18 +9,30 @@
  * - after every save or delete made in the app (onAppointmentsChanged).
  * Between syncs the timeline itself moves the widget on at midnight and as
  * each booking starts.
+ *
+ * Expo Go and dev builds made before expo-widgets was added don't include its
+ * native module, and importing TodayWidget would then throw at startup, so it
+ * is only required once the module is known to exist.
  */
+import { requireOptionalNativeModule } from 'expo';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
 import { listAppointments, onAppointmentsChanged } from '@/services/appointmentsApi';
 import { addDays, todayIsoDate } from '@/utils/dates';
 
-import TodayWidget from './TodayWidget';
+import type TodayWidgetType from './TodayWidget';
 import { buildTodayWidgetTimeline, TIMELINE_DAYS } from './todayWidgetTimeline';
+
+const TodayWidget: typeof TodayWidgetType | null = requireOptionalNativeModule('ExpoWidgets')
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('./TodayWidget').default
+  : null;
 
 export function useTodayWidgetSync(): void {
   useEffect(() => {
+    if (!TodayWidget) return;
+    const widget = TodayWidget;
     // Ignore responses from older syncs if they overlap
     let requestId = 0;
 
@@ -34,7 +46,7 @@ export function useTodayWidgetSync(): void {
           to: addDays(today, TIMELINE_DAYS + 7),
         });
         if (id !== requestId) return;
-        TodayWidget.updateTimeline(buildTodayWidgetTimeline(appointments, today));
+        widget.updateTimeline(buildTodayWidgetTimeline(appointments, today));
       } catch {
         // Offline or Apps Script failed: keep the last timeline, retry on the next sync
       }
