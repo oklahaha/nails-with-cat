@@ -2,9 +2,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { serviceColor } from '@/constants/services';
 import { colors, radius, spacing } from '@/constants/theme';
+import { useNow } from '@/hooks/useNow';
 import type { Appointment } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import { isSameMonth, monthGrid, todayIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
+import { isSameMonth, monthGrid, toIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 
 /** Name chips shown per day before collapsing the rest into "+N". */
 const MAX_BARS = 3;
@@ -24,7 +25,8 @@ type Props = {
  */
 export function MonthView({ anchor, byDate, onPressDay }: Props) {
   const weeks = monthGrid(anchor);
-  const today = todayIsoDate();
+  // Moves the today marker on at midnight while the screen stays open
+  const today = toIsoDate(useNow());
   const services = servicesInMonth(weeks, anchor, byDate);
 
   return (

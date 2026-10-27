@@ -2,23 +2,16 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { serviceColor } from '@/constants/services';
 import { colors, radius, spacing, tint, type } from '@/constants/theme';
+import { useNow } from '@/hooks/useNow';
 import { useHideTabBarOnScroll, useTabBarInset } from '@/hooks/useTabBarVisibility';
 import type { Appointment } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import {
-  parseIsoDate,
-  timeToMinutes,
-  todayIsoDate,
-  WEEKDAY_LABELS,
-} from '@/utils/dates';
+import { parseIsoDate, toIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
+
+import { layoutBlocks, visibleHours } from './layoutBlocks';
 
 const HOUR_HEIGHT = 56;
 const LABEL_WIDTH = 44;
-/** Default visible hours; widened if an appointment falls outside. */
-const DEFAULT_START_HOUR = 9;
-const DEFAULT_END_HOUR = 21;
-/** Shortest block drawn, so zero-length rows (e.g. 特別事項) stay tappable. */
-const MIN_BLOCK_MINUTES = 30;
 
 type Props = {
   /** One date for the Day view, seven for the Week view. */
@@ -29,26 +22,18 @@ type Props = {
   onPressDay?: (date: string) => void;
 };
 
-type Block = {
-  appointment: Appointment;
-  start: number;
-  end: number;
-  lane: number;
-  lanes: number;
-};
-
 /** Day / Week time grid. Overlapping appointments share the column side by side. */
 export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props) {
   const { scrollHandlers } = useHideTabBarOnScroll();
   const tabBarInset = useTabBarInset();
   const compact = days.length > 1;
-  const today = todayIsoDate();
+  const now = useNow();
+  const today = toIsoDate(now);
   const blocksByDay = days.map((date) => layoutBlocks(byDate.get(date) ?? []));
   const [startHour, endHour] = visibleHours(blocksByDay.flat());
   const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
   const gridHeight = hours.length * HOUR_HEIGHT;
   const toY = (minutes: number) => ((minutes - startHour * 60) / 60) * HOUR_HEIGHT;
-  const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const showNow = nowMinutes >= startHour * 60 && nowMinutes <= endHour * 60;
 
@@ -172,58 +157,6 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
       </ScrollView>
     </View>
   );
-}
-
-function blockEnd(apt: Appointment, start: number): number {
-  let end = apt.endTime ? timeToMinutes(apt.endTime) : NaN;
-  if (!(end > start) && apt.durationMinutes) end = start + apt.durationMinutes;
-  if (!(end > start)) end = start;
-  return Math.max(end, start + MIN_BLOCK_MINUTES);
-}
-
-/** Assign side-by-side lanes to overlapping appointments within one day. */
-function layoutBlocks(appointments: Appointment[]): Block[] {
-  const sorted = appointments
-    .map((apt) => {
-      const start = timeToMinutes(apt.time);
-      return { appointment: apt, start, end: blockEnd(apt, start), lane: 0, lanes: 1 };
-    })
-    .sort((a, b) => a.start - b.start);
-
-  const result: Block[] = [];
-  let cluster: Block[] = [];
-  let laneEnds: number[] = [];
-  let clusterEnd = -1;
-
-  const closeCluster = () => {
-    for (const block of cluster) block.lanes = laneEnds.length;
-    result.push(...cluster);
-    cluster = [];
-    laneEnds = [];
-  };
-
-  for (const block of sorted) {
-    if (block.start >= clusterEnd) closeCluster();
-    let lane = laneEnds.findIndex((end) => end <= block.start);
-    if (lane === -1) lane = laneEnds.length;
-    laneEnds[lane] = block.end;
-    block.lane = lane;
-    cluster.push(block);
-    clusterEnd = Math.max(clusterEnd, block.end);
-  }
-  closeCluster();
-
-  return result;
-}
-
-function visibleHours(blocks: Block[]): [number, number] {
-  let start = DEFAULT_START_HOUR;
-  let end = DEFAULT_END_HOUR;
-  for (const block of blocks) {
-    start = Math.min(start, Math.floor(block.start / 60));
-    end = Math.max(end, Math.ceil(block.end / 60));
-  }
-  return [start, Math.min(end, 24)];
 }
 
 const styles = StyleSheet.create({

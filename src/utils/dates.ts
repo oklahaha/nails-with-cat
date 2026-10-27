@@ -88,10 +88,14 @@ export function timeToMinutes(time: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
-/** Minutes since midnight → "HH:mm". */
+/**
+ * Minutes since midnight → "HH:mm", wrapping past midnight as Apps Script
+ * does (a 23:00 booking of 2 hours ends at 01:00).
+ */
 export function minutesToTime(minutes: number): string {
-  const h = String(Math.floor(minutes / 60)).padStart(2, '0');
-  const m = String(minutes % 60).padStart(2, '0');
+  const wrapped = ((minutes % 1440) + 1440) % 1440;
+  const h = String(Math.floor(wrapped / 60)).padStart(2, '0');
+  const m = String(wrapped % 60).padStart(2, '0');
   return `${h}:${m}`;
 }
 
