@@ -12,8 +12,6 @@
  *   sheet's 訂金 column).
  * - hasNailExtras → the form asks for 複雜款 (COMPLEX_DESIGN_OPTIONS) and
  *   NAIL_EXTRAS (TRUE / FALSE columns).
- * - viewIsCustomer → View is written with the customer's name (as AppSheet
- *   does for 粉嫩術). 特別事項 copies 備注 into View instead, in the forms.
  * - color → calendar bar/block colour. The first five keep the AppSheet
  *   timetable's hues (toned down so white text reads on them); the rest
  *   weren't visible there, so they're picked to be distinct.
@@ -73,7 +71,6 @@ export const SERVICES = [
     price: 100,
     color: '#1A8F9E',
     noHandOrFoot: true,
-    viewIsCustomer: true,
     hasDeposit: true,
   },
   {
@@ -82,7 +79,6 @@ export const SERVICES = [
     price: 2000,
     color: '#C9668E',
     noHandOrFoot: true,
-    viewIsCustomer: true,
   },
   { name: '特別事項', durationMinutes: undefined, price: 0, color: '#AE45A8' },
 ] as const;
@@ -216,14 +212,6 @@ export function describeNailExtras(apt: Partial<NailExtras> & { complexDesign?: 
     ...(complex === COMPLEX_DESIGN_OPTIONS[0] ? [] : [`複雜款（${complex}）`]),
     ...NAIL_EXTRAS.filter(({ key }) => apt[key]).map(({ label }) => label),
   ].join('、');
-}
-
-/** The View value to send for a non-特別事項 booking, or undefined to leave it as is. */
-export function viewFor(service: string, customerName: string): string | undefined {
-  const found = SERVICES.find((s) => s.name === service);
-  return found && 'viewIsCustomer' in found && found.viewIsCustomer
-    ? customerName.trim()
-    : undefined;
 }
 
 /** Like defaultDurationFor: a 整甲 for 腳 has its own price, and add-ons add theirs. */

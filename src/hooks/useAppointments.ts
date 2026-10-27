@@ -8,15 +8,48 @@ import {
 } from '@/services/appointmentsApi';
 import type { Appointment } from '@/types/appointment';
 import type { CustomerKey } from '@/types/customer';
+import { readStored, writeStored } from '@/utils/persistentStorage';
+import { reuseUnchanged } from '@/utils/reuseUnchanged';
 
 const EMPTY: Appointment[] = [];
 
+const STORAGE_KEY = 'appointments-cache-v1';
+/** Most recently loaded ranges kept on the device, so storage doesn't grow. */
+const MAX_STORED = 24;
+
 /**
- * Last result per date range (or per customer's history), kept for the app's
- * lifetime. Apps Script calls take a second or more, so screens show cached
- * data at once and refresh it in the background (stale-while-revalidate).
+ * Last result per date range (or per customer's history). Apps Script calls
+ * take seconds, so screens show cached data at once and refresh it in the
+ * background (stale-while-revalidate). It's also saved on the device and
+ * read back on launch, so even the first screen opens with the last data.
  */
-const cache = new Map<string, Appointment[]>();
+const cache = new Map<string, Appointment[]>(readStoredEntries());
+/** When each key was last written, to keep only the newest MAX_STORED. */
+const writtenAt = new Map<string, number>([...cache.keys()].map((key, i) => [key, i]));
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+function readStoredEntries(): [string, Appointment[]][] {
+  try {
+    const parsed: unknown = JSON.parse(readStored(STORAGE_KEY) ?? '[]');
+    return Array.isArray(parsed) ? (parsed as [string, Appointment[]][]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Every cache write goes through here, so it's saved on the device too. */
+function setCache(key: string, list: Appointment[]): void {
+  cache.set(key, list);
+  writtenAt.set(key, Date.now());
+  // Several writes often land together (a load plus prefetches): save once
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const newest = [...cache.entries()]
+      .sort(([a], [b]) => (writtenAt.get(b) ?? 0) - (writtenAt.get(a) ?? 0))
+      .slice(0, MAX_STORED);
+    writeStored(STORAGE_KEY, JSON.stringify(newest));
+  }, 1000);
+}
 /** Requests in flight per key, so a prefetch and a screen load share one call. */
 const inflight = new Map<string, Promise<Appointment[]>>();
 
@@ -37,8 +70,9 @@ function fetchCached(key: string, load: () => Promise<Appointment[]>): Promise<A
   if (!request) {
     request = load()
       .then((data) => {
-        cache.set(key, data);
-        return data;
+        const merged = reuseUnchanged(cache.get(key), data, (apt) => apt.id);
+        setCache(key, merged);
+        return merged;
       })
       .finally(() => inflight.delete(key));
     inflight.set(key, request);
@@ -63,11 +97,37 @@ export function findCachedAppointment(id: string): Appointment | undefined {
   return undefined;
 }
 
+/**
+ * Put a just-saved appointment into every cached range that covers its date
+ * (and out of those that no longer do), so screens show it at once instead
+ * of after the next Apps Script reload. Customer histories only get edits.
+ */
+export function upsertCachedAppointment(saved: Appointment): void {
+  for (const [key, list] of cache) {
+    const covers = rangeCovers(key, saved.date);
+    const index = list.findIndex((apt) => apt.id === saved.id);
+    if (covers === false) {
+      if (index !== -1) setCache(key, list.filter((apt) => apt.id !== saved.id));
+    } else if (index !== -1) {
+      setCache(key, list.map((apt, i) => (i === index ? saved : apt)));
+    } else if (covers) {
+      setCache(key, [...list, saved]);
+    }
+  }
+}
+
+/** Whether a date-range cache key covers `date`; undefined for customer histories. */
+function rangeCovers(key: string, date: string): boolean | undefined {
+  if (key.startsWith('customer:')) return undefined;
+  const [from, to] = key.split('|');
+  return (!from || date >= from) && (!to || date <= to);
+}
+
 /** Drop a deleted appointment from every cached range, so it disappears at once. */
 export function removeCachedAppointment(id: string): void {
   for (const [key, list] of cache) {
     if (list.some((apt) => apt.id === id)) {
-      cache.set(key, list.filter((apt) => apt.id !== id));
+      setCache(key, list.filter((apt) => apt.id !== id));
     }
   }
 }

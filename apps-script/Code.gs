@@ -42,6 +42,9 @@ const COL = {
   complexDesign: '複雜款',
 };
 
+/** How many of the latest rows to sample for the sheet's current writing style. */
+const STYLE_SAMPLE_ROWS = 200;
+
 /**
  * TRUE / FALSE columns, keyed by the app's field name. Each is only read when
  * filled in and only written when sent, so services that don't use it leave
@@ -315,19 +318,34 @@ function readTableInDateRange_(sheet, from, to, tz) {
   if (idCol === -1 || dateCol === -1) return readTable_(sheet);
   if (lastRow < 2) return { headers: headers, rows: [] };
 
+  // Raw values only: display strings of these two whole columns took
+  // seconds to fetch. Real date cells are compared as timestamps against
+  // the range in the sheet's time zone; `to` covers that whole day.
   const dataRows = lastRow - 1;
-  const ids = sheet.getRange(2, idCol + 1, dataRows, 1).getDisplayValues();
+  const ids = sheet.getRange(2, idCol + 1, dataRows, 1).getValues();
   const dateRange = sheet.getRange(2, dateCol + 1, dataRows, 1);
   const dateValues = dateRange.getValues();
-  const dateDisplay = dateRange.getDisplayValues();
+  const fromMs = from ? Utilities.parseDate(from, tz, 'yyyy-MM-dd').getTime() : null;
+  const toEndMs = to ? Utilities.parseDate(to, tz, 'yyyy-MM-dd').getTime() + 864e5 : null;
+  // Fetched only if some 日期 cell holds text rather than a date
+  let dateDisplay = null;
 
   let first = -1;
   let last = -1;
   for (let i = 0; i < dataRows; i++) {
     if (!String(ids[i][0]).trim()) continue;
-    const date = toIsoDate_(dateValues[i][0], dateDisplay[i][0], tz);
+    const value = dateValues[i][0];
+    let outside;
+    if (value instanceof Date) {
+      const ms = value.getTime();
+      outside = (fromMs != null && ms < fromMs) || (toEndMs != null && ms >= toEndMs);
+    } else {
+      if (!dateDisplay) dateDisplay = dateRange.getDisplayValues();
+      const date = toIsoDate_(value, dateDisplay[i][0], tz);
+      outside = Boolean(date) && ((from && date < from) || (to && date > to));
+    }
     // Same rule as listAppointments_: rows without a date are kept
-    if (date && ((from && date < from) || (to && date > to))) continue;
+    if (outside) continue;
     if (first === -1) first = i;
     last = i;
   }
@@ -381,8 +399,14 @@ function parseAppointmentInput_(input) {
     durationMinutes: durationMinutes,
     price: toNumber_(input.price),
     handOrFoot: String(input.handOrFoot || '').trim(),
-    // Only written when sent
-    view: input.view != null ? String(input.view).trim() : null,
+    // AppSheet fills View with the customer's name on every booking (and 備注
+    // on 特別事項, which the app sends), so rows written here match
+    view:
+      input.view != null
+        ? String(input.view).trim()
+        : service !== SPECIAL_SERVICE && customerName
+          ? customerName
+          : null,
     complexDesign: input.complexDesign != null ? String(input.complexDesign).trim() : null,
     // FLAG_COL fields that were sent, as TRUE / FALSE
     flags: parseFlags_(input),
@@ -409,6 +433,7 @@ function requireColumn_(headers, name) {
  * column.
  */
 function putOptionalCells_(cells, headers, a) {
+  if (a.view != null) cells[COL.view] = a.view;
   if (a.complexDesign != null) {
     requireColumn_(headers, COL.complexDesign);
     cells[COL.complexDesign] = a.complexDesign;
@@ -452,11 +477,14 @@ function createAppointment_(input) {
   try {
     const ss = openSpreadsheet_();
     const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
-    const table = readTable_(sheet);
+    // Reading every row's values and display strings took seconds, so only
+    // the 預約ID column and the latest rows (for the sheet's style) are read
+    const headers = readHeaders_(sheet);
+    const recent = readLastRows_(sheet, headers, STYLE_SAMPLE_ROWS);
     const customers = readCustomers_(ss);
     const customer = customers.byName[a.customerName];
 
-    const id = newId_(table);
+    const id = newId_(readColumn_(sheet, headers, COL.id));
     const [y, m, d] = a.date.split('-').map(Number);
     const status = a.service === SPECIAL_SERVICE ? '' : DEFAULT_STATUS;
 
@@ -464,21 +492,20 @@ function createAppointment_(input) {
     cells[COL.id] = id;
     cells[COL.service] = a.service;
     cells[COL.notes] = a.notes;
-    cells[COL.customerName] = customerValueForSheet_(table, customers, customer, a.customerName);
+    cells[COL.customerName] = customerValueForSheet_(recent, customers, customer, a.customerName);
     cells[COL.date] = new Date(y, m - 1, d);
     cells[COL.time] = a.time + ':00';
     cells[COL.duration] =
-      a.durationMinutes != null ? durationCellValue_(table, a.durationMinutes) : '';
+      a.durationMinutes != null ? durationCellValue_(recent, a.durationMinutes) : '';
     cells[COL.handOrFoot] = a.handOrFoot;
     cells[COL.price] = a.price != null ? a.price : '';
     cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
-    if (a.view != null) cells[COL.view] = a.view;
-    putOptionalCells_(cells, table.headers, a);
+    putOptionalCells_(cells, headers, a);
 
     // Only fill columns we know; leave any other columns (e.g. AppSheet
     // virtual/formula columns) blank so the sheet computes them.
-    const row = table.headers.map(function (h) {
+    const row = headers.map(function (h) {
       return Object.prototype.hasOwnProperty.call(cells, h) ? cells[h] : '';
     });
     sheet.appendRow(row);
@@ -534,7 +561,6 @@ function updateAppointment_(id, input) {
     cells[COL.price] = a.price != null ? a.price : '';
     if (hasStatus) cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
-    if (a.view != null) cells[COL.view] = a.view;
     putOptionalCells_(cells, headers, a);
 
     Object.keys(cells).forEach(function (h) {
@@ -581,7 +607,9 @@ function findAppointmentRow_(sheet, id) {
   if (idCol === -1) throw new Error('Column not found: ' + COL.id);
 
   if (lastRow >= 2) {
-    const ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getDisplayValues();
+    // Raw values are much quicker than display strings; old numeric IDs
+    // (1–3810) compare equal once stringified
+    const ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
     // Recent bookings are near the bottom
     for (let i = ids.length - 1; i >= 0; i--) {
       if (String(ids[i][0]).trim() === id) return { rowIndex: i + 2, headers: headers };
@@ -771,13 +799,35 @@ function readHeaders_(sheet) {
     });
 }
 
+/** One column's display strings, trimmed (empty when the column is missing). */
+function readColumn_(sheet, headers, name) {
+  const col = headers.indexOf(name);
+  const lastRow = sheet.getLastRow();
+  if (col === -1 || lastRow < 2) return [];
+  return sheet
+    .getRange(2, col + 1, lastRow - 1, 1)
+    .getDisplayValues()
+    .map(function (cell) {
+      return String(cell[0]).trim();
+    });
+}
+
+/** The last `count` data rows, display strings only (cellText_ reads those). */
+function readLastRows_(sheet, headers, count) {
+  const lastRow = sheet.getLastRow();
+  const first = Math.max(2, lastRow - count + 1);
+  if (lastRow < first) return [];
+  const display = sheet.getRange(first, 1, lastRow - first + 1, headers.length).getDisplayValues();
+  return toRows_(headers, display, display);
+}
+
 /**
- * If existing rows store 顧客ID in the 顧客姓名 column (AppSheet Ref),
- * write the ID too so AppSheet keeps working; otherwise write the name.
+ * If recent rows store 顧客ID in the 顧客姓名 column (AppSheet Ref), write
+ * the ID too so AppSheet keeps working; otherwise write the name.
  */
-function customerValueForSheet_(table, customers, customer, customerName) {
+function customerValueForSheet_(rows, customers, customer, customerName) {
   if (!customer || !customer.id) return customerName;
-  const storesIds = table.rows.some(function (row) {
+  const storesIds = rows.some(function (row) {
     const v = cellText_(row, COL.customerName);
     return v && customers.byId[v] && !customers.byName[v];
   });
@@ -785,10 +835,10 @@ function customerValueForSheet_(table, customers, customer, customerName) {
 }
 
 /** 22-char alphanumeric key, same shape as AppSheet's recent 預約ID values. */
-function newId_(table) {
+function newId_(ids) {
   const existing = {};
-  table.rows.forEach(function (row) {
-    existing[cellText_(row, COL.id)] = true;
+  ids.forEach(function (id) {
+    existing[id] = true;
   });
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let id;
@@ -805,9 +855,9 @@ function newId_(table) {
  * Write Duration in the same format the column already uses:
  * plain minutes ("150") or a duration string ("2:30:00").
  */
-function durationCellValue_(table, minutes) {
-  for (let i = table.rows.length - 1; i >= 0; i--) {
-    const sample = cellText_(table.rows[i], COL.duration);
+function durationCellValue_(rows, minutes) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const sample = cellText_(rows[i], COL.duration);
     if (sample) return durationValueLike_(sample, minutes);
   }
   return minutesToDuration_(minutes);
@@ -834,12 +884,18 @@ function cellText_(row, header) {
 }
 
 function toIsoDate_(value, display, tz) {
+  // Year-first text (the sheet shows 2026/10/11) is read straight from the
+  // display string: Utilities.formatDate is a service call, and making one
+  // per row cost about 5 s on every read.
+  let m = String(display || '').trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) return m[1] + '-' + pad2_(m[2]) + '-' + pad2_(m[3]);
+
   if (value instanceof Date) return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
 
   const s = String(display || value || '').trim();
   if (!s) return '';
 
-  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (m) return m[1] + '-' + pad2_(m[2]) + '-' + pad2_(m[3]);
 
   m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);

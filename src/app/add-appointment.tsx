@@ -41,17 +41,19 @@ import {
   toComplexDesign,
   showsNailExtras,
   usesNailExtras,
-  viewFor,
   HAND_OR_FOOT_OPTIONS,
   COMPLEX_DESIGN_OPTIONS,
   NO_NAIL_EXTRAS,
   NAIL_EXTRAS,
-  type ComplexDesign,
   type HandOrFoot,
   type NailExtra,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
-import { findCachedAppointment, useAppointments } from '@/hooks/useAppointments';
+import {
+  findCachedAppointment,
+  upsertCachedAppointment,
+  useAppointments,
+} from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
 import {
   createAppointment,
@@ -102,36 +104,22 @@ export default function AddAppointmentScreen() {
   const [service, setService] = useState<ServiceType | ''>(
     (editing?.service as ServiceType | undefined) ?? ''
   );
-  const [handOrFoot, setHandOrFootState] = useState<HandOrFoot>(
+  const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
     (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
   );
   const [price, setPrice] = useState(
     editing?.price != null ? String(editing.price) : ''
   );
   const [deposit, setDeposit] = useState(editing?.deposit ?? false);
-  const [complexDesign, setComplexDesignState] = useState(() =>
+  const [complexDesign, setComplexDesign] = useState(() =>
     toComplexDesign(editing?.complexDesign)
   );
-  const setHandOrFoot = (value: HandOrFoot) => {
-    setHandOrFootState(value);
-    // 整甲 takes a different default Duration for 腳 and 手 + 腳
-    setKeepDuration(false);
-  };
-  const setComplexDesign = (value: ComplexDesign) => {
-    setComplexDesignState(value);
-    // Changes the default Duration, so an edited booking takes it up too
-    setKeepDuration(false);
-  };
   const [nailExtras, setNailExtras] = useState(() => nailExtrasOf(editing));
   const setNailExtra = (key: NailExtra, on: boolean) => {
     setNailExtras((prev) => ({ ...prev, [key]: on }));
-    // 拆甲 and 延長 change the default Duration too
-    setKeepDuration(false);
   };
   // Once the price is typed by hand, changing service no longer overwrites it
   const [priceEdited, setPriceEdited] = useState(editing != null);
-  // An edited booking keeps its own Duration until the service is changed
-  const [keepDuration, setKeepDuration] = useState(editing != null);
   const [status, setStatus] = useState(editing?.status ?? '');
   const [notes, setNotes] = useState(editing?.notes ?? '');
   const [saving, setSaving] = useState(false);
@@ -187,15 +175,16 @@ export default function AddAppointmentScreen() {
   // 特別事項: Duration = End Time − 時間 (none when they're equal)
   const specialDuration =
     validTime && validEndTime ? timeToMinutes(endTimeInput) - timeToMinutes(time) : undefined;
+  // 特別事項 runs to its End Time; everything else (edits too) takes the
+  // length from the service, 手/腳 and add-ons, so an older row whose
+  // Duration left out its add-ons is saved with the full length
   const duration = isSpecial
     ? specialDuration && specialDuration > 0
       ? specialDuration
       : undefined
-    : keepDuration
-      ? editing?.durationMinutes
-      : service
-        ? defaultDurationFor(service, { handOrFoot, ...appliedNailExtras })
-        : undefined;
+    : service
+      ? defaultDurationFor(service, { handOrFoot, ...appliedNailExtras })
+      : undefined;
   const endTime = validTime && duration ? minutesToTime(timeToMinutes(time) + duration) : null;
   // Shown as soon as a typed end time is before the start, not only on save
   const endTimeError =
@@ -221,7 +210,6 @@ export default function AddAppointmentScreen() {
   const handleServiceChange = (next: ServiceType) => {
     setService(next);
     clearError('service');
-    setKeepDuration(false);
   };
 
   const validate = (): Partial<Record<Field, string>> => {
@@ -276,7 +264,6 @@ export default function AddAppointmentScreen() {
             time,
             service,
             notes,
-            view: viewFor(service, customerName),
             durationMinutes: duration,
             handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
             price: price.trim() ? Number(price.trim()) : undefined,
@@ -284,11 +271,10 @@ export default function AddAppointmentScreen() {
             deposit: usesDeposit(service) ? deposit : undefined,
             ...(usesNailExtras(service) ? appliedNailExtras : {}),
           };
-      if (editing) {
-        await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status });
-      } else {
-        await createAppointment(input);
-      }
+      const saved = editing
+        ? await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status })
+        : await createAppointment(input);
+      upsertCachedAppointment(saved);
 
       showAlert(
         isUsingMockApi ? '已儲存（模擬）' : '已儲存',
