@@ -19,6 +19,9 @@ export function writeStored(key: string, value: string): void {
   }
 }
 
+/** localStorage writes are synchronous already. */
+export const writeStoredNow = writeStored;
+
 export function removeStored(key: string): void {
   try {
     window.localStorage.removeItem(key);

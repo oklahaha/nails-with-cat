@@ -31,6 +31,18 @@ export function writeStored(key: string, value: string): void {
   });
 }
 
+/**
+ * Like writeStored, but done before it returns, for data that must survive
+ * the app being closed straight afterwards (the outbox of unsent writes).
+ */
+export function writeStoredNow(key: string, value: string): void {
+  try {
+    Storage?.setItemSync(key, value);
+  } catch {
+    // Ignored: the write still runs this session, only a restart would lose it
+  }
+}
+
 export function removeStored(key: string): void {
   Storage?.removeItem(key).catch(() => {
     // Ignored: at worst the old value takes up some space

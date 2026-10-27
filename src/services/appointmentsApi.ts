@@ -64,7 +64,7 @@ export async function registerPushToken(input: {
 }): Promise<void> {
   if (isUsingMockApi) return;
 
-  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -108,7 +108,7 @@ export async function listAppointments(
   if (options.from) params.set('from', options.from);
   if (options.to) params.set('to', options.to);
 
-  const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ appointments: Appointment[] }>(res);
   return data.appointments;
 }
@@ -130,7 +130,7 @@ export async function listCustomerAppointments(key: CustomerKey): Promise<Appoin
   });
   if (key.id) params.set('id', key.id);
 
-  const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ appointments: Appointment[] }>(res);
   return data.appointments;
 }
@@ -139,14 +139,16 @@ export async function listCustomerAppointments(key: CustomerKey): Promise<Appoin
  * Create a new appointment — appends a row to 預約資料.
  */
 export async function createAppointment(
-  input: NewAppointmentInput
+  input: NewAppointmentInput,
+  /** The new row's 預約ID; Apps Script returns the existing row if it already has it. */
+  id?: string
 ): Promise<Appointment> {
   if (isUsingMockApi) {
     await delay(300);
 
     // Mock "created" record — not persisted; list still reads MOCK_APPOINTMENTS
     const created: Appointment = {
-      id: `APT-MOCK-${Date.now()}`,
+      id: id ?? `APT-MOCK-${Date.now()}`,
       customerName: input.customerName.trim(),
       date: input.date.trim(),
       time: input.time.trim(),
@@ -167,13 +169,14 @@ export async function createAppointment(
   }
 
   // text/plain avoids a CORS preflight on web, which Apps Script can't answer.
-  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       token: APPS_SCRIPT_TOKEN,
       action: 'createAppointment',
       pushToken: senderPushToken,
+      id,
       appointment: input,
     }),
   });
@@ -214,7 +217,7 @@ export async function updateAppointment(
     return updated;
   }
 
-  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -241,7 +244,7 @@ export async function deleteAppointment(id: string): Promise<void> {
     return;
   }
 
-  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -277,7 +280,7 @@ export async function listCustomers(): Promise<Customer[]> {
     action: 'listCustomers',
     token: APPS_SCRIPT_TOKEN,
   });
-  const res = await fetch(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ customers: Customer[] }>(res);
   return data.customers;
 }
@@ -299,7 +302,7 @@ export async function createCustomer(input: CustomerInput): Promise<Customer> {
     return created;
   }
 
-  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -333,7 +336,7 @@ export async function updateCustomer(
     return updated;
   }
 
-  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -358,7 +361,7 @@ export async function deleteCustomer(key: CustomerKey): Promise<void> {
     return;
   }
 
-  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
@@ -369,6 +372,28 @@ export async function deleteCustomer(key: CustomerKey): Promise<void> {
   });
   await parseResponse<object>(res);
   notifyChanged();
+}
+
+/**
+ * Longest wait for Apps Script. Android's networking has no timeout of its
+ * own, so a request stalled on a bad connection would otherwise hang forever,
+ * and with it every write queued behind it. Writes can wait up to 15 s for
+ * the script's lock before their own work, hence the margin.
+ */
+const REQUEST_TIMEOUT_MS = 60_000;
+
+/** fetch, giving up after REQUEST_TIMEOUT_MS. */
+async function request(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (controller.signal.aborted) throw new Error('連線逾時，請檢查網絡後再試');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Apps Script always replies 200; real errors come back as { ok: false }. */

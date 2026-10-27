@@ -12,13 +12,18 @@
  *   GET  ?action=ping&token=...
  *   GET  ?action=listAppointments&token=...[&from=YYYY-MM-DD][&to=YYYY-MM-DD]
  *   GET  ?action=listCustomers&token=...
- *   POST body (text/plain JSON): { token, action: 'createAppointment', appointment: {...} }
+ *   POST body (text/plain JSON): { token, action: 'createAppointment', id?, appointment: {...} }
  *   POST body (text/plain JSON): { token, action: 'updateAppointment', id, appointment: {...} }
  *   POST body (text/plain JSON): { token, action: 'deleteAppointment', id }
  *   POST body (text/plain JSON): { token, action: 'createCustomer', customer: { name, phone } }
  *   POST body (text/plain JSON): { token, action: 'updateCustomer', key: { id, name }, customer: { name, phone } }
  *   POST body (text/plain JSON): { token, action: 'deleteCustomer', key: { id, name } }
  *   POST body (text/plain JSON): { token, action: 'registerPushToken', pushToken, platform, device }
+ *
+ * The app may send its writes twice (it resends what a closed app left
+ * unsent), so repeating one is harmless: a create carries the new 預約ID and
+ * returns the row already holding it, and deleting a booking or customer
+ * that's gone counts as done.
  *
  * Booking writes may carry the sender's `pushToken`: every other registered
  * device then gets a push message about the change (see notifyAppointmentChange_).
@@ -115,18 +120,21 @@ function doPost(e) {
 
     switch (body.action) {
       case 'createAppointment': {
-        const created = createAppointment_(body.appointment || {});
-        notifyAppointmentChange_('create', created, body.pushToken);
-        return { appointment: created };
+        const result = createAppointment_(body.appointment || {}, body.id);
+        // A repeated create (the app resending after a restart) changed nothing
+        if (result.created) notifyAppointmentChange_('create', result.appointment, body.pushToken);
+        return { appointment: result.appointment };
       }
       case 'updateAppointment': {
         const updated = updateAppointment_(body.id, body.appointment || {});
         notifyAppointmentChange_('update', updated, body.pushToken);
         return { appointment: updated };
       }
-      case 'deleteAppointment':
-        notifyAppointmentChange_('delete', deleteAppointment_(body.id), body.pushToken);
+      case 'deleteAppointment': {
+        const deleted = deleteAppointment_(body.id);
+        if (deleted) notifyAppointmentChange_('delete', deleted, body.pushToken);
         return {};
+      }
       case 'createCustomer':
         return { customer: createCustomer_(body.customer || {}) };
       case 'updateCustomer':
@@ -447,7 +455,7 @@ function requireColumn_(headers, name) {
  * column.
  */
 function putOptionalCells_(cells, headers, a) {
-  if (a.view != null) cells[COL.view] = a.view;
+  if (a.view != null) cells[COL.view] = plainText_(a.view);
   if (a.complexDesign != null) {
     requireColumn_(headers, COL.complexDesign);
     cells[COL.complexDesign] = a.complexDesign;
@@ -482,8 +490,17 @@ function appointmentResponse_(id, a, status, customer) {
   return out;
 }
 
-function createAppointment_(input) {
+/**
+ * Append a booking. `requestedId` is the 預約ID the app chose; if a row
+ * already holds it, that row is returned instead (`created` false). Without
+ * one, a new 預約ID is made up here.
+ */
+function createAppointment_(input, requestedId) {
   const a = parseAppointmentInput_(input);
+  const requested = String(requestedId || '').trim();
+  if (requested && !/^[A-Za-z0-9]{22}$/.test(requested)) {
+    throw new Error('Invalid 預約ID: ' + requested);
+  }
 
   // Both users may save at the same moment — serialize appends.
   const lock = LockService.getScriptLock();
@@ -494,19 +511,32 @@ function createAppointment_(input) {
     // Reading every row's values and display strings took seconds, so only
     // the 預約ID column and the latest rows (for the sheet's style) are read
     const headers = readHeaders_(sheet);
-    const recent = readLastRows_(sheet, headers, STYLE_SAMPLE_ROWS);
     const customers = readCustomers_(ss);
+    if (requested) {
+      const existing = findAppointmentRowIndex_(sheet, headers, requested);
+      if (existing !== -1) {
+        const range = sheet.getRange(existing, 1, 1, headers.length);
+        const row = toRows_(headers, range.getValues(), range.getDisplayValues())[0];
+        return {
+          appointment: toAppointment_(row, customers, ss.getSpreadsheetTimeZone()),
+          created: false,
+        };
+      }
+    }
+    const recent = readLastRows_(sheet, headers, STYLE_SAMPLE_ROWS);
     const customer = customers.byName[a.customerName];
 
-    const id = newId_(readColumn_(sheet, headers, COL.id));
+    const id = requested || newId_();
     const [y, m, d] = a.date.split('-').map(Number);
     const status = a.service === SPECIAL_SERVICE ? '' : DEFAULT_STATUS;
 
     const cells = {};
     cells[COL.id] = id;
     cells[COL.service] = a.service;
-    cells[COL.notes] = a.notes;
-    cells[COL.customerName] = customerValueForSheet_(recent, customers, customer, a.customerName);
+    cells[COL.notes] = plainText_(a.notes);
+    cells[COL.customerName] = plainText_(
+      customerValueForSheet_(recent, customers, customer, a.customerName)
+    );
     cells[COL.date] = new Date(y, m - 1, d);
     cells[COL.time] = a.time + ':00';
     cells[COL.duration] =
@@ -525,7 +555,7 @@ function createAppointment_(input) {
     sheet.appendRow(row);
     SpreadsheetApp.flush();
 
-    return appointmentResponse_(id, a, status, customer);
+    return { appointment: appointmentResponse_(id, a, status, customer), created: true };
   } finally {
     lock.releaseLock();
   }
@@ -563,8 +593,10 @@ function updateAppointment_(id, input) {
 
     const cells = {};
     cells[COL.service] = a.service;
-    cells[COL.notes] = a.notes;
-    cells[COL.customerName] = storesId && customer && customer.id ? customer.id : a.customerName;
+    cells[COL.notes] = plainText_(a.notes);
+    cells[COL.customerName] = plainText_(
+      storesId && customer && customer.id ? customer.id : a.customerName
+    );
     cells[COL.date] = new Date(y, m - 1, d);
     cells[COL.time] = a.time + ':00';
     cells[COL.duration] =
@@ -596,20 +628,25 @@ function updateAppointment_(id, input) {
 
 /**
  * Remove an appointment's row from 預約資料, found by 預約ID. Returns what
- * the row held, for the push message. The customer's name is looked up
- * after the lock is released, since reading 顧客 would hold up other writes.
+ * the row held, for the push message, or null when no row has the id (it's
+ * already deleted, so there's nothing to do). The customer's name is looked
+ * up after the lock is released, since reading 顧客 would hold up other writes.
  */
 function deleteAppointment_(id) {
+  id = String(id || '').trim();
+  if (!id) throw new Error('id is required');
   const ss = openSpreadsheet_();
-  let row;
+  let row = null;
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
     const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
-    const found = findAppointmentRow_(sheet, id);
-    const range = sheet.getRange(found.rowIndex, 1, 1, found.headers.length);
-    row = toRows_(found.headers, range.getValues(), range.getDisplayValues())[0];
-    sheet.deleteRow(found.rowIndex);
+    const headers = readHeaders_(sheet);
+    const rowIndex = findAppointmentRowIndex_(sheet, headers, id);
+    if (rowIndex === -1) return null;
+    const range = sheet.getRange(rowIndex, 1, 1, headers.length);
+    row = toRows_(headers, range.getValues(), range.getDisplayValues())[0];
+    sheet.deleteRow(rowIndex);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
@@ -624,22 +661,26 @@ function deleteAppointment_(id) {
 function findAppointmentRow_(sheet, id) {
   id = String(id || '').trim();
   if (!id) throw new Error('id is required');
-
-  const lastRow = sheet.getLastRow();
   const headers = readHeaders_(sheet);
+  const rowIndex = findAppointmentRowIndex_(sheet, headers, id);
+  if (rowIndex === -1) throw new Error('找不到此預約，可能已被刪除（' + id + '）');
+  return { rowIndex: rowIndex, headers: headers };
+}
+
+/** The 1-based row holding `id` in 預約ID, or -1. */
+function findAppointmentRowIndex_(sheet, headers, id) {
   const idCol = headers.indexOf(COL.id);
   if (idCol === -1) throw new Error('Column not found: ' + COL.id);
-
-  if (lastRow >= 2) {
-    // Raw values are much quicker than display strings; old numeric IDs
-    // (1–3810) compare equal once stringified
-    const ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
-    // Recent bookings are near the bottom
-    for (let i = ids.length - 1; i >= 0; i--) {
-      if (String(ids[i][0]).trim() === id) return { rowIndex: i + 2, headers: headers };
-    }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+  // Raw values are much quicker than display strings; old numeric IDs
+  // (1–3810) compare equal once stringified
+  const ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  // Recent bookings are near the bottom
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]).trim() === id) return i + 2;
   }
-  throw new Error('找不到此預約，可能已被刪除（' + id + '）');
+  return -1;
 }
 
 /** Append a 顧客 row, with a new 顧客ID shaped like the existing ones. */
@@ -660,16 +701,29 @@ function createCustomer_(input) {
     }
 
     const ids = [];
+    let existing = null;
     table.rows.forEach(function (row) {
-      if (cellText_(row, CUST_COL.name) === name) throw new Error('已有同名顧客：' + name);
+      if (cellText_(row, CUST_COL.name) === name) existing = row;
       const id = cellText_(row, CUST_COL.id);
       if (id) ids.push(id);
     });
+    if (existing) {
+      // The same name and phone: this add was sent before (the app resends
+      // what a closed app left unsent), so return that row
+      if (cellText_(existing, CUST_COL.phone).replace(/[^\d]/g, '') !== phone) {
+        throw new Error('已有同名顧客：' + name);
+      }
+      return {
+        id: cellText_(existing, CUST_COL.id),
+        name: name,
+        phone: normalizePhone_(cellText_(existing, CUST_COL.phone)),
+      };
+    }
     const id = table.headers.indexOf(CUST_COL.id) === -1 ? '' : newCustomerId_(ids);
 
     const cells = {};
     cells[CUST_COL.id] = id;
-    cells[CUST_COL.name] = name;
+    cells[CUST_COL.name] = plainText_(name);
     cells[CUST_COL.phone] = phone;
     // Leave any other columns blank, as createAppointment_ does
     sheet.appendRow(
@@ -741,7 +795,7 @@ function updateCustomer_(key, input) {
       throw new Error('已有同名顧客：' + name);
     }
 
-    sheet.getRange(found.rowIndex, found.nameCol + 1).setValue(name);
+    sheet.getRange(found.rowIndex, found.nameCol + 1).setValue(plainText_(name));
     const phoneCol = found.headers.indexOf(CUST_COL.phone);
     if (phoneCol !== -1) sheet.getRange(found.rowIndex, phoneCol + 1).setValue(phone);
     if (name !== found.name) replaceCustomerRefs_(ss, found.name, name);
@@ -763,7 +817,9 @@ function deleteCustomer_(key) {
   try {
     const ss = openSpreadsheet_();
     const sheet = getSheet_(ss, SHEET_CUSTOMERS);
-    const found = findCustomerRow_(sheet, key);
+    const found = findCustomerRow_(sheet, key, true);
+    // Already gone, e.g. a delete sent twice: nothing left to do
+    if (!found) return;
     if (found.id) replaceCustomerRefs_(ss, found.id, found.name);
     sheet.deleteRow(found.rowIndex);
     SpreadsheetApp.flush();
@@ -772,8 +828,11 @@ function deleteCustomer_(key) {
   }
 }
 
-/** Find a 顧客 row by 顧客ID, or by name when the customer has no ID. */
-function findCustomerRow_(sheet, key) {
+/**
+ * Find a 顧客 row by 顧客ID, or by name when the customer has no ID. Throws
+ * when there's none, or returns null if `optional`.
+ */
+function findCustomerRow_(sheet, key, optional) {
   const id = String(key.id || '').trim();
   const name = String(key.name || '').trim();
   if (!id && !name) throw new Error('id or name is required');
@@ -794,6 +853,7 @@ function findCustomerRow_(sheet, key) {
       }
     }
   }
+  if (optional) return null;
   throw new Error('找不到此顧客，可能已被刪除（' + (id || name) + '）');
 }
 
@@ -811,7 +871,7 @@ function replaceCustomerRefs_(ss, from, to) {
     .forEach(function (row, i) {
       if (String(row[0]).trim() === from) cells.push(sheet.getRange(i + 2, col + 1).getA1Notation());
     });
-  if (cells.length) sheet.getRangeList(cells).setValue(to);
+  if (cells.length) sheet.getRangeList(cells).setValue(plainText_(to));
 }
 
 function readHeaders_(sheet) {
@@ -820,19 +880,6 @@ function readHeaders_(sheet) {
     .getValues()[0]
     .map(function (h) {
       return String(h).trim();
-    });
-}
-
-/** One column's display strings, trimmed (empty when the column is missing). */
-function readColumn_(sheet, headers, name) {
-  const col = headers.indexOf(name);
-  const lastRow = sheet.getLastRow();
-  if (col === -1 || lastRow < 2) return [];
-  return sheet
-    .getRange(2, col + 1, lastRow - 1, 1)
-    .getDisplayValues()
-    .map(function (cell) {
-      return String(cell[0]).trim();
     });
 }
 
@@ -858,20 +905,17 @@ function customerValueForSheet_(rows, customers, customer, customerName) {
   return storesIds ? customer.id : customerName;
 }
 
-/** 22-char alphanumeric key, same shape as AppSheet's recent 預約ID values. */
-function newId_(ids) {
-  const existing = {};
-  ids.forEach(function (id) {
-    existing[id] = true;
-  });
+/**
+ * 22-char alphanumeric key, same shape as AppSheet's recent 預約ID values.
+ * Not checked against the sheet: with 62^22 possible keys a clash won't
+ * happen, and reading the whole column under the lock slowed every create.
+ */
+function newId_() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let id;
-  do {
-    id = '';
-    for (let i = 0; i < 22; i++) {
-      id += chars[Math.floor(Math.random() * chars.length)];
-    }
-  } while (existing[id]);
+  let id = '';
+  for (let i = 0; i < 22; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
   return id;
 }
 
@@ -1024,6 +1068,16 @@ function getSheet_(ss, name) {
   const sheet = ss.getSheetByName(name);
   if (!sheet) throw new Error('Sheet not found: ' + name);
   return sheet;
+}
+
+/**
+ * Typed text as a cell value that stays text: Sheets reads values starting
+ * with = + - @ as formulas or numbers (a 備注 of "+延長" would show #ERROR!),
+ * so those get a leading apostrophe, which Sheets hides and drops on read.
+ */
+function plainText_(value) {
+  const text = String(value);
+  return /^[=+\-@]/.test(text) ? "'" + text : text;
 }
 
 function cellText_(row, header) {

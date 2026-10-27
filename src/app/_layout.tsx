@@ -10,10 +10,13 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 
 import { colors } from '@/constants/theme';
+import { useResumeWrites } from '@/hooks/resumeWrites';
 import { useUpcomingSync } from '@/hooks/useUpcomingSync';
 import { useNotifications } from '@/notifications/notifications';
 
 export default function RootLayout() {
+  // Sends saves a closed app left unsent
+  useResumeWrites();
   // Asks for notification permission and opens bookings from tapped notifications
   useNotifications();
   // Feeds the next two weeks to the iOS home screen widget and the reminders
