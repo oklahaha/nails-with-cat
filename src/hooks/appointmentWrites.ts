@@ -23,9 +23,14 @@ import { appointmentTitle } from '@/utils/appointmentTitle';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 
-/** Bookings being created: their 預約ID, or null if creating them failed. */
-const createdIds = new Map<string, Promise<string | null>>();
-const resolveCreated = new Map<string, (real: string | null) => void>();
+/**
+ * Bookings being created: their 預約ID once Apps Script has the row, or
+ * null if creating it failed, and how to settle that.
+ */
+const creates = new Map<
+  string,
+  { realId: Promise<string | null>; settle: (real: string | null) => void }
+>();
 /**
  * The 預約ID Apps Script gave a booking, when it isn't the one sent: scripts
  * deployed before the app chose its own ids make up their own.
@@ -47,19 +52,20 @@ function newAppointmentId(): string {
 
 /** Let edits and deletes queued behind a new booking wait for its 預約ID. */
 function trackCreate(id: string): void {
-  createdIds.set(id, new Promise((resolve) => resolveCreated.set(id, resolve)));
+  let settle!: (real: string | null) => void;
+  const realId = new Promise<string | null>((resolve) => (settle = resolve));
+  creates.set(id, { realId, settle });
 }
 
 function settleCreate(id: string, real: string | null): void {
-  resolveCreated.get(id)?.(real);
-  resolveCreated.delete(id);
+  creates.get(id)?.settle(real);
 }
 
 /** The 預約ID to send for `id`, which may be a booking still being created. */
 async function sheetId(id: string): Promise<string> {
-  const created = createdIds.get(id);
+  const created = creates.get(id);
   if (!created) return realIds.get(id) ?? id;
-  const real = await created;
+  const real = await created.realId;
   if (real == null) throw new Error('此預約未能新增');
   return real;
 }

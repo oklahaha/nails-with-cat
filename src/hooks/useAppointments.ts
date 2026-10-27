@@ -41,12 +41,15 @@ function subscribeCache(listener: () => void): () => void {
 }
 
 /**
- * What a hook for `key` depends on: its own list once cached, so writes to
- * other ranges (e.g. prefetches) don't re-render it, or else the version,
- * since a covering range may change what it shows.
+ * Re-render when the cache for `key` changes: its own list once cached, so
+ * writes to other ranges (e.g. prefetches) don't re-render it, or else any
+ * write, since a covering range may change what it shows.
  */
-function cacheSnapshot(key: string): Appointment[] | number {
-  return cache.get(key) ?? cacheVersion;
+function useCacheSnapshot(key: string): Appointment[] | number {
+  return useSyncExternalStore(
+    subscribeCache,
+    useCallback(() => cache.get(key) ?? cacheVersion, [key])
+  );
 }
 
 /** Every cache write goes through here, so it's saved on the device too. */
@@ -75,7 +78,11 @@ function customerKey({ id, name }: CustomerKey): string {
   return `customer:${id || ''}:${name}`;
 }
 
-function fetchRange(range: ListAppointmentsOptions): Promise<Appointment[]> {
+/**
+ * Load a range through the cache, sharing a request already running for it.
+ * Screens use useAppointments; this is for loads outside one (the widget sync).
+ */
+export function loadAppointments(range: ListAppointmentsOptions): Promise<Appointment[]> {
   return fetchCached(rangeKey(range), () => listAppointments(range));
 }
 
@@ -96,18 +103,10 @@ function fetchCached(key: string, load: () => Promise<Appointment[]>): Promise<A
   return request;
 }
 
-/**
- * Load a range through the cache, outside a screen (e.g. for the widget):
- * shares a request already running for it and leaves the result for screens.
- */
-export function loadAppointments(range: ListAppointmentsOptions): Promise<Appointment[]> {
-  return fetchRange(range);
-}
-
 /** Warm the cache for a range the user is likely to open next. */
 export function prefetchAppointments(range: ListAppointmentsOptions): void {
   if (cache.has(rangeKey(range))) return;
-  fetchRange(range).catch(() => {
+  loadAppointments(range).catch(() => {
     // Ignored: the screen shows the error if it loads this range itself
   });
 }
@@ -290,7 +289,7 @@ export function useAppointments(
       else if (cache.has(k)) setReloading(true);
 
       try {
-        const data = await fetchRange({ from, to });
+        const data = await loadAppointments({ from, to });
         if (requestId !== requestIdRef.current) return;
         setResult({ key: k, appointments: data, error: null });
       } catch (e) {
@@ -317,10 +316,7 @@ export function useAppointments(
   );
 
   // Re-render when a save or delete elsewhere changes this range's cache
-  const snapshot = useSyncExternalStore(
-    subscribeCache,
-    useCallback(() => cacheSnapshot(key), [key])
-  );
+  const snapshot = useCacheSnapshot(key);
   // The cache is never older than `result` (fetches fill it first), and it
   // also reflects local edits such as removeCachedAppointment, so prefer it.
   // After a range change, this shows that range's cache until its own result
@@ -384,10 +380,7 @@ export function useCustomerAppointments(customer: CustomerKey | undefined) {
     }, [load])
   );
 
-  useSyncExternalStore(
-    subscribeCache,
-    useCallback(() => cacheSnapshot(key), [key])
-  );
+  useCacheSnapshot(key);
   // Same preference for the cache as useAppointments, so deletes show at once
   const current = cache.get(key) ?? (result.key === key ? result.appointments : undefined);
   const error = result.key === key ? result.error : null;
