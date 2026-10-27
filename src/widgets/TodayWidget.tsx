@@ -7,8 +7,8 @@
  *   compiled into a separate bundle that runs inside the widget extension,
  *   with no network, no app state, and no access to anything outside the
  *   function body (so colours are declared inside it).
- * - The app pushes the data instead: `useTodayWidgetSync` (iOS only) loads the
- *   next two weeks from Apps Script, `buildTodayWidgetTimeline` turns them into
+ * - The app pushes the data instead: `useUpcomingSync` loads the next two
+ *   weeks from Apps Script, `buildTodayWidgetTimeline` turns them into
  *   timeline entries, and `TodayWidget.updateTimeline` saves them to the shared
  *   app group, where iOS reads them.
  * - Each entry is the props for one moment: midnight of each day (new count)

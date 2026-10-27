@@ -21,6 +21,18 @@ Change the `SPREADSHEET_ID` script property to the real spreadsheet's ID. You do
 
 After you edit `Code.gs`, go to **Deploy → Manage deployments → Edit → Version: New version**. This keeps the same `/exec` URL. If you choose "New deployment" instead, you get a new URL.
 
+## Push notifications
+
+When one phone adds, edits or deletes a booking, the script sends a push message to the other registered phones through Expo's push service. The app registers each phone on launch, and the list is kept in the `PUSH_TOKENS` script property (run `debugListPushTokens` to see it). Changes made in AppSheet don't send anything. The reminders and morning summary are scheduled on each phone and need none of this.
+
+One-time setup:
+
+1. **Script:** paste the new `Code.gs` and `appsscript.json` (it now asks to reach external URLs), run `debugListPushTokens` once from the editor and approve the new permission, then redeploy as a new version (see below).
+2. **EAS project:** run `npx eas-cli@latest init` in the Expo project. It adds `extra.eas.projectId` to `app.json`, which the app needs for a push token. Without it only the local notifications work.
+3. **iOS:** run `npx eas-cli@latest credentials -p ios` (or start an iOS build) and let EAS create a push notification key.
+4. **Android:** in the [Firebase console](https://console.firebase.google.com), add an Android app with the package `com.nailswithcat.app` and download `google-services.json` to the project root. Add `"googleServicesFile": "./google-services.json"` under `android` in `app.json`. Then create a service account key (Project settings → Service accounts) and upload it with `npx eas-cli@latest credentials -p android` → Google Service Account → FCM V1.
+5. Make a new development build on both platforms (`expo-notifications` and `expo-task-manager` are native modules), open the app once on each phone and allow notifications.
+
 ## Notes
 
 - `TEXT_DATE_ORDER` in `Code.gs` only matters for dates stored as plain text. Real date cells are read correctly either way.

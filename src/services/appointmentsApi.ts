@@ -42,6 +42,42 @@ function notifyChanged(): void {
   for (const listener of changeListeners) listener();
 }
 
+/** This device's Expo push token, once registered (see notifications.ts). */
+let senderPushToken: string | undefined;
+
+/**
+ * Remember this device's push token. It's sent with each booking write, so
+ * Apps Script tells only the other devices about the change.
+ */
+export function setSenderPushToken(token: string): void {
+  senderPushToken = token;
+}
+
+/**
+ * Add this device to the list Apps Script sends booking changes to (kept in
+ * its script properties, not the sheet). Repeating it is harmless.
+ */
+export async function registerPushToken(input: {
+  token: string;
+  platform: string;
+  device: string;
+}): Promise<void> {
+  if (isUsingMockApi) return;
+
+  const res = await fetch(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'registerPushToken',
+      pushToken: input.token,
+      platform: input.platform,
+      device: input.device,
+    }),
+  });
+  await parseResponse<object>(res);
+}
+
 export type ListAppointmentsOptions = {
   /** Only include appointments on/after this date (YYYY-MM-DD). */
   from?: string;
@@ -137,6 +173,7 @@ export async function createAppointment(
     body: JSON.stringify({
       token: APPS_SCRIPT_TOKEN,
       action: 'createAppointment',
+      pushToken: senderPushToken,
       appointment: input,
     }),
   });
@@ -183,6 +220,7 @@ export async function updateAppointment(
     body: JSON.stringify({
       token: APPS_SCRIPT_TOKEN,
       action: 'updateAppointment',
+      pushToken: senderPushToken,
       id,
       appointment: input,
     }),
@@ -209,6 +247,7 @@ export async function deleteAppointment(id: string): Promise<void> {
     body: JSON.stringify({
       token: APPS_SCRIPT_TOKEN,
       action: 'deleteAppointment',
+      pushToken: senderPushToken,
       id,
     }),
   });

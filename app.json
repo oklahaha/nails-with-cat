@@ -12,6 +12,7 @@
       "bundleIdentifier": "com.nailswithcat.app"
     },
     "android": {
+      "package": "com.nailswithcat.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -48,18 +49,57 @@
               "displayName": "今日預約",
               "description": "今日預約數目和下一個預約",
               "ios": {
-                "supportedFamilies": ["systemSmall", "systemMedium"],
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium"
+                ],
                 "initialLayout": "./src/widgets/TodayWidget.tsx"
               }
             }
           ]
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#EC958C",
+          "enableBackgroundRemoteNotifications": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "ExpoWidgetsTarget",
+                  "bundleIdentifier": "com.nailswithcat.app.ExpoWidgetsTarget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.nailswithcat.app"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "da93e937-c714-437d-ac82-3006e42dedd1"
+      }
+    },
+    "owner": "heiheion"
   }
 }

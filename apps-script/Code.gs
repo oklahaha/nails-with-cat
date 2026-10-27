@@ -6,6 +6,7 @@
  *
  *   SPREADSHEET_ID   ID of the spreadsheet (the copy during development)
  *   API_TOKEN        shared secret; the app sends it as `token`
+ *   PUSH_TOKENS      set by the script: devices to tell about booking changes
  *
  * Endpoints (all responses are JSON: { ok: true, ... } or { ok: false, error }):
  *   GET  ?action=ping&token=...
@@ -17,6 +18,10 @@
  *   POST body (text/plain JSON): { token, action: 'createCustomer', customer: { name, phone } }
  *   POST body (text/plain JSON): { token, action: 'updateCustomer', key: { id, name }, customer: { name, phone } }
  *   POST body (text/plain JSON): { token, action: 'deleteCustomer', key: { id, name } }
+ *   POST body (text/plain JSON): { token, action: 'registerPushToken', pushToken, platform, device }
+ *
+ * Booking writes may carry the sender's `pushToken`: every other registered
+ * device then gets a push message about the change (see notifyAppointmentChange_).
  *
  * Columns are looked up by header name (row 1), so column order doesn't matter.
  */
@@ -109,12 +114,18 @@ function doPost(e) {
     checkToken_(body.token);
 
     switch (body.action) {
-      case 'createAppointment':
-        return { appointment: createAppointment_(body.appointment || {}) };
-      case 'updateAppointment':
-        return { appointment: updateAppointment_(body.id, body.appointment || {}) };
+      case 'createAppointment': {
+        const created = createAppointment_(body.appointment || {});
+        notifyAppointmentChange_('create', created, body.pushToken);
+        return { appointment: created };
+      }
+      case 'updateAppointment': {
+        const updated = updateAppointment_(body.id, body.appointment || {});
+        notifyAppointmentChange_('update', updated, body.pushToken);
+        return { appointment: updated };
+      }
       case 'deleteAppointment':
-        deleteAppointment_(body.id);
+        notifyAppointmentChange_('delete', deleteAppointment_(body.id), body.pushToken);
         return {};
       case 'createCustomer':
         return { customer: createCustomer_(body.customer || {}) };
@@ -122,6 +133,9 @@ function doPost(e) {
         return { customer: updateCustomer_(body.key || {}, body.customer || {}) };
       case 'deleteCustomer':
         deleteCustomer_(body.key || {});
+        return {};
+      case 'registerPushToken':
+        registerPushToken_(body);
         return {};
       default:
         throw new Error('Unknown action: ' + body.action);
@@ -580,17 +594,27 @@ function updateAppointment_(id, input) {
   }
 }
 
-/** Remove an appointment's row from 預約資料, found by 預約ID. */
+/**
+ * Remove an appointment's row from 預約資料, found by 預約ID. Returns what
+ * the row held, for the push message. The customer's name is looked up
+ * after the lock is released, since reading 顧客 would hold up other writes.
+ */
 function deleteAppointment_(id) {
+  const ss = openSpreadsheet_();
+  let row;
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
-    const sheet = getSheet_(openSpreadsheet_(), SHEET_APPOINTMENTS);
-    sheet.deleteRow(findAppointmentRow_(sheet, id).rowIndex);
+    const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+    const found = findAppointmentRow_(sheet, id);
+    const range = sheet.getRange(found.rowIndex, 1, 1, found.headers.length);
+    row = toRows_(found.headers, range.getValues(), range.getDisplayValues())[0];
+    sheet.deleteRow(found.rowIndex);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
   }
+  return toAppointment_(row, readCustomers_(ss), ss.getSpreadsheetTimeZone());
 }
 
 /**
@@ -869,6 +893,130 @@ function durationValueLike_(sample, minutes) {
 }
 
 // ---------------------------------------------------------------------------
+// Push messages (Expo push service)
+// ---------------------------------------------------------------------------
+
+const PUSH_TOKENS_PROPERTY = 'PUSH_TOKENS';
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+/** Android notification channel the app creates for these (notifications.ts). */
+const PUSH_CHANNEL = 'changes';
+
+const CHANGE_TITLES = { create: '新預約', update: '預約已修改', delete: '預約已刪除' };
+
+/**
+ * Registered devices, kept in a script property rather than the sheet so
+ * its layout stays as AppSheet expects: { [token]: { platform, device, updatedAt } }.
+ */
+function readPushTokens_() {
+  const json = PropertiesService.getScriptProperties().getProperty(PUSH_TOKENS_PROPERTY);
+  try {
+    return json ? JSON.parse(json) : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function writePushTokens_(tokens) {
+  PropertiesService.getScriptProperties().setProperty(PUSH_TOKENS_PROPERTY, JSON.stringify(tokens));
+}
+
+/** Add or refresh a device; the app calls this on every launch. */
+function registerPushToken_(input) {
+  const token = String(input.pushToken || '').trim();
+  if (!/^Expo(nent)?PushToken\[.+\]$/.test(token)) throw new Error('Invalid push token');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const tokens = readPushTokens_();
+    tokens[token] = {
+      platform: String(input.platform || ''),
+      device: String(input.device || ''),
+      updatedAt: new Date().toISOString(),
+    };
+    writePushTokens_(tokens);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Tell every registered device except the sender about a booking change:
+ * a visible message, plus a silent one that wakes the app in the background
+ * to reschedule its reminders. Never throws, so a push problem can't fail
+ * the write that already happened. Edits made in AppSheet send nothing.
+ */
+function notifyAppointmentChange_(kind, apt, senderToken) {
+  try {
+    const tokens = readPushTokens_();
+    const targets = Object.keys(tokens).filter(function (token) {
+      return token !== senderToken;
+    });
+    if (!targets.length) return;
+
+    const name = apt.customerName || apt.notes || apt.service;
+    const what = apt.service && apt.service !== name ? name + ' · ' + apt.service : name;
+    const data = { appointmentId: kind === 'delete' ? undefined : apt.id };
+    const messages = [];
+    targets.forEach(function (to) {
+      messages.push({
+        to: to,
+        title: CHANGE_TITLES[kind],
+        body: what + '\n' + dayLabel_(apt.date) + ' ' + apt.time,
+        data: data,
+        sound: 'default',
+        channelId: PUSH_CHANNEL,
+        priority: 'high',
+      });
+      // Data only: iOS throttles background pushes sent with high priority
+      messages.push({ to: to, data: { refresh: true }, contentAvailable: true, priority: 'normal' });
+    });
+
+    const res = UrlFetchApp.fetch(EXPO_PUSH_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Accept: 'application/json' },
+      payload: JSON.stringify(messages),
+      muteHttpExceptions: true,
+    });
+    const tickets = JSON.parse(res.getContentText()).data || [];
+
+    // Uninstalled apps or revoked permission: stop sending to them
+    const gone = {};
+    tickets.forEach(function (ticket, i) {
+      if (ticket && ticket.details && ticket.details.error === 'DeviceNotRegistered') {
+        gone[messages[i].to] = true;
+      }
+    });
+    if (Object.keys(gone).length) removePushTokens_(gone);
+  } catch (err) {
+    console.error('Push message failed: ' + err);
+  }
+}
+
+function removePushTokens_(gone) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const tokens = readPushTokens_();
+    Object.keys(gone).forEach(function (token) {
+      delete tokens[token];
+    });
+    writePushTokens_(tokens);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** e.g. 10月28日（三） for 2026-10-28 */
+function dayLabel_(iso) {
+  const parts = String(iso).split('-').map(Number);
+  if (parts.length !== 3) return String(iso);
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
+  return parts[1] + '月' + parts[2] + '日（' + '日一二三四五六'.charAt(date.getDay()) + '）';
+}
+
+// ---------------------------------------------------------------------------
 // Value helpers
 // ---------------------------------------------------------------------------
 
@@ -974,6 +1122,11 @@ function pad2_(n) {
 // ---------------------------------------------------------------------------
 // Manual test helpers — run from the Apps Script editor
 // ---------------------------------------------------------------------------
+
+/** Logs the devices registered for push messages. */
+function debugListPushTokens() {
+  Logger.log(JSON.stringify(readPushTokens_(), null, 2));
+}
 
 /** Logs which spreadsheet the script is pointed at and the first few rows. */
 function debugListAppointments() {
