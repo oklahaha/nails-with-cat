@@ -9,13 +9,12 @@
  * Customer name suggests existing customers; date and time are picked rather
  * than typed, and the time slots flag clashes with that day's bookings.
  * With an `id` param it edits that appointment (taken from the loaded
- * appointments) and saves via appointmentsApi.updateAppointment(); otherwise
- * it calls appointmentsApi.createAppointment().
+ * appointments) and saves the edit; otherwise it creates one. Either way
+ * saveAppointment() shows it at once and sends it in the background.
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { type ReactNode, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -49,17 +48,12 @@ import {
   type NailExtra,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
+import { saveAppointment } from '@/hooks/appointmentWrites';
 import {
   findCachedAppointment,
-  upsertCachedAppointment,
   useAppointments,
 } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
-import {
-  createAppointment,
-  isUsingMockApi,
-  updateAppointment,
-} from '@/services/appointmentsApi';
 import type { ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
@@ -110,7 +104,8 @@ export default function AddAppointmentScreen() {
   const [price, setPrice] = useState(
     editing?.price != null ? String(editing.price) : ''
   );
-  const [deposit, setDeposit] = useState(editing?.deposit ?? false);
+  // New bookings start on paid; older rows without a 訂金 value read as unpaid
+  const [deposit, setDeposit] = useState(editing ? (editing.deposit ?? false) : true);
   const [complexDesign, setComplexDesign] = useState(() =>
     toComplexDesign(editing?.complexDesign)
   );
@@ -119,10 +114,9 @@ export default function AddAppointmentScreen() {
     setNailExtras((prev) => ({ ...prev, [key]: on }));
   };
   // Once the price is typed by hand, changing service no longer overwrites it
-  const [priceEdited, setPriceEdited] = useState(editing != null);
+  const [priceEdited, setPriceEdited] = useState(false);
   const [status, setStatus] = useState(editing?.status ?? '');
   const [notes, setNotes] = useState(editing?.notes ?? '');
-  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
 
   const { customers } = useCustomers();
@@ -162,11 +156,27 @@ export default function AddAppointmentScreen() {
   const autoPrice =
     topUpPrice ??
     (service ? defaultPriceFor(service, { handOrFoot, ...appliedNailExtras }) : undefined);
+  // Edits keep the sheet's 收費 until something the price depends on changes,
+  // then follow the same rules as a new booking
+  const priceKey = [
+    service,
+    handOrFoot,
+    appliedNailExtras.complexDesign,
+    appliedNailExtras.removal,
+    appliedNailExtras.extension,
+    isTopUp ? customerName.trim() : '',
+    isTopUp ? date : '',
+  ].join('|');
+  const [openedPriceKey] = useState(priceKey);
+  const [keepSheetPrice, setKeepSheetPrice] = useState(editing != null);
+  if (keepSheetPrice && priceKey !== openedPriceKey) setKeepSheetPrice(false);
+  const followAutoPrice = !priceEdited && !keepSheetPrice;
   // Applied during render when it changes, rather than in an effect
-  const [appliedAutoPrice, setAppliedAutoPrice] = useState<number>();
-  if (autoPrice !== appliedAutoPrice) {
-    setAppliedAutoPrice(autoPrice);
-    if (autoPrice != null && !priceEdited) setPrice(String(autoPrice));
+  const autoPriceState = `${followAutoPrice}:${autoPrice}`;
+  const [appliedAutoPrice, setAppliedAutoPrice] = useState<string>();
+  if (autoPriceState !== appliedAutoPrice) {
+    setAppliedAutoPrice(autoPriceState);
+    if (autoPrice != null && followAutoPrice) setPrice(String(autoPrice));
   }
 
   const isSpecial = service === SPECIAL;
@@ -209,6 +219,8 @@ export default function AddAppointmentScreen() {
 
   const handleServiceChange = (next: ServiceType) => {
     setService(next);
+    // A new 整甲 or 整甲 + 眼睫毛 usually includes 拆甲
+    if (!editing) setNailExtra('removal', next === '整甲' || next === '整甲 + 眼睫毛');
     clearError('service');
   };
 
@@ -251,50 +263,30 @@ export default function AddAppointmentScreen() {
     void save();
   };
 
-  const save = async () => {
+  const save = () => {
     if (!service) return;
-    try {
-      setSaving(true);
-      // 特別事項 rows have no customer, 手/腳, 收費 or 狀態, and View repeats 備注
-      const input = isSpecial
-        ? { customerName: '', date, time, service, notes, view: notes, durationMinutes: duration }
-        : {
-            customerName,
-            date,
-            time,
-            service,
-            notes,
-            durationMinutes: duration,
-            handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
-            price: price.trim() ? Number(price.trim()) : undefined,
-            // Other services leave 訂金 and the add-ons untouched
-            deposit: usesDeposit(service) ? deposit : undefined,
-            ...(usesNailExtras(service) ? appliedNailExtras : {}),
-          };
-      const saved = editing
-        ? await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status })
-        : await createAppointment(input);
-      upsertCachedAppointment(saved);
+    // 特別事項 rows have no customer, 手/腳, 收費 or 狀態, and View repeats 備注
+    const input = isSpecial
+      ? { customerName: '', date, time, service, notes, view: notes, durationMinutes: duration }
+      : {
+          customerName,
+          date,
+          time,
+          service,
+          notes,
+          durationMinutes: duration,
+          handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
+          price: price.trim() ? Number(price.trim()) : undefined,
+          // Other services leave 訂金 and the add-ons untouched
+          deposit: usesDeposit(service) ? deposit : undefined,
+          ...(usesNailExtras(service) ? appliedNailExtras : {}),
+        };
+    // Shows at once and is sent in the background; a failure is reported then
+    saveAppointment(editing ? { ...input, status: isSpecial ? '' : status } : input, editing);
 
-      showAlert(
-        isUsingMockApi ? '已儲存（模擬）' : '已儲存',
-        isUsingMockApi
-          ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
-          : `${isSpecial ? '' : `${customerName.trim()} `}${formatDateHeader(date)} ${time} ` +
-            `的${isSpecial ? '特別事項' : '預約'}已${editing ? '更新' : '寫入'} Google Sheet。`,
-        [
-          {
-            text: '好',
-            // On web the page may be opened directly, with no history to go back to
-            onPress: () => (router.canGoBack() ? router.back() : router.replace('/')),
-          },
-        ]
-      );
-    } catch (e) {
-      showAlert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
-    } finally {
-      setSaving(false);
-    }
+    // On web the page may be opened directly, with no history to go back to
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
   };
 
   const hasErrors = Object.keys(errors).length > 0;
@@ -546,29 +538,6 @@ export default function AddAppointmentScreen() {
               </Section>
             ) : null}
 
-            {editing ? (
-              <Section title="狀態">
-                <View style={styles.segmented}>
-                  {STATUS_OPTIONS.map((option) => {
-                    const selected = status === option;
-                    return (
-                      <Pressable
-                        key={option}
-                        onPress={() => setStatus(option)}
-                        style={[styles.segment, selected && styles.segmentSelected]}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                      >
-                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                          {option}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </Section>
-            ) : null}
-
             <Section title="收費及備注">
               <View style={[styles.priceField, errors.price && styles.inputInvalid]}>
                 <Text style={styles.pricePrefix}>$</Text>
@@ -598,6 +567,29 @@ export default function AddAppointmentScreen() {
                 textAlignVertical="top"
               />
             </Section>
+
+            {editing ? (
+              <Section title="狀態">
+                <View style={styles.segmented}>
+                  {STATUS_OPTIONS.map((option) => {
+                    const selected = status === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setStatus(option)}
+                        style={[styles.segment, selected && styles.segmentSelected]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Section>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -613,15 +605,10 @@ export default function AddAppointmentScreen() {
           </Text>
           <Pressable
             onPress={handleSubmit}
-            disabled={saving}
-            style={({ pressed }) => [styles.submitBtn, (pressed || saving) && pressedStyle]}
+            style={({ pressed }) => [styles.submitBtn, pressed && pressedStyle]}
             accessibilityRole="button"
           >
-            {saving ? (
-              <ActivityIndicator color={colors.onAccent} />
-            ) : (
-              <Text style={styles.submitText}>{editing ? '儲存變更' : '儲存預約'}</Text>
-            )}
+            <Text style={styles.submitText}>{editing ? '儲存變更' : '儲存預約'}</Text>
           </Pressable>
         </View>
       ) : null}

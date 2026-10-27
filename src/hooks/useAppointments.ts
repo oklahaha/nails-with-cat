@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import {
   listAppointments,
@@ -37,10 +37,25 @@ function readStoredEntries(): [string, Appointment[]][] {
   }
 }
 
+/** Bumped on every cache write, so hooks re-render for changes made elsewhere. */
+let cacheVersion = 0;
+const cacheListeners = new Set<() => void>();
+
+function subscribeCache(listener: () => void): () => void {
+  cacheListeners.add(listener);
+  return () => cacheListeners.delete(listener);
+}
+
+function getCacheVersion(): number {
+  return cacheVersion;
+}
+
 /** Every cache write goes through here, so it's saved on the device too. */
 function setCache(key: string, list: Appointment[]): void {
   cache.set(key, list);
   writtenAt.set(key, Date.now());
+  cacheVersion++;
+  for (const listener of cacheListeners) listener();
   // Several writes often land together (a load plus prefetches): save once
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -68,9 +83,11 @@ function fetchRange(range: ListAppointmentsOptions): Promise<Appointment[]> {
 function fetchCached(key: string, load: () => Promise<Appointment[]>): Promise<Appointment[]> {
   let request = inflight.get(key);
   if (!request) {
+    const startedAt = Date.now();
     request = load()
       .then((data) => {
-        const merged = reuseUnchanged(cache.get(key), data, (apt) => apt.id);
+        const withLocal = applyLocalWrites(key, data, startedAt);
+        const merged = reuseUnchanged(cache.get(key), withLocal, (apt) => apt.id);
         setCache(key, merged);
         return merged;
       })
@@ -104,15 +121,76 @@ export function findCachedAppointment(id: string): Appointment | undefined {
  */
 export function upsertCachedAppointment(saved: Appointment): void {
   for (const [key, list] of cache) {
-    const covers = rangeCovers(key, saved.date);
-    const index = list.findIndex((apt) => apt.id === saved.id);
-    if (covers === false) {
-      if (index !== -1) setCache(key, list.filter((apt) => apt.id !== saved.id));
-    } else if (index !== -1) {
-      setCache(key, list.map((apt, i) => (i === index ? saved : apt)));
-    } else if (covers) {
-      setCache(key, [...list, saved]);
+    const next = withAppointment(key, list, saved.id, saved);
+    if (next !== list) setCache(key, next);
+  }
+}
+
+/**
+ * `list` with `id` replaced by `apt`, or dropped when `apt` is null or out of
+ * range. `apt` may carry a new id (a new booking's real 預約ID), which
+ * replaces any row already holding it, so it's never listed twice.
+ */
+function withAppointment(
+  key: string,
+  list: Appointment[],
+  id: string,
+  apt: Appointment | null
+): Appointment[] {
+  const matches = (a: Appointment) => a.id === id || a.id === apt?.id;
+  const index = list.findIndex(matches);
+  const covers = apt ? rangeCovers(key, apt.date) : false;
+  if (index === -1 && !covers) return list;
+  const rest = list.filter((a) => !matches(a));
+  if (!apt || covers === false) return rest;
+  if (index === -1) return [...rest, apt];
+  rest.splice(Math.min(index, rest.length), 0, apt);
+  return rest;
+}
+
+/**
+ * Writes made in the app that a reload must not undo: those still being sent
+ * (pending), and those that finished after a reload started, whose response
+ * may predate them. `apt` is null for a delete.
+ */
+const localWrites = new Map<string, { apt: Appointment | null; pending: boolean; at: number }>();
+/** Finished writes are only needed by reloads that started before them. */
+const LOCAL_WRITE_TTL_MS = 2 * 60 * 1000;
+
+function applyLocalWrites(key: string, list: Appointment[], startedAt: number): Appointment[] {
+  let next = list;
+  for (const [id, write] of localWrites) {
+    if (!write.pending && Date.now() - write.at > LOCAL_WRITE_TTL_MS) {
+      localWrites.delete(id);
+    } else if (write.pending || write.at >= startedAt) {
+      next = withAppointment(key, next, id, write.apt);
     }
+  }
+  return next;
+}
+
+/**
+ * Show a save (`apt`) or delete (null) in every cached list at once, while
+ * it's still being sent to Apps Script, so reloads keep showing it.
+ */
+export function setPendingAppointment(id: string, apt: Appointment | null): void {
+  localWrites.set(id, { apt, pending: true, at: Date.now() });
+  applyToCache(id, apt);
+}
+
+/**
+ * The write for `id` is done (or undone, after a failure): show `apt`, and
+ * keep it over responses from reloads that started before now.
+ */
+export function settleAppointment(id: string, apt: Appointment | null): void {
+  localWrites.set(id, { apt, pending: false, at: Date.now() });
+  applyToCache(id, apt);
+}
+
+function applyToCache(id: string, apt: Appointment | null): void {
+  for (const [key, list] of cache) {
+    const next = withAppointment(key, list, id, apt);
+    if (next !== list) setCache(key, next);
   }
 }
 
@@ -121,6 +199,40 @@ function rangeCovers(key: string, date: string): boolean | undefined {
   if (key.startsWith('customer:')) return undefined;
   const [from, to] = key.split('|');
   return (!from || date >= from) && (!to || date <= to);
+}
+
+/**
+ * The appointments in `from`–`to` from any cached range that covers it, for
+ * a range not loaded yet (e.g. the 補甲 / 補眼睫毛 price, which looks two
+ * weeks back), so it shows at once while its own load runs.
+ */
+function fromCoveringRange(from: string | undefined, to: string | undefined) {
+  for (const [key, list] of cache) {
+    if (key.startsWith('customer:')) continue;
+    const [f, t] = key.split('|');
+    if ((!f || (from != null && from >= f)) && (!t || (to != null && to <= t))) {
+      return list.filter((apt) => (!from || apt.date >= from) && (!to || apt.date <= to));
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Show a customer's new name and phone on their cached bookings, as Apps
+ * Script renames their 預約資料 rows too. `phone` is undefined to keep it.
+ */
+export function renameCachedCustomer(from: string, to: string, phone?: string): void {
+  for (const [key, list] of cache) {
+    if (!list.some((apt) => apt.customerName === from)) continue;
+    setCache(
+      key,
+      list.map((apt) =>
+        apt.customerName === from
+          ? { ...apt, customerName: to, phone: phone ?? apt.phone }
+          : apt
+      )
+    );
+  }
 }
 
 /** Drop a deleted appointment from every cached range, so it disappears at once. */
@@ -197,10 +309,19 @@ export function useAppointments(
     }, [load])
   );
 
+  // Re-render when a save or delete elsewhere changes the cache
+  const version = useSyncExternalStore(subscribeCache, getCacheVersion);
   // The cache is never older than `result` (fetches fill it first), and it
   // also reflects local edits such as removeCachedAppointment, so prefer it.
-  // After a range change, this shows that range's cache until its own result lands.
-  const current = cache.get(key) ?? (result.key === key ? result.appointments : undefined);
+  // After a range change, this shows that range's cache until its own result
+  // lands, or else what a wider cached range holds for it.
+  const covering = useMemo(
+    () => (cache.has(key) ? undefined : fromCoveringRange(from, to)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- version tracks the cache
+    [key, from, to, version]
+  );
+  const current =
+    cache.get(key) ?? (result.key === key ? result.appointments : undefined) ?? covering;
   const error = result.key === key ? result.error : null;
 
   return {
@@ -253,6 +374,7 @@ export function useCustomerAppointments(customer: CustomerKey | undefined) {
     }, [load])
   );
 
+  useSyncExternalStore(subscribeCache, getCacheVersion);
   // Same preference for the cache as useAppointments, so deletes show at once
   const current = cache.get(key) ?? (result.key === key ? result.appointments : undefined);
   const error = result.key === key ? result.error : null;

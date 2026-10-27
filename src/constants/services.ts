@@ -9,7 +9,7 @@
  * - noHandOrFoot → the service doesn't ask for 手/腳, so the form hides it and
  *   saves it blank.
  * - hasDeposit → the form asks whether 訂金 was paid (TRUE / FALSE in the
- *   sheet's 訂金 column).
+ *   sheet's 訂金 column); every service but 特別事項. New bookings start on paid.
  * - hasNailExtras → the form asks for 複雜款 (COMPLEX_DESIGN_OPTIONS) and
  *   NAIL_EXTRAS (TRUE / FALSE columns).
  * - color → calendar bar/block colour. The first five keep the AppSheet
@@ -30,11 +30,22 @@ export const SERVICES = [
     hasNailExtras: true,
     hasDeposit: true,
   },
-  { name: '眼睫毛', durationMinutes: 120, price: 428, color: '#2E9E58' },
+  {
+    name: '眼睫毛',
+    durationMinutes: 120,
+    price: 428,
+    color: '#2E9E58',
+    noHandOrFoot: true,
+    hasDeposit: true,
+  },
   {
     name: '整甲 + 眼睫毛',
-    durationMinutes: 240,
-    price: 580,
+    // 整甲's time for the same 手/腳 plus 2 h for 眼睫毛, with the same add-ons on top
+    durationMinutes: 120 + 120,
+    durationByHandOrFoot: { 腳: 60 + 120, '手 + 腳': 180 + 120 },
+    // 整甲's 收費 for the same 手/腳 plus 眼睫毛's $428, with the same add-ons on top
+    price: 218 + 428,
+    priceByHandOrFoot: { 腳: 298 + 428, '手 + 腳': 516 + 428 },
     color: '#8150D6',
     hasNailExtras: true,
     hasDeposit: true,
@@ -79,6 +90,7 @@ export const SERVICES = [
     price: 2000,
     color: '#C9668E',
     noHandOrFoot: true,
+    hasDeposit: true,
   },
   { name: '特別事項', durationMinutes: undefined, price: 0, color: '#AE45A8' },
 ] as const;

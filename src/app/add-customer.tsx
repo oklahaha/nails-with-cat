@@ -1,11 +1,10 @@
 /**
  * Add Customer — opened from the ＋ button on 顧客資料. Appends a row to the
- * 顧客 sheet via appointmentsApi.createCustomer(), then offers to book them.
+ * 顧客 sheet in the background (saveCustomer), then offers to book them.
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,8 +17,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
-import { addCachedCustomer, findCachedCustomer } from '@/hooks/useCustomers';
-import { createCustomer, isUsingMockApi } from '@/services/appointmentsApi';
+import { saveCustomer } from '@/hooks/customerWrites';
+import { findCachedCustomer } from '@/hooks/useCustomers';
 import { showAlert } from '@/utils/alert';
 
 type Field = 'name' | 'phone';
@@ -37,7 +36,6 @@ export default function AddCustomerScreen() {
   const [name, setName] = useState(params.name ?? '');
   const [phone, setPhone] = useState(params.phone ?? '');
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
-  const [saving, setSaving] = useState(false);
 
   const validate = (): Partial<Record<Field, string>> => {
     const next: Partial<Record<Field, string>> = {};
@@ -49,38 +47,24 @@ export default function AddCustomerScreen() {
     return next;
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     const found = validate();
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
-    try {
-      setSaving(true);
-      const created = await createCustomer({ name: name.trim(), phone });
-      addCachedCustomer(created);
-
-      showAlert(
-        isUsingMockApi ? '已儲存（模擬）' : '已新增顧客',
-        isUsingMockApi
-          ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
-          : `${created.name} 已寫入 Google Sheet。`,
-        [
-          { text: '完成', style: 'cancel', onPress: close },
-          {
-            text: '新增預約',
-            onPress: () =>
-              router.replace({
-                pathname: '/add-appointment',
-                params: { customerName: created.name },
-              }),
-          },
-        ]
-      );
-    } catch (e) {
-      showAlert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
-    } finally {
-      setSaving(false);
-    }
+    // Shows in the list at once and is sent in the background; a failure is reported then
+    const created = saveCustomer({ name: name.trim(), phone: phone });
+    showAlert('新增預約？', `要為 ${created.name} 新增預約嗎？`, [
+      { text: '稍後', style: 'cancel', onPress: close },
+      {
+        text: '新增預約',
+        onPress: () =>
+          router.replace({
+            pathname: '/add-appointment',
+            params: { customerName: created.name },
+          }),
+      },
+    ]);
   };
 
   const clearError = (field: Field) => {
@@ -143,16 +127,11 @@ export default function AddCustomerScreen() {
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
         <Pressable
-          onPress={() => void handleSubmit()}
-          disabled={saving}
-          style={({ pressed }) => [styles.submitBtn, (pressed || saving) && pressedStyle]}
+          onPress={handleSubmit}
+          style={({ pressed }) => [styles.submitBtn, pressed && pressedStyle]}
           accessibilityRole="button"
         >
-          {saving ? (
-            <ActivityIndicator color={colors.onAccent} />
-          ) : (
-            <Text style={styles.submitText}>儲存顧客</Text>
-          )}
+          <Text style={styles.submitText}>儲存顧客</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>

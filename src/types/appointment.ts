@@ -5,7 +5,7 @@
  *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金,
  *   複雜款, 拆甲, 延長
  *   (View holds the customer's name, or 備注 for 特別事項 rows; the script fills it in)
- *   (訂金 is used by 整甲, 整甲 + 眼睫毛, 拆眼睫毛, 補眼睫毛, 補甲 and 拆甲)
+ *   (訂金 is used by every service but 特別事項)
  *   (複雜款 is 不是複雜款 / 半個鐘 / 一個鐘, and 拆甲 and 延長 are TRUE / FALSE; only 整甲 and
  *   整甲 + 眼睫毛 use them)
  *

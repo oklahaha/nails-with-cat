@@ -25,19 +25,15 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 
 import { AppointmentRow } from '@/components/swiftui/AppointmentRow';
+import { DeleteConfirmButton } from '@/components/swiftui/DeleteConfirmButton';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { glassButton } from '@/components/swiftui/glass';
 import { colors } from '@/constants/theme';
 import { useCustomerAppointments } from '@/hooks/useAppointments';
-import {
-  findCachedCustomer,
-  removeCachedCustomer,
-  updateCachedCustomer,
-} from '@/hooks/useCustomers';
-import { deleteCustomer, isUsingMockApi, updateCustomer } from '@/services/appointmentsApi';
-import type { Customer, CustomerKey } from '@/types/customer';
-import { showAlert } from '@/utils/alert';
+import { removeCustomer, saveCustomer } from '@/hooks/customerWrites';
+import { findCachedCustomer } from '@/hooks/useCustomers';
+import type { Customer } from '@/types/customer';
 import { todayIsoDate } from '@/utils/dates';
 import { formatPhone, localPhone } from '@/utils/phone';
 
@@ -57,7 +53,6 @@ export default function CustomerDetailsScreen() {
   const [nameDraft, setNameDraft] = useState('');
   const phoneText = useNativeState('');
   const [nameError, setNameError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'saving' | 'deleting' | null>(null);
   const [showAllPast, setShowAllPast] = useState(false);
 
   const history = useCustomerAppointments(
@@ -92,8 +87,6 @@ export default function CustomerDetailsScreen() {
     );
   }
 
-  const key: CustomerKey = { id: customer.id || undefined, name: customer.name };
-
   const startEditing = () => {
     nameText.set(customer.name);
     setNameDraft(customer.name);
@@ -102,50 +95,20 @@ export default function CustomerDetailsScreen() {
     setEditing(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!nameText.get().trim()) {
       setNameError('請輸入顧客姓名');
       return;
     }
-    try {
-      setBusy('saving');
-      const updated = await updateCustomer(key, {
-        name: nameText.get().trim(),
-        phone: phoneText.get(),
-      });
-      updateCachedCustomer(key, updated);
-      setCustomer(updated);
-      setEditing(false);
-      if (isUsingMockApi) {
-        showAlert('已儲存（模擬）', '目前使用 mock API，連上 Google Sheet 後會真正寫入。');
-      }
-    } catch (e) {
-      showAlert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
-    } finally {
-      setBusy(null);
-    }
+    // Shows at once and is sent in the background; a failure is reported then
+    setCustomer(saveCustomer({ name: nameText.get().trim(), phone: phoneText.get() }, customer));
+    setEditing(false);
   };
 
-  const handleDelete = async () => {
-    try {
-      setBusy('deleting');
-      await deleteCustomer(key);
-      removeCachedCustomer(key);
-      if (isUsingMockApi) {
-        showAlert('已刪除（模擬）', '目前使用 mock API，連上 Google Sheet 後會真正刪除。');
-      }
-      close();
-    } catch (e) {
-      showAlert('刪除失敗', e instanceof Error ? e.message : '未知錯誤');
-      setBusy(null);
-    }
-  };
-
-  const confirmDelete = () => {
-    showAlert('刪除顧客？', `${customer.name}\n顧客的預約記錄會保留。刪除後無法復原。`, [
-      { text: '取消', style: 'cancel' },
-      { text: '刪除', style: 'destructive', onPress: () => void handleDelete() },
-    ]);
+  const handleDelete = () => {
+    // Disappears at once and is sent in the background; a failure brings it back
+    removeCustomer(customer);
+    close();
   };
 
   const visiblePast = showAllPast ? past : past.slice(0, 10);
@@ -154,8 +117,7 @@ export default function CustomerDetailsScreen() {
     <SwiftModal
       // While editing, ✕ leaves edit mode instead of closing the sheet
       onClose={editing ? () => setEditing(false) : close}
-      onSave={editing ? () => void handleSave() : undefined}
-      saveDisabled={busy !== null}
+      onSave={editing ? handleSave : undefined}
       onEdit={startEditing}
     >
       {editing ? (
@@ -188,10 +150,11 @@ export default function CustomerDetailsScreen() {
             <TextField placeholder="電話" text={phoneText} />
           </Section>
           <Section>
-            <Button
-              label={busy === 'deleting' ? '刪除中…' : '刪除顧客'}
-              role="destructive"
-              onPress={confirmDelete}
+            <DeleteConfirmButton
+              label="刪除顧客"
+              title="刪除顧客？"
+              message={`${customer.name}\n顧客的預約記錄會保留。刪除後無法復原。`}
+              onConfirm={() => void handleDelete()}
             />
           </Section>
         </Form>

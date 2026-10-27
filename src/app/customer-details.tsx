@@ -6,7 +6,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -23,13 +22,9 @@ import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useCustomerAppointments } from '@/hooks/useAppointments';
-import {
-  findCachedCustomer,
-  removeCachedCustomer,
-  updateCachedCustomer,
-} from '@/hooks/useCustomers';
-import { deleteCustomer, isUsingMockApi, updateCustomer } from '@/services/appointmentsApi';
-import type { Customer, CustomerKey } from '@/types/customer';
+import { removeCustomer, saveCustomer } from '@/hooks/customerWrites';
+import { findCachedCustomer } from '@/hooks/useCustomers';
+import type { Customer } from '@/types/customer';
 import { showAlert } from '@/utils/alert';
 import { formatPhone, localPhone } from '@/utils/phone';
 
@@ -49,7 +44,6 @@ export default function CustomerDetailsScreen() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'saving' | 'deleting' | null>(null);
   const history = useCustomerAppointments(
     customer ? { id: customer.id || undefined, name: customer.name } : undefined
   );
@@ -66,8 +60,6 @@ export default function CustomerDetailsScreen() {
     );
   }
 
-  const key: CustomerKey = { id: customer.id || undefined, name: customer.name };
-
   const startEditing = () => {
     setName(customer.name);
     setPhone(localPhone(customer.phone));
@@ -75,40 +67,20 @@ export default function CustomerDetailsScreen() {
     setEditing(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!name.trim()) {
       setNameError('請輸入顧客姓名');
       return;
     }
-    try {
-      setBusy('saving');
-      const updated = await updateCustomer(key, { name: name.trim(), phone });
-      updateCachedCustomer(key, updated);
-      setCustomer(updated);
-      setEditing(false);
-      if (isUsingMockApi) {
-        showAlert('已儲存（模擬）', '目前使用 mock API，連上 Google Sheet 後會真正寫入。');
-      }
-    } catch (e) {
-      showAlert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
-    } finally {
-      setBusy(null);
-    }
+    // Shows at once and is sent in the background; a failure is reported then
+    setCustomer(saveCustomer({ name: name.trim(), phone }, customer));
+    setEditing(false);
   };
 
-  const handleDelete = async () => {
-    try {
-      setBusy('deleting');
-      await deleteCustomer(key);
-      removeCachedCustomer(key);
-      if (isUsingMockApi) {
-        showAlert('已刪除（模擬）', '目前使用 mock API，連上 Google Sheet 後會真正刪除。');
-      }
-      close();
-    } catch (e) {
-      showAlert('刪除失敗', e instanceof Error ? e.message : '未知錯誤');
-      setBusy(null);
-    }
+  const handleDelete = () => {
+    // Disappears at once and is sent in the background; a failure brings it back
+    removeCustomer(customer);
+    close();
   };
 
   const confirmDelete = () => {
@@ -217,45 +189,31 @@ export default function CustomerDetailsScreen() {
           <>
             <Pressable
               onPress={() => setEditing(false)}
-              disabled={busy !== null}
               style={({ pressed }) => [styles.secondaryBtn, pressed && pressedStyle]}
               accessibilityRole="button"
             >
               <Text style={styles.secondaryText}>取消</Text>
             </Pressable>
             <Pressable
-              onPress={() => void handleSave()}
-              disabled={busy !== null}
-              style={({ pressed }) => [styles.primaryBtn, (pressed || busy) && pressedStyle]}
+              onPress={handleSave}
+              style={({ pressed }) => [styles.primaryBtn, pressed && pressedStyle]}
               accessibilityRole="button"
             >
-              {busy === 'saving' ? (
-                <ActivityIndicator color={colors.onAccent} />
-              ) : (
-                <Text style={styles.primaryText}>儲存</Text>
-              )}
+              <Text style={styles.primaryText}>儲存</Text>
             </Pressable>
           </>
         ) : (
           <>
             <Pressable
               onPress={confirmDelete}
-              disabled={busy !== null}
-              style={({ pressed }) => [styles.deleteBtn, (pressed || busy) && pressedStyle]}
+              style={({ pressed }) => [styles.deleteBtn, pressed && pressedStyle]}
               accessibilityRole="button"
             >
-              {busy === 'deleting' ? (
-                <ActivityIndicator color={colors.danger} />
-              ) : (
-                <>
-                  <Icon name="trash" color={colors.danger} size={18} />
-                  <Text style={styles.deleteText}>刪除</Text>
-                </>
-              )}
+              <Icon name="trash" color={colors.danger} size={18} />
+              <Text style={styles.deleteText}>刪除</Text>
             </Pressable>
             <Pressable
               onPress={startEditing}
-              disabled={busy !== null}
               style={({ pressed }) => [styles.primaryBtn, pressed && pressedStyle]}
               accessibilityRole="button"
             >

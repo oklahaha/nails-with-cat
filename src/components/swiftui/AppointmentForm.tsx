@@ -62,18 +62,13 @@ import {
   type NailExtra,
 } from '@/constants/services';
 import { colors } from '@/constants/theme';
-import { upsertCachedAppointment, useAppointments } from '@/hooks/useAppointments';
+import { saveAppointment } from '@/hooks/appointmentWrites';
+import { useAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
-import {
-  createAppointment,
-  isUsingMockApi,
-  updateAppointment,
-} from '@/services/appointmentsApi';
 import type { Appointment, ServiceType } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { addDays, minutesToTime, timeToMinutes, todayIsoDate } from '@/utils/dates';
-import { formatDateHeader } from '@/utils/groupByDate';
 import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { formatPhone } from '@/utils/phone';
@@ -111,7 +106,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   const priceTextState = useNativeState(
     editing?.price != null ? String(editing.price) : ''
   );
-  const [deposit, setDeposit] = useState(editing?.deposit ?? false);
+  // New bookings start on paid; older rows without a 訂金 value read as unpaid
+  const [deposit, setDeposit] = useState(editing ? (editing.deposit ?? false) : true);
   const [complexDesign, setComplexDesign] = useState(() =>
     toComplexDesign(editing?.complexDesign)
   );
@@ -130,9 +126,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
     (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
   );
-  const [priceEdited, setPriceEdited] = useState(editing != null);
+  const [priceEdited, setPriceEdited] = useState(false);
   const [status, setStatus] = useState(editing?.status ?? '預約');
-  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
 
   const { customers } = useCustomers();
@@ -170,9 +165,23 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   const autoPrice =
     topUpPrice ??
     (service ? defaultPriceFor(service, { handOrFoot, ...appliedNailExtras }) : undefined);
+  // Edits keep the sheet's 收費 until something the price depends on changes,
+  // then follow the same rules as a new booking
+  const priceKey = [
+    service,
+    handOrFoot,
+    appliedNailExtras.complexDesign,
+    appliedNailExtras.removal,
+    appliedNailExtras.extension,
+    isTopUp ? customerQuery.trim() : '',
+    isTopUp ? date : '',
+  ].join('|');
+  const [openedPriceKey] = useState(priceKey);
+  const [keepSheetPrice, setKeepSheetPrice] = useState(editing != null);
+  if (keepSheetPrice && priceKey !== openedPriceKey) setKeepSheetPrice(false);
   useEffect(() => {
-    if (autoPrice != null && !priceEdited) priceTextState.set(String(autoPrice));
-  }, [autoPrice, priceEdited, priceTextState]);
+    if (autoPrice != null && !priceEdited && !keepSheetPrice) priceTextState.set(String(autoPrice));
+  }, [autoPrice, priceEdited, keepSheetPrice, priceTextState]);
 
   const isSpecial = service === SPECIAL;
   const HHMM = /^\d{2}:\d{2}$/;
@@ -210,6 +219,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
 
   const handleServiceChange = (next: ServiceType) => {
     setService(next);
+    // A new 整甲 or 整甲 + 眼睫毛 usually includes 拆甲
+    if (!editing) setNailExtra('removal', next === '整甲' || next === '整甲 + 眼睫毛');
     clearError('service');
   };
 
@@ -252,53 +263,32 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     void save();
   };
 
-  const save = async () => {
+  const save = () => {
     if (!service) return;
 
     const customerName = customerNameText.get();
     const notes = notesText.get();
     const price = priceTextState.get();
 
-    let saved: Appointment;
-    try {
-      setSaving(true);
-      const input = isSpecial
-        ? { customerName: '', date, time, service, notes, view: notes, durationMinutes: duration }
-        : {
-            customerName,
-            date,
-            time,
-            service,
-            notes,
-            durationMinutes: duration,
-            handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
-            price: price.trim() ? Number(price.trim()) : undefined,
-            // Other services leave 訂金 and the add-ons untouched
-            deposit: usesDeposit(service) ? deposit : undefined,
-            ...(usesNailExtras(service) ? appliedNailExtras : {}),
-          };
-      if (editing) {
-        saved = await updateAppointment(editing.id, { ...input, status: isSpecial ? '' : status });
-      } else {
-        saved = await createAppointment(input);
-      }
-      upsertCachedAppointment(saved);
-
-      showAlert(
-        isUsingMockApi ? '已儲存（模擬）' : '已儲存',
-        isUsingMockApi
-          ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
-          : `${isSpecial ? '' : `${customerName.trim()} `}${formatDateHeader(date)} ${time} ` +
-            `的${isSpecial ? '特別事項' : '預約'}已${editing ? '更新' : '寫入'} Google Sheet。`,
-        [
-          { text: '好', onPress: () => onSaved(saved) },
-        ]
-      );
-    } catch (e) {
-      showAlert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
-    } finally {
-      setSaving(false);
-    }
+    const input = isSpecial
+      ? { customerName: '', date, time, service, notes, view: notes, durationMinutes: duration }
+      : {
+          customerName,
+          date,
+          time,
+          service,
+          notes,
+          durationMinutes: duration,
+          handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
+          price: price.trim() ? Number(price.trim()) : undefined,
+          // Other services leave 訂金 and the add-ons untouched
+          deposit: usesDeposit(service) ? deposit : undefined,
+          ...(usesNailExtras(service) ? appliedNailExtras : {}),
+        };
+    // Shows at once and is sent in the background; a failure is reported then
+    onSaved(
+      saveAppointment(editing ? { ...input, status: isSpecial ? '' : status } : input, editing)
+    );
   };
 
   const endBeforeStart = specialDuration != null && specialDuration < 0;
@@ -319,7 +309,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     <SwiftModal
       onClose={onClose}
       onSave={handleSubmit}
-      saveDisabled={saving || !service}
+      saveDisabled={!service}
     >
       <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
         <Section footer={!service ? <Text>先揀活動，再填其他資料</Text> : undefined}>
@@ -574,24 +564,6 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                       modifiers={[tint(colors.accent)]}
                     />
                   ) : null}
-                  {editing ? (
-                    <LabeledContent label="狀態">
-                      <Picker
-                        label="狀態"
-                        selection={status || '預約'}
-                        onSelectionChange={(value) => {
-                          if (typeof value === 'string') setStatus(value);
-                        }}
-                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 180 })]}
-                      >
-                        {STATUS_OPTIONS.map((option) => (
-                          <Text key={option} modifiers={[tag(option)]}>
-                            {option}
-                          </Text>
-                        ))}
-                      </Picker>
-                    </LabeledContent>
-                  ) : null}
                   <LabeledContent label="收費">
                     <HStack spacing={4}>
                       <Text
@@ -620,6 +592,27 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                 <Section title="備注">
                   <TextField placeholder="備注（選填）" text={notesText} axis="vertical" />
                 </Section>
+
+                {editing ? (
+                  <Section>
+                    <LabeledContent label="狀態">
+                      <Picker
+                        label="狀態"
+                        selection={status || '預約'}
+                        onSelectionChange={(value) => {
+                          if (typeof value === 'string') setStatus(value);
+                        }}
+                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 180 })]}
+                      >
+                        {STATUS_OPTIONS.map((option) => (
+                          <Text key={option} modifiers={[tag(option)]}>
+                            {option}
+                          </Text>
+                        ))}
+                      </Picker>
+                    </LabeledContent>
+                  </Section>
+                ) : null}
               </>
             )}
           </>

@@ -1,11 +1,12 @@
 /**
  * Appointment details — opened by tapping a booking in the timetable or the
- * 預約資料 list. Shows the booking, with 修改 (opens the form in edit mode)
- * and 刪除.
+ * 預約資料 list. Shows the booking's fields in the same order and with the
+ * same labels as the add-appointment form, with 修改 (opens the form in edit
+ * mode) and 刪除.
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/Icon';
@@ -14,15 +15,17 @@ import {
   serviceColor,
   usesDeposit,
   usesHandOrFoot,
-  usesNailExtras,
-  describeNailExtras,
+  showsNailExtras,
+  toComplexDesign,
+  NAIL_EXTRAS,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
-import { findCachedAppointment, removeCachedAppointment } from '@/hooks/useAppointments';
-import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
+import { removeAppointment } from '@/hooks/appointmentWrites';
+import { findCachedAppointment } from '@/hooks/useAppointments';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { formatPhone } from '@/utils/phone';
 
 function close() {
   // On web the page may be opened directly, with no history to go back to
@@ -35,7 +38,6 @@ export default function AppointmentDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   // Snapshot at open, so a background reload doesn't change it under the user
   const [appointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
-  const [deleting, setDeleting] = useState(false);
 
   // e.g. the web page was reloaded, so the appointment list isn't loaded
   if (!appointment) {
@@ -50,52 +52,49 @@ export default function AppointmentDetailsScreen() {
   }
 
   const color = serviceColor(appointment.service);
+  const isSpecial = appointment.service === '特別事項';
   const phone = appointment.phone?.trim();
   const hasEnd = Boolean(appointment.endTime && appointment.endTime !== appointment.time);
-  const rows = [
-    { label: '日期', value: formatDateHeader(appointment.date) },
-    {
-      label: '時間',
-      value: `${appointment.time}${hasEnd ? ` – ${appointment.endTime}` : ''}${
-        appointment.durationMinutes ? `（${appointment.durationMinutes} 分鐘）` : ''
-      }`,
-    },
-    {
-      label: '手/腳',
-      value: usesHandOrFoot(appointment.service) ? appointment.handOrFoot : undefined,
-    },
-    {
-      label: '附加',
-      value: usesNailExtras(appointment.service) ? describeNailExtras(appointment) : undefined,
-    },
-    {
-      label: '訂金',
-      value:
-        usesDeposit(appointment.service) && appointment.deposit != null
-          ? appointment.deposit
-            ? '已付'
-            : '未付'
-          : undefined,
-    },
-    { label: '收費', value: appointment.price != null ? `$${appointment.price}` : '' },
-    { label: '狀態', value: appointment.status },
-    { label: '電話', value: phone },
-    { label: '備注', value: appointment.notes },
-  ].filter((row) => row.value);
+  const timeRange = `${appointment.time}${hasEnd ? ` – ${appointment.endTime}` : ''}${
+    appointment.durationMinutes ? `（${appointment.durationMinutes} 分鐘）` : ''
+  }`;
+  const showNailExtras = showsNailExtras(appointment.service, appointment.handOrFoot ?? '');
+  const extras = NAIL_EXTRAS.filter(({ key }) => appointment[key]).map(({ label }) => label);
+  // The form's sections, in its order but with 狀態 last; rows the form hides
+  // for this service are left out
+  const rows: { label: string; value?: string }[] = isSpecial
+    ? [
+        { label: '備注', value: appointment.notes },
+        { label: '日期', value: formatDateHeader(appointment.date) },
+        { label: '開始時間', value: appointment.time },
+        { label: '完結時間', value: hasEnd ? appointment.endTime : undefined },
+      ]
+    : [
+        { label: '顧客', value: appointment.customerName },
+        ...(phone ? [{ label: '電話', value: formatPhone(phone) }] : []),
+        { label: '日期', value: formatDateHeader(appointment.date) },
+        { label: '開始時間', value: timeRange },
+        ...(usesHandOrFoot(appointment.service)
+          ? [{ label: '手/腳', value: appointment.handOrFoot }]
+          : []),
+        ...(showNailExtras
+          ? [
+              { label: '複雜款', value: toComplexDesign(appointment.complexDesign) },
+              { label: '附加', value: extras.join('、') || '沒有' },
+            ]
+          : []),
+        ...(usesDeposit(appointment.service)
+          ? [{ label: '訂金', value: appointment.deposit ? '已付' : '未付' }]
+          : []),
+        { label: '收費', value: appointment.price != null ? `$${appointment.price}` : undefined },
+        { label: '備注', value: appointment.notes },
+        { label: '狀態', value: appointment.status },
+      ];
 
-  const handleDelete = async () => {
-    try {
-      setDeleting(true);
-      await deleteAppointment(appointment.id);
-      removeCachedAppointment(appointment.id);
-      if (isUsingMockApi) {
-        showAlert('已刪除（模擬）', '目前使用 mock API，連上 Google Sheet 後會真正刪除。');
-      }
-      close();
-    } catch (e) {
-      showAlert('刪除失敗', e instanceof Error ? e.message : '未知錯誤');
-      setDeleting(false);
-    }
+  const handleDelete = () => {
+    // Disappears at once and is sent in the background; a failure brings it back
+    removeAppointment(appointment);
+    close();
   };
 
   const confirmDelete = () => {
@@ -124,7 +123,7 @@ export default function AppointmentDetailsScreen() {
           {rows.map((row, i) => (
             <View key={row.label} style={[styles.row, i > 0 && styles.rowDivider]}>
               <Text style={styles.rowLabel}>{row.label}</Text>
-              <Text style={styles.rowValue}>{row.value}</Text>
+              <Text style={styles.rowValue}>{row.value || '—'}</Text>
             </View>
           ))}
         </View>
@@ -133,25 +132,17 @@ export default function AppointmentDetailsScreen() {
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
         <Pressable
           onPress={confirmDelete}
-          disabled={deleting}
-          style={({ pressed }) => [styles.deleteBtn, (pressed || deleting) && pressedStyle]}
+          style={({ pressed }) => [styles.deleteBtn, pressed && pressedStyle]}
           accessibilityRole="button"
         >
-          {deleting ? (
-            <ActivityIndicator color={colors.danger} />
-          ) : (
-            <>
-              <Icon name="trash" color={colors.danger} size={18} />
-              <Text style={styles.deleteText}>刪除</Text>
-            </>
-          )}
+          <Icon name="trash" color={colors.danger} size={18} />
+          <Text style={styles.deleteText}>刪除</Text>
         </Pressable>
         <Pressable
           onPress={() =>
             // Replace, so saving the form returns straight to the calendar
             router.replace({ pathname: '/add-appointment', params: { id: appointment.id } })
           }
-          disabled={deleting}
           style={({ pressed }) => [styles.editBtn, pressed && pressedStyle]}
           accessibilityRole="button"
         >
@@ -214,7 +205,7 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     ...type.label,
-    width: 48,
+    width: 64,
     lineHeight: 21,
   },
   rowValue: {

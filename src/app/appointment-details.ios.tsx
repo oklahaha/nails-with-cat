@@ -1,39 +1,40 @@
 /**
- * Appointment details modal — SwiftUI Form. 修改 (header) swaps the sheet to
+ * Appointment details modal — SwiftUI Form with the same sections, rows and
+ * labels as AppointmentForm, read-only. 修改 (header) swaps the sheet to
  * AppointmentForm in place, with 刪除預約 at the end of the form.
  * Delete / edit still use Apps Script API.
  */
 import {
-  Button,
   Form,
+  HStack,
+  Image,
   LabeledContent,
   Section,
+  Spacer,
   Text,
-  VStack,
 } from '@expo/ui/swift-ui';
-import {
-  font,
-  foregroundStyle,
-  padding,
-} from '@expo/ui/swift-ui/modifiers';
+import { foregroundStyle } from '@expo/ui/swift-ui/modifiers';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
 import { AppointmentForm } from '@/components/swiftui/AppointmentForm';
+import { DeleteConfirmButton } from '@/components/swiftui/DeleteConfirmButton';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import {
+  NAIL_EXTRAS,
   serviceColor,
+  showsNailExtras,
+  toComplexDesign,
   usesDeposit,
   usesHandOrFoot,
-  usesNailExtras,
-  describeNailExtras,
 } from '@/constants/services';
-import { findCachedAppointment, removeCachedAppointment } from '@/hooks/useAppointments';
-import { deleteAppointment, isUsingMockApi } from '@/services/appointmentsApi';
-import { showAlert } from '@/utils/alert';
+import { colors } from '@/constants/theme';
+import { removeAppointment } from '@/hooks/appointmentWrites';
+import { findCachedAppointment } from '@/hooks/useAppointments';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { formatPhone } from '@/utils/phone';
 
 function close() {
   if (router.canGoBack()) router.back();
@@ -44,7 +45,6 @@ export default function AppointmentDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [appointment, setAppointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
   const [editing, setEditing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   if (!appointment) {
     return (
@@ -56,64 +56,14 @@ export default function AppointmentDetailsScreen() {
     );
   }
 
-  const color = serviceColor(appointment.service);
+  const isSpecial = appointment.service === '特別事項';
   const phone = appointment.phone?.trim();
-  const hasEnd = Boolean(appointment.endTime && appointment.endTime !== appointment.time);
-  const rows = [
-    { label: '日期', value: formatDateHeader(appointment.date) },
-    {
-      label: '時間',
-      value: `${appointment.time}${hasEnd ? ` – ${appointment.endTime}` : ''}${
-        appointment.durationMinutes ? `（${appointment.durationMinutes} 分鐘）` : ''
-      }`,
-    },
-    {
-      label: '手/腳',
-      value: usesHandOrFoot(appointment.service) ? appointment.handOrFoot : undefined,
-    },
-    {
-      label: '附加',
-      value: usesNailExtras(appointment.service) ? describeNailExtras(appointment) : undefined,
-    },
-    {
-      label: '訂金',
-      value:
-        usesDeposit(appointment.service) && appointment.deposit != null
-          ? appointment.deposit
-            ? '已付'
-            : '未付'
-          : undefined,
-    },
-    { label: '收費', value: appointment.price != null ? `$${appointment.price}` : '' },
-    { label: '狀態', value: appointment.status },
-    { label: '電話', value: phone },
-    { label: '備注', value: appointment.notes },
-  ].filter((row) => row.value);
+  const duration = appointment.durationMinutes;
 
-  const handleDelete = async () => {
-    try {
-      setDeleting(true);
-      await deleteAppointment(appointment.id);
-      removeCachedAppointment(appointment.id);
-      if (isUsingMockApi) {
-        showAlert('已刪除（模擬）', '目前使用 mock API，連上 Google Sheet 後會真正刪除。');
-      }
-      close();
-    } catch (e) {
-      showAlert('刪除失敗', e instanceof Error ? e.message : '未知錯誤');
-      setDeleting(false);
-    }
-  };
-
-  const confirmDelete = () => {
-    showAlert(
-      '刪除預約？',
-      `${appointmentTitle(appointment)} ${formatDateHeader(appointment.date)} ${appointment.time}\n刪除後無法復原。`,
-      [
-        { text: '取消', style: 'cancel' },
-        { text: '刪除', style: 'destructive', onPress: () => void handleDelete() },
-      ]
-    );
+  const handleDelete = () => {
+    // Disappears at once and is sent in the background; a failure brings it back
+    removeAppointment(appointment);
+    close();
   };
 
   if (editing) {
@@ -128,10 +78,11 @@ export default function AppointmentDetailsScreen() {
         }}
       >
         <Section>
-          <Button
-            label={deleting ? '刪除中…' : '刪除預約'}
-            role="destructive"
-            onPress={confirmDelete}
+          <DeleteConfirmButton
+            label="刪除預約"
+            title="刪除預約？"
+            message={`${appointmentTitle(appointment)} ${formatDateHeader(appointment.date)} ${appointment.time}\n刪除後無法復原。`}
+            onConfirm={() => void handleDelete()}
           />
         </Section>
       </AppointmentForm>
@@ -142,25 +93,80 @@ export default function AppointmentDetailsScreen() {
     <SwiftModal onClose={close} onEdit={() => setEditing(true)}>
       <Form>
         <Section>
-          <VStack spacing={8} alignment="leading" modifiers={[padding({ vertical: 8 })]}>
-            <Text modifiers={[font({ size: 22, weight: 'bold' })]}>
-              {appointmentTitle(appointment)}
-            </Text>
-            <Text modifiers={[font({ size: 15, weight: 'semibold' }), foregroundStyle(color)]}>
-              {appointment.service}
-            </Text>
-          </VStack>
+          <HStack spacing={8}>
+            <Image systemName="circle.fill" size={12} color={serviceColor(appointment.service)} />
+            <Text modifiers={[foregroundStyle(colors.text)]}>活動</Text>
+            <Spacer />
+            <Text modifiers={[foregroundStyle(colors.accent)]}>{appointment.service}</Text>
+          </HStack>
         </Section>
 
-        <Section title="詳情">
-          {rows.map((row) => (
-            <LabeledContent key={row.label} label={row.label}>
-              <Text>{row.value}</Text>
-            </LabeledContent>
-          ))}
+        {isSpecial ? (
+          <Section title="特別事項">
+            <Text>{appointment.notes || '—'}</Text>
+          </Section>
+        ) : (
+          <Section title="顧客">
+            <HStack spacing={10}>
+              <Image systemName="person.fill" size={15} color={colors.textSecondary} />
+              <Text>{appointment.customerName || '—'}</Text>
+            </HStack>
+            {phone ? <Row label="電話" value={formatPhone(phone)} /> : null}
+          </Section>
+        )}
+
+        <Section title="時間">
+          <Row label="日期" value={formatDateHeader(appointment.date)} />
+          <Row label="開始" value={appointment.time} />
+          {appointment.endTime ? (
+            <Row
+              label="完結"
+              value={`${appointment.endTime}${duration ? `（${duration} 分鐘）` : ''}`}
+            />
+          ) : null}
         </Section>
 
+        {isSpecial ? null : (
+          <>
+            <Section title="詳情">
+              {usesHandOrFoot(appointment.service) ? (
+                <Row label="手/腳" value={appointment.handOrFoot} />
+              ) : null}
+              {showsNailExtras(appointment.service, appointment.handOrFoot ?? '') ? (
+                <>
+                  <Row label="複雜款" value={toComplexDesign(appointment.complexDesign)} />
+                  {NAIL_EXTRAS.map(({ key, label }) => (
+                    <Row key={key} label={label} value={appointment[key] ? '是' : '否'} />
+                  ))}
+                </>
+              ) : null}
+              {usesDeposit(appointment.service) ? (
+                <Row label="已付訂金" value={appointment.deposit ? '是' : '否'} />
+              ) : null}
+              <Row label="收費" value={appointment.price != null ? `$${appointment.price}` : ''} />
+            </Section>
+
+            <Section title="備注">
+              <Text>{appointment.notes || '—'}</Text>
+            </Section>
+
+            <Section>
+              <Row label="狀態" value={appointment.status} />
+            </Section>
+          </>
+        )}
       </Form>
     </SwiftModal>
+  );
+}
+
+/** A read-only row laid out like the form's pickers: label left, value right. */
+function Row({ label, value }: { label: string; value?: string }) {
+  return (
+    <LabeledContent label={label}>
+      <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>
+        {value || '—'}
+      </Text>
+    </LabeledContent>
   );
 }

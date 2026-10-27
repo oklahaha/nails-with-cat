@@ -1,5 +1,6 @@
 /**
- * Add Customer — SwiftUI Form. createCustomer API unchanged.
+ * Add Customer — SwiftUI Form. Saved in the background (saveCustomer), then
+ * offers to book them.
  */
 import {
   Form,
@@ -18,8 +19,8 @@ import { useState } from 'react';
 
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { colors } from '@/constants/theme';
-import { addCachedCustomer, findCachedCustomer } from '@/hooks/useCustomers';
-import { createCustomer, isUsingMockApi } from '@/services/appointmentsApi';
+import { saveCustomer } from '@/hooks/customerWrites';
+import { findCachedCustomer } from '@/hooks/useCustomers';
 import { showAlert } from '@/utils/alert';
 
 type Field = 'name' | 'phone';
@@ -34,7 +35,6 @@ export default function AddCustomerScreen() {
   const nameText = useNativeState(params.name ?? '');
   const phoneText = useNativeState(params.phone ?? '');
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
-  const [saving, setSaving] = useState(false);
 
   const validate = (): Partial<Record<Field, string>> => {
     const next: Partial<Record<Field, string>> = {};
@@ -47,45 +47,28 @@ export default function AddCustomerScreen() {
     return next;
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     const found = validate();
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
-    try {
-      setSaving(true);
-      const created = await createCustomer({
-        name: nameText.get().trim(),
-        phone: phoneText.get(),
-      });
-      addCachedCustomer(created);
-
-      showAlert(
-        isUsingMockApi ? '已儲存（模擬）' : '已新增顧客',
-        isUsingMockApi
-          ? '目前使用 mock API，連上 Google Sheet 後會真正寫入。'
-          : `${created.name} 已寫入 Google Sheet。`,
-        [
-          { text: '完成', style: 'cancel', onPress: close },
-          {
-            text: '新增預約',
-            onPress: () =>
-              router.replace({
-                pathname: '/add-appointment',
-                params: { customerName: created.name },
-              }),
-          },
-        ]
-      );
-    } catch (e) {
-      showAlert('儲存失敗', e instanceof Error ? e.message : '未知錯誤');
-    } finally {
-      setSaving(false);
-    }
+    // Shows in the list at once and is sent in the background; a failure is reported then
+    const created = saveCustomer({ name: nameText.get().trim(), phone: phoneText.get() });
+    showAlert('新增預約？', `要為 ${created.name} 新增預約嗎？`, [
+      { text: '稍後', style: 'cancel', onPress: close },
+      {
+        text: '新增預約',
+        onPress: () =>
+          router.replace({
+            pathname: '/add-appointment',
+            params: { customerName: created.name },
+          }),
+      },
+    ]);
   };
 
   return (
-    <SwiftModal onClose={close} onSave={() => void handleSubmit()} saveDisabled={saving}>
+    <SwiftModal onClose={close} onSave={handleSubmit}>
       <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
         <Section title="顧客資料">
           <TextField
