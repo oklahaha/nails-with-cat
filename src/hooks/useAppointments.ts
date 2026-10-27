@@ -10,6 +10,7 @@ import type { Appointment } from '@/types/appointment';
 import type { CustomerKey } from '@/types/customer';
 import { readStored, removeStored, writeStored } from '@/utils/persistentStorage';
 import { reuseUnchanged } from '@/utils/reuseUnchanged';
+import { parseRanges, serializeRanges } from '@/utils/storedAppointments';
 
 const EMPTY: Appointment[] = [];
 
@@ -25,41 +26,10 @@ const MAX_STORED = 24;
  * background (stale-while-revalidate). It's also saved on the device and
  * read back on launch, so even the first screen opens with the last data.
  */
-const cache = new Map<string, Appointment[]>(readStoredEntries());
+const cache = new Map<string, Appointment[]>(parseRanges(readStored(STORAGE_KEY)));
 /** When each key was last written, to keep only the newest MAX_STORED. */
 const writtenAt = new Map<string, number>([...cache.keys()].map((key, i) => [key, i]));
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
-
-/**
- * Ranges overlap (the 統計 year holds most of the others), so each booking
- * is saved once and each range keeps only its ids. That keeps the
- * synchronous read at launch small.
- */
-type Stored = { appointments: Appointment[]; ranges: [string, string[]][] };
-
-function readStoredEntries(): [string, Appointment[]][] {
-  try {
-    const parsed = JSON.parse(readStored(STORAGE_KEY) ?? 'null') as Stored | null;
-    if (!parsed || !Array.isArray(parsed.ranges)) return [];
-    const byId = new Map(parsed.appointments.map((apt) => [apt.id, apt]));
-    return parsed.ranges.map(([key, ids]) => [key, ids.flatMap((id) => byId.get(id) ?? [])]);
-  } catch {
-    return [];
-  }
-}
-
-/** `entries` newest first, so a booking cached in two versions keeps the newest. */
-function toStored(entries: [string, Appointment[]][]): Stored {
-  const byId = new Map<string, Appointment>();
-  const ranges = entries.map(([key, list]): [string, string[]] => [
-    key,
-    list.map((apt) => {
-      if (!byId.has(apt.id)) byId.set(apt.id, apt);
-      return apt.id;
-    }),
-  ]);
-  return { appointments: [...byId.values()], ranges };
-}
 
 /** Bumped on every cache write, so hooks re-render for changes made elsewhere. */
 let cacheVersion = 0;
@@ -91,7 +61,7 @@ function setCache(key: string, list: Appointment[]): void {
     const newest = [...cache.entries()]
       .sort(([a], [b]) => (writtenAt.get(b) ?? 0) - (writtenAt.get(a) ?? 0))
       .slice(0, MAX_STORED);
-    writeStored(STORAGE_KEY, JSON.stringify(toStored(newest)));
+    writeStored(STORAGE_KEY, serializeRanges(newest));
   }, 1000);
 }
 /** Requests in flight per key, so a prefetch and a screen load share one call. */
