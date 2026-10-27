@@ -13,7 +13,7 @@
  * saveAppointment() shows it at once and sends it in the background.
  */
 import { router, useLocalSearchParams } from 'expo-router';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -32,36 +32,16 @@ import { ServicePicker } from '@/components/form/ServicePicker';
 import { TimeSlotPicker } from '@/components/form/TimeSlotPicker';
 import { StateView } from '@/components/StateView';
 import {
-  defaultDurationFor,
-  defaultPriceFor,
   usesDeposit,
   usesHandOrFoot,
-  nailExtrasOf,
-  toComplexDesign,
-  showsNailExtras,
-  usesNailExtras,
   HAND_OR_FOOT_OPTIONS,
   COMPLEX_DESIGN_OPTIONS,
-  NO_NAIL_EXTRAS,
   NAIL_EXTRAS,
-  type HandOrFoot,
-  type NailExtra,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
-import { saveAppointment } from '@/hooks/appointmentWrites';
-import {
-  findCachedAppointment,
-  useAppointments,
-} from '@/hooks/useAppointments';
-import { useCustomers } from '@/hooks/useCustomers';
-import type { ServiceType } from '@/types/appointment';
-import { showAlert } from '@/utils/alert';
-import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
+import { useAppointmentForm } from '@/hooks/useAppointmentForm';
+import { findCachedAppointment } from '@/hooks/useAppointments';
 import { formatDateHeader } from '@/utils/groupByDate';
-import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
-import { describeOverlaps, findOverlaps } from '@/utils/overlap';
-
-type Field = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
 
 /** 訂金 is TRUE / FALSE in the sheet. */
 const DEPOSIT_OPTIONS = [
@@ -69,11 +49,7 @@ const DEPOSIT_OPTIONS = [
   { label: '未付', value: false },
 ] as const;
 
-const SPECIAL: ServiceType = '特別事項';
 const HHMM = /^\d{2}:\d{2}$/;
-
-/** Customer suggestions shown under the name field. */
-const MAX_SUGGESTIONS = 5;
 
 /** 狀態 choices when editing (特別事項 rows may also be blank). */
 const STATUS_OPTIONS = ['預約', '已完成'] as const;
@@ -85,93 +61,57 @@ export default function AddAppointmentScreen() {
   const params = useLocalSearchParams<{ id?: string; date?: string; customerName?: string }>();
   // Snapshot at open, so a background reload doesn't reset the form
   const [editing] = useState(() => (params.id ? findCachedAppointment(params.id) : undefined));
-  const [customerName, setCustomerName] = useState(
-    editing?.customerName ?? params.customerName ?? ''
-  );
+  const {
+    service,
+    changeService: handleServiceChange,
+    customerName,
+    setCustomerName,
+    suggestions,
+    date,
+    setDate,
+    time,
+    setTime,
+    endTimeInput,
+    setEndTimeInput,
+    handOrFoot,
+    setHandOrFoot,
+    deposit,
+    setDeposit,
+    complexDesign,
+    setComplexDesign,
+    nailExtras,
+    setNailExtra,
+    status,
+    setStatus,
+    setPriceEdited,
+    autoPrice,
+    followAutoPrice,
+    topUpHint,
+    isSpecial,
+    showNailExtras,
+    validTime,
+    validEndTime,
+    duration,
+    endTime,
+    endTimeError,
+    dayBookings,
+    otherBookings,
+    errors,
+    clearError,
+    submit,
+  } = useAppointmentForm({
+    editing,
+    // Date and time start blank: they're picked from the calendar and slot list
+    initial: { customerName: params.customerName, date: params.date ?? '', time: '', status: '' },
+    requireSpecialEndTime: true,
+  });
   // Suggestions show while typing and hide once one is picked
   const [suggesting, setSuggesting] = useState(false);
-  const [date, setDate] = useState(editing?.date ?? params.date ?? '');
-  const [time, setTime] = useState(editing?.time ?? '');
-  // Only used by 特別事項, where it's picked rather than derived from the service
-  const [endTimeInput, setEndTimeInput] = useState(editing?.endTime ?? '');
-  // Old rows may hold services / 手腳 values not in the lists; they're kept as-is
-  const [service, setService] = useState<ServiceType | ''>(
-    (editing?.service as ServiceType | undefined) ?? ''
-  );
-  const [handOrFoot, setHandOrFoot] = useState<HandOrFoot>(
-    (editing?.handOrFoot as HandOrFoot | undefined) ?? (editing ? ('' as HandOrFoot) : '手')
-  );
-  const [price, setPrice] = useState(
-    editing?.price != null ? String(editing.price) : ''
-  );
-  // New bookings start on paid; older rows without a 訂金 value read as unpaid
-  const [deposit, setDeposit] = useState(editing ? (editing.deposit ?? false) : true);
-  const [complexDesign, setComplexDesign] = useState(() =>
-    toComplexDesign(editing?.complexDesign)
-  );
-  const [nailExtras, setNailExtras] = useState(() => nailExtrasOf(editing));
-  const setNailExtra = (key: NailExtra, on: boolean) => {
-    setNailExtras((prev) => ({ ...prev, [key]: on }));
-  };
-  // Once the price is typed by hand, changing service no longer overwrites it
-  const [priceEdited, setPriceEdited] = useState(false);
-  const [status, setStatus] = useState(editing?.status ?? '');
+  const [price, setPrice] = useState(editing?.price != null ? String(editing.price) : '');
   const [notes, setNotes] = useState(editing?.notes ?? '');
-  const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
 
-  const { customers } = useCustomers();
-  const dayBookings = useAppointments({ from: date, to: date }, { enabled: date !== '' });
-  // The booking being edited shouldn't clash with itself
-  const otherBookings = useMemo(
-    () => dayBookings.appointments.filter((apt) => apt.id !== editing?.id),
-    [dayBookings.appointments, editing]
-  );
-
-  const showNailExtras = showsNailExtras(service, handOrFoot);
-  // Hidden add-ons are saved cleared, so a booking switched to 腳 drops them
-  const appliedNailExtras = showNailExtras ? { complexDesign, ...nailExtras } : NO_NAIL_EXTRAS;
-
-  // 補眼睫毛 / 補甲: once a known customer is picked, 收費 follows their last set
-  const topUp = topUpRuleFor(service);
-  const isTopUp = topUp != null;
-  const customerPicked = customers.some((c) => c.name === customerName.trim());
-  const setHistory = useAppointments(
-    { from: date && addDays(date, -(topUp?.lookbackDays ?? 0)), to: date },
-    { enabled: isTopUp && customerPicked && date !== '' }
-  );
-  const topUpReady =
-    topUp != null && customerPicked && date !== '' && !setHistory.loading && !setHistory.error;
-  const topUpPrice = topUpReady
-    ? topUpPriceFor(topUp, setHistory.appointments, customerName, date, editing?.id)
-    : undefined;
-  // Shown under 收費 so it's clear where the price came from
-  const topUpHint = topUpReady
-    ? lastSetHint(
-        topUp,
-        lastSetDate(topUp, setHistory.appointments, customerName, date, editing?.id),
-        date
-      )
-    : undefined;
-  // Follows the service, 手/腳 and add-ons until 收費 is typed by hand
-  const autoPrice =
-    topUpPrice ??
-    (service ? defaultPriceFor(service, { handOrFoot, ...appliedNailExtras }) : undefined);
-  // Edits keep the sheet's 收費 until something the price depends on changes,
-  // then follow the same rules as a new booking
-  const priceKey = [
-    service,
-    handOrFoot,
-    appliedNailExtras.complexDesign,
-    appliedNailExtras.removal,
-    appliedNailExtras.extension,
-    isTopUp ? customerName.trim() : '',
-    isTopUp ? date : '',
-  ].join('|');
-  const [openedPriceKey] = useState(priceKey);
-  const [keepSheetPrice, setKeepSheetPrice] = useState(editing != null);
-  if (keepSheetPrice && priceKey !== openedPriceKey) setKeepSheetPrice(false);
-  const followAutoPrice = !priceEdited && !keepSheetPrice;
-  // Applied during render when it changes, rather than in an effect
+  // 收費 follows its default until typed by hand; applied during render when
+  // it changes, rather than in an effect
   const autoPriceState = `${followAutoPrice}:${autoPrice}`;
   const [appliedAutoPrice, setAppliedAutoPrice] = useState<string>();
   if (autoPriceState !== appliedAutoPrice) {
@@ -179,115 +119,12 @@ export default function AddAppointmentScreen() {
     if (autoPrice != null && followAutoPrice) setPrice(String(autoPrice));
   }
 
-  const isSpecial = service === SPECIAL;
-  const validTime = HHMM.test(time);
-  const validEndTime = HHMM.test(endTimeInput);
-  // 特別事項: Duration = End Time − 時間 (none when they're equal)
-  const specialDuration =
-    validTime && validEndTime ? timeToMinutes(endTimeInput) - timeToMinutes(time) : undefined;
-  // 特別事項 runs to its End Time; everything else (edits too) takes the
-  // length from the service, 手/腳 and add-ons, so an older row whose
-  // Duration left out its add-ons is saved with the full length
-  const duration = isSpecial
-    ? specialDuration && specialDuration > 0
-      ? specialDuration
-      : undefined
-    : service
-      ? defaultDurationFor(service, { handOrFoot, ...appliedNailExtras })
-      : undefined;
-  const endTime = validTime && duration ? minutesToTime(timeToMinutes(time) + duration) : null;
-  // Shown as soon as a typed end time is before the start, not only on save
-  const endTimeError =
-    errors.endTime ??
-    (specialDuration != null && specialDuration < 0 ? '完結時間不可早於開始時間' : undefined);
-
-  const suggestions = useMemo(() => {
-    const q = customerName.trim().toLowerCase();
-    if (!q) return [];
-    if (customers.some((c) => c.name.toLowerCase() === q)) return [];
-    return customers.filter((c) => c.name.toLowerCase().includes(q)).slice(0, MAX_SUGGESTIONS);
-  }, [customers, customerName]);
-
-  const clearError = (field: Field) => {
-    if (!errors[field]) return;
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next[field];
-      return next;
+  const handleSubmit = () =>
+    submit({ customerName, notes, price }, () => {
+      // On web the page may be opened directly, with no history to go back to
+      if (router.canGoBack()) router.back();
+      else router.replace('/');
     });
-  };
-
-  const handleServiceChange = (next: ServiceType) => {
-    setService(next);
-    // A new 整甲 or 整甲 + 眼睫毛 usually includes 拆甲
-    if (!editing) setNailExtra('removal', next === '整甲' || next === '整甲 + 眼睫毛');
-    clearError('service');
-  };
-
-  const validate = (): Partial<Record<Field, string>> => {
-    const next: Partial<Record<Field, string>> = {};
-    if (!service) next.service = '請選擇活動';
-    if (!isSpecial && !customerName.trim()) next.customerName = '請輸入顧客姓名';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) next.date = '請選擇日期';
-    if (!time) next.time = '請選擇開始時間';
-    else if (!validTime) next.time = '時間格式請用 HH:mm（例如 14:30）';
-    if (isSpecial) {
-      if (!endTimeInput) next.endTime = '請選擇完結時間';
-      else if (!validEndTime) next.endTime = '時間格式請用 HH:mm（例如 14:30）';
-      else if (specialDuration != null && specialDuration < 0)
-        next.endTime = '完結時間不可早於開始時間';
-    } else if (price.trim() && !/^\d+$/.test(price.trim())) {
-      next.price = '收費請只輸入數字';
-    }
-    return next;
-  };
-
-  const handleSubmit = () => {
-    const found = validate();
-    setErrors(found);
-    if (Object.keys(found).length > 0 || !service) return;
-
-    // Overlaps are sometimes intended, so they only need confirming
-    const overlaps = findOverlaps(otherBookings, time, duration);
-    if (overlaps.length > 0) {
-      showAlert(
-        '時間重疊',
-        `此時段與以下預約時間重疊：\n${describeOverlaps(overlaps)}\n\n仍然要儲存嗎？`,
-        [
-          { text: '返回修改', style: 'cancel' },
-          { text: '仍然儲存', onPress: () => void save() },
-        ]
-      );
-      return;
-    }
-    void save();
-  };
-
-  const save = () => {
-    if (!service) return;
-    // 特別事項 rows have no customer, 手/腳, 收費 or 狀態, and View repeats 備注
-    const input = isSpecial
-      ? { customerName: '', date, time, service, notes, view: notes, durationMinutes: duration }
-      : {
-          customerName,
-          date,
-          time,
-          service,
-          notes,
-          durationMinutes: duration,
-          handOrFoot: usesHandOrFoot(service) ? handOrFoot : undefined,
-          price: price.trim() ? Number(price.trim()) : undefined,
-          // Other services leave 訂金 and the add-ons untouched
-          deposit: usesDeposit(service) ? deposit : undefined,
-          ...(usesNailExtras(service) ? appliedNailExtras : {}),
-        };
-    // Shows at once and is sent in the background; a failure is reported then
-    saveAppointment(editing ? { ...input, status: isSpecial ? '' : status } : input, editing);
-
-    // On web the page may be opened directly, with no history to go back to
-    if (router.canGoBack()) router.back();
-    else router.replace('/');
-  };
 
   const hasErrors = Object.keys(errors).length > 0;
 
