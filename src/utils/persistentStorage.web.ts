@@ -18,3 +18,11 @@ export function writeStored(key: string, value: string): void {
     // Ignored: e.g. over quota; the data is reloaded from Apps Script anyway
   }
 }
+
+export function removeStored(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignored: at worst the old value takes up some space
+  }
+}

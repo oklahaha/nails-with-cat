@@ -17,6 +17,7 @@ import {
   padding,
   shapes,
 } from '@expo/ui/swift-ui/modifiers';
+import { memo } from 'react';
 
 import { serviceColor } from '@/constants/services';
 import type { Appointment } from '@/types/appointment';
@@ -31,7 +32,10 @@ type Props = {
   showWhatsApp?: boolean;
 };
 
-export function AppointmentRow({ appointment, showWhatsApp = true }: Props) {
+export const AppointmentRow = memo(function AppointmentRow({
+  appointment,
+  showWhatsApp = true,
+}: Props) {
   const phone = showWhatsApp ? appointment.phone?.trim() : undefined;
   const title = appointmentTitle(appointment);
   const hasEnd = Boolean(appointment.endTime && appointment.endTime !== appointment.time);
@@ -106,4 +110,4 @@ export function AppointmentRow({ appointment, showWhatsApp = true }: Props) {
       ) : null}
     </HStack>
   );
-}
+});

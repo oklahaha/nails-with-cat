@@ -1,5 +1,8 @@
 /**
  * 顧客資料 — SwiftUI searchable List. API via useCustomers unchanged.
+ *
+ * Every row of an @expo/ui List is a React element, mounted whether it's on
+ * screen or not, so rows are added a page at a time as the end comes near.
  */
 import {
   Button,
@@ -26,7 +29,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
@@ -41,11 +44,22 @@ import type { Customer } from '@/types/customer';
 import { formatPhone } from '@/utils/phone';
 import { openWhatsApp } from '@/utils/whatsapp';
 
+/** Rows rendered at first, and added each time the end of the list comes near. */
+const PAGE_SIZE = 50;
+
 export default function CustomersScreen() {
   const { customers, loading, error, reload } = useCustomers();
   const searchText = useNativeState('');
   const [query, setQuery] = useState('');
-  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  // Content height when the last page was added: add the next only once it's laid out
+  const grownAt = useRef(-1);
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers((y, contentHeight, containerHeight) => {
+    if (contentHeight === grownAt.current) return;
+    if (contentHeight - (y + containerHeight) > containerHeight) return;
+    grownAt.current = contentHeight;
+    setLimit((n) => n + PAGE_SIZE);
+  });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -86,7 +100,10 @@ export default function CustomersScreen() {
               ...hideTabBarOnScroll,
               searchable(searchText, {
                 prompt: '搜尋姓名或電話',
-                onChange: setQuery,
+                onChange: (text) => {
+                  setQuery(text);
+                  setLimit(PAGE_SIZE);
+                },
               }),
             ]}
           >
@@ -115,7 +132,7 @@ export default function CustomersScreen() {
                     : '未有顧客資料'}
                 </Text>
               ) : (
-                filtered.map((customer, index) => (
+                filtered.slice(0, limit).map((customer, index) => (
                   <CustomerRow
                     key={customer.id || `${customer.name}-${index}`}
                     customer={customer}
@@ -146,7 +163,9 @@ function prefillFrom(query: string, matches: Customer[]): { name?: string; phone
   return /^[\d\s+()-]+$/.test(q) ? { phone: q.replace(/[^\d]/g, '') } : { name: q };
 }
 
-function CustomerRow({ customer }: { customer: Customer }) {
+// Memoized: cached customers keep their identity across reloads, so a
+// search or reload only rebuilds the rows that changed
+const CustomerRow = memo(function CustomerRow({ customer }: { customer: Customer }) {
   return (
     <HStack spacing={8}>
       <Button
@@ -198,4 +217,4 @@ function CustomerRow({ customer }: { customer: Customer }) {
       />
     </HStack>
   );
-}
+});

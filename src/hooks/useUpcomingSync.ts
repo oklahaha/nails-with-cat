@@ -9,12 +9,16 @@
  * - after every save or delete made in the app (onAppointmentsChanged),
  * - when a push says the other user changed a booking (backgroundSync.ts),
  *   even while the app is in the background.
+ *
+ * It loads the same range as the 預約資料 tab (everything from today), through
+ * the shared cache, so the two share one Apps Script call per launch.
  */
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
+import { loadAppointments } from '@/hooks/useAppointments';
 import { scheduleLocalNotifications } from '@/notifications/notifications';
-import { listAppointments, onAppointmentsChanged } from '@/services/appointmentsApi';
+import { onAppointmentsChanged } from '@/services/appointmentsApi';
 import { addDays, todayIsoDate } from '@/utils/dates';
 import { TIMELINE_DAYS } from '@/widgets/todayWidgetTimeline';
 import { updateTodayWidget } from '@/widgets/updateTodayWidget';
@@ -37,10 +41,10 @@ export function syncUpcoming(): Promise<void> {
       const today = todayIsoDate();
       try {
         // A week past the widget's timeline, so its last day still knows the next booking
-        const appointments = await listAppointments({
-          from: today,
-          to: addDays(today, TIMELINE_DAYS + 7),
-        });
+        const until = addDays(today, TIMELINE_DAYS + 7);
+        const appointments = (await loadAppointments({ from: today })).filter(
+          (apt) => apt.date <= until
+        );
         updateTodayWidget(appointments, today);
         await scheduleLocalNotifications(appointments);
       } catch {

@@ -8,6 +8,7 @@
  * the lists and reported with an alert.
  */
 import { setPendingAppointment, settleAppointment } from '@/hooks/useAppointments';
+import { syncUpcoming } from '@/hooks/useUpcomingSync';
 import { findCachedCustomer } from '@/hooks/useCustomers';
 import { enqueueWrite } from '@/hooks/writeQueue';
 import {
@@ -38,7 +39,13 @@ async function sheetId(id: string): Promise<string> {
   return real;
 }
 
+/**
+ * Alert the user to a failed write. The widget and reminders may have picked
+ * up the booking from the cache while it was pending, so resync them too
+ * (successful writes do that through onAppointmentsChanged).
+ */
 function reportFailure(action: string, apt: Appointment, e: unknown): void {
+  void syncUpcoming();
   const what = `${appointmentTitle(apt)} ${formatDateHeader(apt.date)} ${apt.time}`;
   showAlert(`${action}失敗`, `${what}\n${e instanceof Error ? e.message : '未知錯誤'}`);
 }

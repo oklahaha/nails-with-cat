@@ -29,8 +29,7 @@ import {
 /** Points scrolled in one direction before the tab bar toggles, so small jitters don't flicker it. */
 const THRESHOLD = 12;
 
-type TabBarVisibility = {
-  hidden: boolean;
+type TabBarLayout = {
   setHidden: (hidden: boolean) => void;
   /** Height of the floating tab bar (Android, web); 0 on iOS. */
   inset: number;
@@ -38,8 +37,13 @@ type TabBarVisibility = {
   progress: Animated.Value;
 };
 
-const TabBarVisibilityContext = createContext<TabBarVisibility>({
-  hidden: false,
+/**
+ * `hidden` has its own context: it flips on every scroll direction change,
+ * and only the tab bar itself needs to re-render for it, not the screens.
+ */
+const TabBarHiddenContext = createContext(false);
+
+const TabBarLayoutContext = createContext<TabBarLayout>({
   setHidden: () => {},
   inset: 0,
   setInset: () => {},
@@ -50,26 +54,26 @@ export function TabBarVisibilityProvider({ children }: { children: ReactNode }) 
   const [hidden, setHidden] = useState(false);
   const [inset, setInset] = useState(0);
   const [progress] = useState(() => new Animated.Value(0));
-  const value = useMemo(
-    () => ({ hidden, setHidden, inset, setInset, progress }),
-    [hidden, inset, progress],
-  );
+  const layout = useMemo(() => ({ setHidden, inset, setInset, progress }), [inset, progress]);
   return (
-    <TabBarVisibilityContext.Provider value={value}>{children}</TabBarVisibilityContext.Provider>
+    <TabBarLayoutContext.Provider value={layout}>
+      <TabBarHiddenContext.Provider value={hidden}>{children}</TabBarHiddenContext.Provider>
+    </TabBarLayoutContext.Provider>
   );
 }
 
-export function useTabBarVisibility() {
-  return useContext(TabBarVisibilityContext);
+/** Everything but `hidden`, so callers don't re-render when the bar toggles. */
+export function useTabBarLayout() {
+  return useContext(TabBarLayoutContext);
 }
 
 export function useTabBarHidden() {
-  return useContext(TabBarVisibilityContext).hidden;
+  return useContext(TabBarHiddenContext);
 }
 
 /** Bottom padding scroll content needs so its end isn't covered by the floating tab bar. */
 export function useTabBarInset() {
-  return useContext(TabBarVisibilityContext).inset;
+  return useContext(TabBarLayoutContext).inset;
 }
 
 /**
@@ -80,7 +84,7 @@ export function useTabBarInset() {
  * Day/Week grid for Month).
  */
 export function useHideTabBarOnScroll() {
-  const { setHidden } = useContext(TabBarVisibilityContext);
+  const { setHidden } = useContext(TabBarLayoutContext);
   const anchor = useRef(0);
   const hiddenRef = useRef(false);
   // Web scroll views don't report drags, and the floating bar never resizes them.

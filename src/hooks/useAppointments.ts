@@ -8,12 +8,14 @@ import {
 } from '@/services/appointmentsApi';
 import type { Appointment } from '@/types/appointment';
 import type { CustomerKey } from '@/types/customer';
-import { readStored, writeStored } from '@/utils/persistentStorage';
+import { readStored, removeStored, writeStored } from '@/utils/persistentStorage';
 import { reuseUnchanged } from '@/utils/reuseUnchanged';
 
 const EMPTY: Appointment[] = [];
 
-const STORAGE_KEY = 'appointments-cache-v1';
+const STORAGE_KEY = 'appointments-cache-v2';
+/** v1 saved each range's bookings in full; drop what's left of it. */
+removeStored('appointments-cache-v1');
 /** Most recently loaded ranges kept on the device, so storage doesn't grow. */
 const MAX_STORED = 24;
 
@@ -28,13 +30,35 @@ const cache = new Map<string, Appointment[]>(readStoredEntries());
 const writtenAt = new Map<string, number>([...cache.keys()].map((key, i) => [key, i]));
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * Ranges overlap (the 統計 year holds most of the others), so each booking
+ * is saved once and each range keeps only its ids. That keeps the
+ * synchronous read at launch small.
+ */
+type Stored = { appointments: Appointment[]; ranges: [string, string[]][] };
+
 function readStoredEntries(): [string, Appointment[]][] {
   try {
-    const parsed: unknown = JSON.parse(readStored(STORAGE_KEY) ?? '[]');
-    return Array.isArray(parsed) ? (parsed as [string, Appointment[]][]) : [];
+    const parsed = JSON.parse(readStored(STORAGE_KEY) ?? 'null') as Stored | null;
+    if (!parsed || !Array.isArray(parsed.ranges)) return [];
+    const byId = new Map(parsed.appointments.map((apt) => [apt.id, apt]));
+    return parsed.ranges.map(([key, ids]) => [key, ids.flatMap((id) => byId.get(id) ?? [])]);
   } catch {
     return [];
   }
+}
+
+/** `entries` newest first, so a booking cached in two versions keeps the newest. */
+function toStored(entries: [string, Appointment[]][]): Stored {
+  const byId = new Map<string, Appointment>();
+  const ranges = entries.map(([key, list]): [string, string[]] => [
+    key,
+    list.map((apt) => {
+      if (!byId.has(apt.id)) byId.set(apt.id, apt);
+      return apt.id;
+    }),
+  ]);
+  return { appointments: [...byId.values()], ranges };
 }
 
 /** Bumped on every cache write, so hooks re-render for changes made elsewhere. */
@@ -46,8 +70,13 @@ function subscribeCache(listener: () => void): () => void {
   return () => cacheListeners.delete(listener);
 }
 
-function getCacheVersion(): number {
-  return cacheVersion;
+/**
+ * What a hook for `key` depends on: its own list once cached, so writes to
+ * other ranges (e.g. prefetches) don't re-render it, or else the version,
+ * since a covering range may change what it shows.
+ */
+function cacheSnapshot(key: string): Appointment[] | number {
+  return cache.get(key) ?? cacheVersion;
 }
 
 /** Every cache write goes through here, so it's saved on the device too. */
@@ -62,7 +91,7 @@ function setCache(key: string, list: Appointment[]): void {
     const newest = [...cache.entries()]
       .sort(([a], [b]) => (writtenAt.get(b) ?? 0) - (writtenAt.get(a) ?? 0))
       .slice(0, MAX_STORED);
-    writeStored(STORAGE_KEY, JSON.stringify(newest));
+    writeStored(STORAGE_KEY, JSON.stringify(toStored(newest)));
   }, 1000);
 }
 /** Requests in flight per key, so a prefetch and a screen load share one call. */
@@ -95,6 +124,14 @@ function fetchCached(key: string, load: () => Promise<Appointment[]>): Promise<A
     inflight.set(key, request);
   }
   return request;
+}
+
+/**
+ * Load a range through the cache, outside a screen (e.g. for the widget):
+ * shares a request already running for it and leaves the result for screens.
+ */
+export function loadAppointments(range: ListAppointmentsOptions): Promise<Appointment[]> {
+  return fetchRange(range);
 }
 
 /** Warm the cache for a range the user is likely to open next. */
@@ -309,16 +346,19 @@ export function useAppointments(
     }, [load])
   );
 
-  // Re-render when a save or delete elsewhere changes the cache
-  const version = useSyncExternalStore(subscribeCache, getCacheVersion);
+  // Re-render when a save or delete elsewhere changes this range's cache
+  const snapshot = useSyncExternalStore(
+    subscribeCache,
+    useCallback(() => cacheSnapshot(key), [key])
+  );
   // The cache is never older than `result` (fetches fill it first), and it
   // also reflects local edits such as removeCachedAppointment, so prefer it.
   // After a range change, this shows that range's cache until its own result
   // lands, or else what a wider cached range holds for it.
   const covering = useMemo(
     () => (cache.has(key) ? undefined : fromCoveringRange(from, to)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- version tracks the cache
-    [key, from, to, version]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot tracks the cache
+    [key, from, to, snapshot]
   );
   const current =
     cache.get(key) ?? (result.key === key ? result.appointments : undefined) ?? covering;
@@ -374,7 +414,10 @@ export function useCustomerAppointments(customer: CustomerKey | undefined) {
     }, [load])
   );
 
-  useSyncExternalStore(subscribeCache, getCacheVersion);
+  useSyncExternalStore(
+    subscribeCache,
+    useCallback(() => cacheSnapshot(key), [key])
+  );
   // Same preference for the cache as useAppointments, so deletes show at once
   const current = cache.get(key) ?? (result.key === key ? result.appointments : undefined);
   const error = result.key === key ? result.error : null;

@@ -9,12 +9,13 @@ import { BottomTabBar, type BottomTabBarProps } from 'expo-router/js-tabs';
 import { useEffect } from 'react';
 import { Animated, Easing, Platform, StyleSheet, type LayoutChangeEvent } from 'react-native';
 
-import { useTabBarVisibility } from '@/hooks/useTabBarVisibility';
+import { useTabBarHidden, useTabBarLayout } from '@/hooks/useTabBarVisibility';
 
 const useNativeDriver = Platform.OS !== 'web';
 
 export function SlidingTabBar(props: BottomTabBarProps) {
-  const { hidden, inset, setInset, progress } = useTabBarVisibility();
+  const hidden = useTabBarHidden();
+  const { inset, setInset, progress } = useTabBarLayout();
 
   useEffect(() => {
     const animation = Animated.timing(progress, {

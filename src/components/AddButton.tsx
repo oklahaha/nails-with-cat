@@ -3,7 +3,7 @@ import { Animated, Pressable, StyleSheet } from 'react-native';
 
 import { Icon } from '@/components/Icon';
 import { colors, pressedStyle, spacing } from '@/constants/theme';
-import { useTabBarVisibility } from '@/hooks/useTabBarVisibility';
+import { useTabBarLayout } from '@/hooks/useTabBarVisibility';
 
 type Props = {
   /** Prefill the form's date (YYYY-MM-DD). */
@@ -18,7 +18,7 @@ type Props = {
  * Sits above the floating tab bar and slides down with it when it hides.
  */
 export function AddButton({ date, onPress, accessibilityLabel = '新增預約' }: Props) {
-  const { inset, progress } = useTabBarVisibility();
+  const { inset, progress } = useTabBarLayout();
   const translateY = progress.interpolate({ inputRange: [0, 1], outputRange: [-inset, 0] });
 
   return (

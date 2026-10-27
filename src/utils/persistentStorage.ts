@@ -30,3 +30,9 @@ export function writeStored(key: string, value: string): void {
     // Ignored: the data is only a head start, reloaded from Apps Script anyway
   });
 }
+
+export function removeStored(key: string): void {
+  Storage?.removeItem(key).catch(() => {
+    // Ignored: at worst the old value takes up some space
+  });
+}
