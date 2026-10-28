@@ -341,6 +341,21 @@ export function useAppointments(
 }
 
 /**
+ * What the cache holds for a range (or a wider cached range), without loading
+ * it: for pages drawn beside the one on screen (the iOS timetable pager),
+ * whose ranges the screen prefetches.
+ */
+export function useCachedAppointments({ from, to }: ListAppointmentsOptions): Appointment[] {
+  const key = rangeKey({ from, to });
+  const snapshot = useCacheSnapshot(key);
+  return useMemo(
+    () => cache.get(key) ?? fromCoveringRange(from, to) ?? EMPTY,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot tracks the cache
+    [key, from, to, snapshot]
+  );
+}
+
+/**
  * Every appointment for one customer, newest first, for the history in
  * 顧客資料. Cached like date ranges, so the appointment details screen can
  * open any of them, and reloaded whenever the screen regains focus.

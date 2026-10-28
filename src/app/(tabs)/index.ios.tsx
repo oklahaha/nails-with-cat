@@ -1,8 +1,10 @@
 /**
  * 時間表 (iOS) — the same React Native MonthView / TimeGrid layout as the
- * other platforms, with the controls around it as small SwiftUI Host islands
- * (segmented 日/週/月 picker, 今日, ‹ ›, + button). SwiftUI has no calendar
- * grid, so the grid itself stays in React Native.
+ * other platforms, paged by a SwiftUI TabView (TimetablePager) so swipes
+ * slide between months / weeks / days as in iOS Calendar, with the controls
+ * around it as small SwiftUI Host islands (segmented 日/週/月 picker, 今日,
+ * ‹ ›, + button). SwiftUI has no calendar grid, so the grid itself stays in
+ * React Native.
  */
 import {
   Button,
@@ -25,27 +27,24 @@ import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { MonthView } from '@/components/calendar/MonthView';
-import { TimeGrid } from '@/components/calendar/TimeGrid';
+import {
+  shiftAnchor,
+  timetableRange,
+  type ViewMode,
+} from '@/components/calendar/timetablePages';
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
+import { TimetablePager } from '@/components/swiftui/TimetablePager';
 import { glassButton } from '@/components/swiftui/glass';
 import { colors, spacing, type } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
-import type { Appointment } from '@/types/appointment';
-import { openAppointmentDetails } from '@/utils/appointmentActions';
 import {
-  addDays,
   addMonths,
   formatMonthTitle,
   formatWeekTitle,
-  monthGrid,
   todayIsoDate,
-  weekDates,
 } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
-
-type ViewMode = 'day' | 'week' | 'month';
 
 export default function TimetableScreen() {
   const [mode, setMode] = useState<ViewMode>('month');
@@ -53,7 +52,8 @@ export default function TimetableScreen() {
 
   const range = useMemo(() => timetableRange(anchor), [anchor]);
 
-  const { appointments, loading, reloading, error, reload } = useAppointments(range);
+  // The pages read this range from the cache; this loads it and reports progress
+  const { loading, reloading, error, reload } = useAppointments(range);
 
   // Once this month is on screen, load the months either side so paging is instant
   useEffect(() => {
@@ -62,12 +62,7 @@ export default function TimetableScreen() {
     prefetchAppointments(timetableRange(addMonths(anchor, -1)));
   }, [anchor, loading]);
 
-  const byDate = useMemo(() => groupByDateSorted(appointments), [appointments]);
-
-  const step = (direction: 1 | -1) => {
-    if (mode === 'month') setAnchor(addMonths(anchor, direction));
-    else setAnchor(addDays(anchor, direction * (mode === 'week' ? 7 : 1)));
-  };
+  const step = (direction: 1 | -1) => setAnchor(shiftAnchor(mode, anchor, direction));
 
   const openDay = (date: string) => {
     setAnchor(date);
@@ -172,44 +167,14 @@ export default function TimetableScreen() {
           systemImage="exclamationmark.triangle"
           action={{ label: '重試', onPress: () => void reload() }}
         />
-      ) : mode === 'month' ? (
-        <MonthView anchor={anchor} byDate={byDate} onPressDay={openDay} />
       ) : (
-        <TimeGrid
-          days={mode === 'week' ? weekDates(anchor) : [anchor]}
-          byDate={byDate}
-          onPressAppointment={openAppointmentDetails}
-          onPressDay={openDay}
-        />
+        // Swipe for the next / previous month, week or day, as in iOS Calendar
+        <TimetablePager mode={mode} anchor={anchor} onAnchorChange={setAnchor} onPressDay={openDay} />
       )}
 
       <SwiftFab date={mode === 'day' ? anchor : undefined} />
     </SafeAreaView>
   );
-}
-
-/**
- * Fetch the whole month grid (plus the anchor's week, which can spill into
- * the next month), so switching Day/Week/Month within a month doesn't refetch.
- */
-function timetableRange(anchor: string): { from: string; to: string } {
-  const grid = monthGrid(anchor);
-  const week = weekDates(anchor);
-  const from = week[0] < grid[0][0] ? week[0] : grid[0][0];
-  const last = grid[grid.length - 1][6];
-  const to = week[6] > last ? week[6] : last;
-  return { from, to };
-}
-
-function groupByDateSorted(appointments: Appointment[]): Map<string, Appointment[]> {
-  const map = new Map<string, Appointment[]>();
-  for (const apt of appointments) {
-    const list = map.get(apt.date) ?? [];
-    list.push(apt);
-    map.set(apt.date, list);
-  }
-  for (const list of map.values()) list.sort((a, b) => a.time.localeCompare(b.time));
-  return map;
 }
 
 const styles = StyleSheet.create({

@@ -3,9 +3,10 @@
  * timetable (reference/timetable.png). Tapping a day opens it in Day view;
  * tapping an appointment opens its details (with 修改 / 刪除).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -16,25 +17,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AddButton } from '@/components/AddButton';
 import { MonthView } from '@/components/calendar/MonthView';
 import { TimeGrid } from '@/components/calendar/TimeGrid';
+import {
+  groupByDateSorted,
+  shiftAnchor,
+  timetableRange,
+  type ViewMode,
+} from '@/components/calendar/timetablePages';
 import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
+import { useSwipePaging } from '@/hooks/useSwipePaging';
 import { useTabBarInset } from '@/hooks/useTabBarVisibility';
-import type { Appointment } from '@/types/appointment';
 import { openAppointmentDetails } from '@/utils/appointmentActions';
 import {
-  addDays,
   addMonths,
   formatMonthTitle,
   formatWeekTitle,
-  monthGrid,
   todayIsoDate,
   weekDates,
 } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
-
-type ViewMode = 'day' | 'week' | 'month';
 
 const VIEW_MODES: { mode: ViewMode; label: string }[] = [
   { mode: 'day', label: '日' },
@@ -60,10 +63,14 @@ export default function TimetableScreen() {
 
   const byDate = useMemo(() => groupByDateSorted(appointments), [appointments]);
 
-  const step = (direction: 1 | -1) => {
-    if (mode === 'month') setAnchor(addMonths(anchor, direction));
-    else setAnchor(addDays(anchor, direction * (mode === 'week' ? 7 : 1)));
-  };
+  const step = useCallback(
+    (direction: 1 | -1) => {
+      setAnchor(shiftAnchor(mode, anchor, direction));
+    },
+    [mode, anchor],
+  );
+
+  const swipe = useSwipePaging(step);
 
   const openDay = (date: string) => {
     setAnchor(date);
@@ -156,17 +163,22 @@ export default function TimetableScreen() {
           tone="error"
           action={{ label: '重試', onPress: () => void reload() }}
         />
-      ) : mode === 'month' ? (
-        <View style={{ flex: 1, paddingBottom: tabBarInset }}>
-          <MonthView anchor={anchor} byDate={byDate} onPressDay={openDay} />
-        </View>
       ) : (
-        <TimeGrid
-          days={mode === 'week' ? weekDates(anchor) : [anchor]}
-          byDate={byDate}
-          onPressAppointment={openAppointmentDetails}
-          onPressDay={openDay}
-        />
+        // Swipe left / right for the next / previous month, week or day
+        <Animated.View style={[styles.pages, swipe.style]} {...swipe.panHandlers}>
+          {mode === 'month' ? (
+            <View style={{ flex: 1, paddingBottom: tabBarInset }}>
+              <MonthView anchor={anchor} byDate={byDate} onPressDay={openDay} />
+            </View>
+          ) : (
+            <TimeGrid
+              days={mode === 'week' ? weekDates(anchor) : [anchor]}
+              byDate={byDate}
+              onPressAppointment={openAppointmentDetails}
+              onPressDay={openDay}
+            />
+          )}
+        </Animated.View>
       )}
 
       <AddButton date={mode === 'day' ? anchor : undefined} />
@@ -174,31 +186,10 @@ export default function TimetableScreen() {
   );
 }
 
-/**
- * Fetch the whole month grid (plus the anchor's week, which can spill into
- * the next month), so switching Day/Week/Month within a month doesn't refetch.
- */
-function timetableRange(anchor: string): { from: string; to: string } {
-  const grid = monthGrid(anchor);
-  const week = weekDates(anchor);
-  const from = week[0] < grid[0][0] ? week[0] : grid[0][0];
-  const last = grid[grid.length - 1][6];
-  const to = week[6] > last ? week[6] : last;
-  return { from, to };
-}
-
-function groupByDateSorted(appointments: Appointment[]): Map<string, Appointment[]> {
-  const map = new Map<string, Appointment[]>();
-  for (const apt of appointments) {
-    const list = map.get(apt.date) ?? [];
-    list.push(apt);
-    map.set(apt.date, list);
-  }
-  for (const list of map.values()) list.sort((a, b) => a.time.localeCompare(b.time));
-  return map;
-}
-
 const styles = StyleSheet.create({
+  pages: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,
