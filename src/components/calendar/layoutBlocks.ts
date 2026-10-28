@@ -1,13 +1,12 @@
 /**
  * Where appointments go in the Day / Week time grid (TimeGrid): their
- * minutes, side-by-side lanes for overlaps, and the hours to show.
+ * minutes, side-by-side lanes for overlaps, and the hour to open at.
  */
 import type { Appointment } from '@/types/appointment';
 import { timeToMinutes } from '@/utils/dates';
 
-/** Default visible hours; widened if an appointment falls outside. */
+/** Hour the grid opens at on days other than today, unless a booking starts earlier. */
 const DEFAULT_START_HOUR = 9;
-const DEFAULT_END_HOUR = 21;
 /** Shortest block drawn, so zero-length rows (e.g. 特別事項) stay tappable. */
 export const MIN_BLOCK_MINUTES = 30;
 
@@ -63,12 +62,9 @@ export function layoutBlocks(appointments: Appointment[]): Block[] {
   return result;
 }
 
-export function visibleHours(blocks: Block[]): [number, number] {
+/** The hour the grid scrolls to first: 09:00, or the earliest booking's hour. */
+export function firstVisibleHour(blocks: Block[]): number {
   let start = DEFAULT_START_HOUR;
-  let end = DEFAULT_END_HOUR;
-  for (const block of blocks) {
-    start = Math.min(start, Math.floor(block.start / 60));
-    end = Math.max(end, Math.ceil(block.end / 60));
-  }
-  return [start, Math.min(end, 24)];
+  for (const block of blocks) start = Math.min(start, Math.floor(block.start / 60));
+  return start;
 }

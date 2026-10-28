@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { makeAppointment } from '@/test/appointment';
 
-import { layoutBlocks, visibleHours } from './layoutBlocks';
+import { firstVisibleHour, layoutBlocks } from './layoutBlocks';
 
 const apt = (id: string, time: string, endTime?: string, durationMinutes?: number) =>
   makeAppointment({ id, time, endTime, durationMinutes });
@@ -39,10 +39,10 @@ describe('layoutBlocks', () => {
   });
 });
 
-describe('visibleHours', () => {
-  it('shows 09:00–21:00, widened to fit bookings outside it', () => {
-    expect(visibleHours([])).toEqual([9, 21]);
-    expect(visibleHours(layoutBlocks([apt('a', '07:30', '08:30')]))).toEqual([7, 21]);
-    expect(visibleHours(layoutBlocks([apt('a', '21:00', '22:15')]))).toEqual([9, 23]);
+describe('firstVisibleHour', () => {
+  it('opens at 09:00, or earlier for a booking before it', () => {
+    expect(firstVisibleHour([])).toBe(9);
+    expect(firstVisibleHour(layoutBlocks([apt('a', '07:30', '08:30')]))).toBe(7);
+    expect(firstVisibleHour(layoutBlocks([apt('a', '21:00', '22:15')]))).toBe(9);
   });
 });

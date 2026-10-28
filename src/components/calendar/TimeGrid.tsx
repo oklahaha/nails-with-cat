@@ -1,4 +1,12 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  type ScrollViewInstance,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { serviceColor } from '@/constants/services';
 import { colors, radius, spacing, tint, type } from '@/constants/theme';
@@ -8,7 +16,7 @@ import type { Appointment } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { parseIsoDate, toIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 
-import { layoutBlocks, visibleHours } from './layoutBlocks';
+import { firstVisibleHour, layoutBlocks } from './layoutBlocks';
 
 const HOUR_HEIGHT = 56;
 const LABEL_WIDTH = 44;
@@ -30,12 +38,19 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
   const now = useNow();
   const today = toIsoDate(now);
   const blocksByDay = days.map((date) => layoutBlocks(byDate.get(date) ?? []));
-  const [startHour, endHour] = visibleHours(blocksByDay.flat());
-  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
-  const gridHeight = hours.length * HOUR_HEIGHT;
-  const toY = (minutes: number) => ((minutes - startHour * 60) / 60) * HOUR_HEIGHT;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const showNow = nowMinutes >= startHour * 60 && nowMinutes <= endHour * 60;
+  const showNow = days.includes(today);
+  const nowLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  // The whole day, like iOS Calendar; it opens scrolled to now or the first booking
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const gridHeight = hours.length * HOUR_HEIGHT;
+  const toY = (minutes: number) => (minutes / 60) * HOUR_HEIGHT;
+  const initialY = showNow
+    ? toY(nowMinutes - 60)
+    : toY(firstVisibleHour(blocksByDay.flat()) * 60) - HOUR_HEIGHT / 4;
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const scrolledFor = useRef<string | null>(null);
+  const daysKey = days.join(',');
 
   return (
     <View style={styles.container}>
@@ -66,6 +81,15 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
       ) : null}
 
       <ScrollView
+        // A new page of days remounts it, so onLayout scrolls it to its opening hour
+        key={daysKey}
+        ref={scrollRef}
+        // Once per page, not on every reload or minute
+        onLayout={() => {
+          if (scrolledFor.current === daysKey) return;
+          scrolledFor.current = daysKey;
+          scrollRef.current?.scrollTo({ y: Math.max(initialY, 0), animated: false });
+        }}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: styles.scrollContent.paddingBottom + tabBarInset },
@@ -74,11 +98,19 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
       >
         <View style={[styles.grid, { height: gridHeight }]}>
           <View style={{ width: LABEL_WIDTH }}>
-            {hours.map((hour) => (
-              <Text key={hour} style={[styles.hourLabel, { top: toY(hour * 60) - 7 }]}>
-                {`${String(hour).padStart(2, '0')}:00`}
-              </Text>
-            ))}
+            {hours.map((hour) =>
+              // The now label takes the place of an hour label it would overlap
+              showNow && Math.abs(nowMinutes - hour * 60) < 15 ? null : (
+                <Text key={hour} style={[styles.hourLabel, { top: toY(hour * 60) - 7 }]}>
+                  {`${String(hour).padStart(2, '0')}:00`}
+                </Text>
+              ),
+            )}
+            {showNow ? (
+              <View style={[styles.nowLabel, { top: toY(nowMinutes) - 8 }]} pointerEvents="none">
+                <Text style={styles.nowLabelText}>{nowLabel}</Text>
+              </View>
+            ) : null}
           </View>
 
           {days.map((date, dayIndex) => (
@@ -87,9 +119,17 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
                 <View key={hour} style={[styles.hourLine, { top: toY(hour * 60) }]} />
               ))}
 
-              {date === today && showNow ? (
-                <View style={[styles.nowLine, { top: toY(nowMinutes) }]} pointerEvents="none">
-                  <View style={styles.nowDot} />
+              {showNow ? (
+                // Week view: a faint line across the other days, solid on today
+                <View
+                  style={[
+                    styles.nowLine,
+                    date !== today && styles.nowLineOtherDay,
+                    { top: toY(nowMinutes) - 1 },
+                  ]}
+                  pointerEvents="none"
+                >
+                  {date === today ? <View style={styles.nowDot} /> : null}
                 </View>
               ) : null}
 
@@ -230,6 +270,26 @@ const styles = StyleSheet.create({
     height: 2,
     backgroundColor: colors.accent,
     zIndex: 1,
+  },
+  nowLineOtherDay: {
+    height: 1,
+    opacity: 0.4,
+  },
+  nowLabel: {
+    position: 'absolute',
+    right: 2,
+    height: 16,
+    paddingHorizontal: 3,
+    borderRadius: 8,
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+    zIndex: 1,
+  },
+  nowLabelText: {
+    color: colors.onAccent,
+    fontSize: 11,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   nowDot: {
     position: 'absolute',
