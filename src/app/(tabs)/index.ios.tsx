@@ -38,6 +38,7 @@ import { TimetablePager } from '@/components/swiftui/TimetablePager';
 import { glassButton } from '@/components/swiftui/glass';
 import { colors, spacing, type } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
+import { useTabReselect } from '@/hooks/useTabReselect';
 import {
   addMonths,
   formatMonthTitle,
@@ -63,6 +64,9 @@ export default function TimetableScreen() {
   }, [anchor, loading]);
 
   const step = (direction: 1 | -1) => setAnchor(shiftAnchor(mode, anchor, direction));
+
+  // Tapping the 時間表 tab again goes back to the month, from a day or week
+  useTabReselect(() => setMode('month'));
 
   const openDay = (date: string) => {
     setAnchor(date);

@@ -28,6 +28,7 @@ import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
 import { useSwipePaging } from '@/hooks/useSwipePaging';
+import { useTabReselect } from '@/hooks/useTabReselect';
 import { useTabBarInset } from '@/hooks/useTabBarVisibility';
 import { openAppointmentDetails } from '@/utils/appointmentActions';
 import {
@@ -71,6 +72,9 @@ export default function TimetableScreen() {
   );
 
   const swipe = useSwipePaging(step);
+
+  // Tapping the 時間表 tab again goes back to the month, from a day or week
+  useTabReselect(() => setMode('month'));
 
   const openDay = (date: string) => {
     setAnchor(date);
