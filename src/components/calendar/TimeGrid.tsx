@@ -8,15 +8,14 @@ import {
   View,
 } from 'react-native';
 
-import { serviceColor } from '@/constants/services';
-import { colors, radius, spacing, tint, type } from '@/constants/theme';
+import { colors, spacing } from '@/constants/theme';
 import { useNow } from '@/hooks/useNow';
 import { useHideTabBarOnScroll, useTabBarInset } from '@/hooks/useTabBarVisibility';
 import type { Appointment } from '@/types/appointment';
-import { appointmentTitle } from '@/utils/appointmentTitle';
 import { parseIsoDate, toIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 
 import { firstVisibleHour, layoutBlocks } from './layoutBlocks';
+import { TimeGridBlock } from './TimeGridBlock';
 
 const HOUR_HEIGHT = 56;
 const LABEL_WIDTH = 44;
@@ -134,61 +133,21 @@ export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props
               ) : null}
 
               {blocksByDay[dayIndex].map((block) => {
-                const { appointment: apt } = block;
                 const widthPct = 100 / block.lanes;
-                const color = serviceColor(apt.service);
-                const height = Math.max(toY(block.end) - toY(block.start), 18);
-                // Too short for two lines (e.g. 30 min): name and time on one
-                const short = height < 44;
                 return (
-                  <Pressable
-                    key={apt.id}
-                    onPress={() => onPressAppointment(apt)}
-                    style={({ pressed }) => [
-                      styles.block,
-                      {
-                        top: toY(block.start),
-                        height,
-                        left: `${block.lane * widthPct}%`,
-                        width: `${widthPct}%`,
-                        backgroundColor: tint(color, 0.3),
-                        borderLeftColor: color,
-                      },
-                      pressed && styles.blockPressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${apt.time} ${appointmentTitle(apt)} ${apt.service}`}
-                  >
-                    {compact ? (
-                      // Narrow lanes get one truncated line rather than wrapping per letter
-                      <Text style={styles.blockTextCompact} numberOfLines={block.lanes > 1 ? 1 : 3}>
-                        {appointmentTitle(apt)}
-                      </Text>
-                    ) : short ? (
-                      <Text style={styles.blockTitle} numberOfLines={1}>
-                        {appointmentTitle(apt)}
-                        <Text style={styles.blockText}>
-                          {'  '}
-                          <Text style={type.time}>{apt.time}</Text> · {apt.service}
-                        </Text>
-                      </Text>
-                    ) : (
-                      <>
-                        <Text style={styles.blockTitle} numberOfLines={1}>
-                          {appointmentTitle(apt)}
-                        </Text>
-                        <Text style={styles.blockText} numberOfLines={1}>
-                          <Text style={type.time}>
-                            {apt.time}
-                            {apt.endTime && apt.endTime !== apt.time ? `–${apt.endTime}` : ''}
-                          </Text>
-                          {' · '}
-                          {apt.service}
-                          {apt.notes && apt.notes !== appointmentTitle(apt) ? ` · ${apt.notes}` : ''}
-                        </Text>
-                      </>
-                    )}
-                  </Pressable>
+                  <TimeGridBlock
+                    key={block.appointment.id}
+                    appointment={block.appointment}
+                    frame={{
+                      top: toY(block.start),
+                      height: Math.max(toY(block.end) - toY(block.start), 18),
+                      left: `${block.lane * widthPct}%`,
+                      width: `${widthPct}%`,
+                    }}
+                    compact={compact}
+                    lanes={block.lanes}
+                    onPress={onPressAppointment}
+                  />
                 );
               })}
             </View>
@@ -299,36 +258,5 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.accent,
-  },
-  block: {
-    position: 'absolute',
-    borderRadius: radius.xs,
-    borderLeftWidth: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-    overflow: 'hidden',
-    // Gap between neighbouring blocks
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderRightColor: colors.background,
-    borderBottomColor: colors.background,
-  },
-  blockPressed: {
-    opacity: 0.75,
-  },
-  blockTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  blockText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    marginTop: 1,
-  },
-  blockTextCompact: {
-    color: colors.text,
-    fontSize: 10,
-    fontWeight: '600',
   },
 });
