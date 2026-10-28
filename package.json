@@ -10,6 +10,7 @@
     "expo-auth-session": "~58.0.15",
     "expo-constants": "~58.0.13",
     "expo-crypto": "~58.0.7",
+    "expo-dev-client": "~58.0.16",
     "expo-font": "~58.0.9",
     "expo-linking": "~58.0.14",
     "expo-notifications": "~58.1.6",
