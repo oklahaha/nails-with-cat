@@ -9,6 +9,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 
+import { WhatsAppConfirmationDialog } from '@/components/WhatsAppConfirmationDialog';
 import { colors } from '@/constants/theme';
 import { useResumeWrites } from '@/hooks/resumeWrites';
 import { useUpcomingSync } from '@/hooks/useUpcomingSync';
@@ -57,6 +58,8 @@ export default function RootLayout() {
           })}
         />
       </Stack>
+      {/* After a new booking is created, offers to WhatsApp the customer */}
+      <WhatsAppConfirmationDialog />
     </>
   );
 }

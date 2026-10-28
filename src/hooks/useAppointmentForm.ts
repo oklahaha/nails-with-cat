@@ -28,6 +28,7 @@ import {
 import { saveAppointment } from '@/hooks/appointmentWrites';
 import { useAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
+import { offerWhatsAppConfirmation } from '@/hooks/whatsAppConfirmation';
 import type { Appointment, ServiceType, UpdateAppointmentInput } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
@@ -250,7 +251,12 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     setErrors(found);
     if (Object.keys(found).length > 0 || !service) return;
     const chosen = service;
-    const save = () => onSaved(saveAppointment(toInput(text, chosen), editing));
+    const save = () => {
+      const saved = saveAppointment(toInput(text, chosen), editing);
+      // Once the form has closed, ask about a WhatsApp confirmation
+      if (!editing) offerWhatsAppConfirmation(saved);
+      onSaved(saved);
+    };
 
     // Overlaps are sometimes intended, so they only need confirming
     const overlaps = findOverlaps(otherBookings, time, duration);
