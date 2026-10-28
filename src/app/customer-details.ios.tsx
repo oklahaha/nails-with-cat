@@ -43,15 +43,17 @@ function close() {
 }
 
 export default function CustomerDetailsScreen() {
-  const params = useLocalSearchParams<{ id?: string; name: string }>();
+  // `edit=1` (修改 in the list's long-press menu) opens straight in edit mode
+  const params = useLocalSearchParams<{ id?: string; name: string; edit?: string }>();
   const [customer, setCustomer] = useState<Customer | undefined>(() =>
     findCachedCustomer({ id: params.id, name: params.name ?? '' })
   );
-  const [editing, setEditing] = useState(false);
-  const nameText = useNativeState('');
+  const editFirst = params.edit === '1' && customer ? customer : undefined;
+  const [editing, setEditing] = useState(editFirst != null);
+  const nameText = useNativeState(editFirst?.name ?? '');
   // Mirrors nameText for rendering: reading an ObservableState doesn't re-render
-  const [nameDraft, setNameDraft] = useState('');
-  const phoneText = useNativeState('');
+  const [nameDraft, setNameDraft] = useState(editFirst?.name ?? '');
+  const phoneText = useNativeState(editFirst ? localPhone(editFirst.phone) : '');
   const [nameError, setNameError] = useState<string | null>(null);
   const [showAllPast, setShowAllPast] = useState(false);
 
