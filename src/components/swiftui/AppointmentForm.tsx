@@ -56,15 +56,14 @@ import {
 } from '@/constants/services';
 import { colors } from '@/constants/theme';
 import { useAppointmentForm, type FormField } from '@/hooks/useAppointmentForm';
-import type { Appointment, ServiceType } from '@/types/appointment';
+import { STATUS_OPTIONS, type Appointment, type ServiceType } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import { minutesToTime, todayIsoDate } from '@/utils/dates';
+import { formatDuration, minutesToTime, todayIsoDate } from '@/utils/dates';
 import { formatPhone } from '@/utils/phone';
 
 import { dateToIso, dateToTime, isoToDate, timeToDate } from './dateIso';
 import { SwiftModal } from './SwiftModal';
 
-const STATUS_OPTIONS = ['預約', '已完成'] as const;
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
 const PICKER_LOOK = [tint(colors.accent), environment('locale', 'zh_Hant_HK')];
 
@@ -316,7 +315,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                   }}
                 />
               ) : endTime ? (
-                <PlaceholderRow label="完結" text={`${endTime}（${duration} 分鐘）`} />
+                <PlaceholderRow label="完結" text={`${endTime}（${formatDuration(duration ?? 0)}）`} />
               ) : null}
               {endTimeError ? (
                 <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>
@@ -450,7 +449,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                         onSelectionChange={(value) => {
                           if (typeof value === 'string') setStatus(value);
                         }}
-                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 180 })]}
+                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 240 })]}
                       >
                         {STATUS_OPTIONS.map((option) => (
                           <Text key={option} modifiers={[tag(option)]}>

@@ -1,10 +1,14 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { WhatsAppIcon } from '@/components/WhatsAppIcon';
 import { serviceColor } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
-import type { Appointment } from '@/types/appointment';
-import { openAppointmentDetails } from '@/utils/appointmentActions';
+import { NO_SHOW, type Appointment } from '@/types/appointment';
+import {
+  hasCustomerActions,
+  openAppointmentDetails,
+  showAppointmentActions,
+} from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { openWhatsApp, reminderMessage } from '@/utils/whatsapp';
 
@@ -14,8 +18,9 @@ type Props = {
 
 /**
  * Single appointment row: time on the left, customer and service on the right.
- * Tapping opens the details; the WhatsApp button only renders when there's a
- * phone (from the 顧客 sheet).
+ * Tapping opens the details, and a long press (Android) offers 顧客資料 and
+ * No show; the WhatsApp button only renders when there's a phone (from the
+ * 顧客 sheet).
  */
 export function AppointmentCard({ appointment }: Props) {
   const phone = appointment.phone?.trim();
@@ -26,7 +31,7 @@ export function AppointmentCard({ appointment }: Props) {
   const meta = [
     appointment.service.includes('甲') ? appointment.handOrFoot : null,
     appointment.price ? `$${appointment.price}` : null,
-    appointment.status === '已完成' ? '已完成' : null,
+    appointment.status === '已完成' || appointment.status === NO_SHOW ? appointment.status : null,
   ].filter(Boolean);
 
   // The WhatsApp button sits beside the tappable area, not inside it, since
@@ -35,6 +40,11 @@ export function AppointmentCard({ appointment }: Props) {
     <View style={styles.card}>
       <Pressable
         onPress={() => openAppointmentDetails(appointment)}
+        onLongPress={
+          Platform.OS !== 'web' && hasCustomerActions(appointment)
+            ? () => showAppointmentActions(appointment)
+            : undefined
+        }
         style={({ pressed }) => [styles.main, pressed && styles.mainPressed]}
         accessibilityRole="button"
         accessibilityLabel={`${appointment.time} ${title} ${appointment.service}`}

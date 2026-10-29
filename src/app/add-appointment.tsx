@@ -41,6 +41,8 @@ import {
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useAppointmentForm } from '@/hooks/useAppointmentForm';
 import { findCachedAppointment } from '@/hooks/useAppointments';
+import { STATUS_OPTIONS } from '@/types/appointment';
+import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 
 /** 訂金 is TRUE / FALSE in the sheet. */
@@ -50,9 +52,6 @@ const DEPOSIT_OPTIONS = [
 ] as const;
 
 const HHMM = /^\d{2}:\d{2}$/;
-
-/** 狀態 choices when editing (特別事項 rows may also be blank). */
-const STATUS_OPTIONS = ['預約', '已完成'] as const;
 
 export default function AddAppointmentScreen() {
   const insets = useSafeAreaInsets();
@@ -160,7 +159,7 @@ export default function AddAppointmentScreen() {
   const timeSection = (
     <Section
       title="開始時間"
-      hint={endTime ? `${time} – ${endTime}（${duration} 分鐘）` : undefined}
+      hint={endTime ? `${time} – ${endTime}（${formatDuration(duration ?? 0)}）` : undefined}
     >
       {date ? (
         <TimeSlotPicker

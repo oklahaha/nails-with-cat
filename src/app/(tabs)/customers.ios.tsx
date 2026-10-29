@@ -19,15 +19,12 @@ import {
   useNativeState,
 } from '@expo/ui/swift-ui';
 import {
-  background,
   buttonStyle,
   contentShape,
   font,
   foregroundStyle,
-  listRowInsets,
   listStyle,
   navigationTitle,
-  padding,
   refreshable,
   scrollDismissesKeyboard,
   searchable,
@@ -43,6 +40,7 @@ import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { glassButton } from '@/components/swiftui/glass';
+import { ownRowBackground, ownRowInsets } from '@/components/swiftui/listRow';
 import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
 import { colors } from '@/constants/theme';
 import { removeCustomer } from '@/hooks/customerWrites';
@@ -50,8 +48,6 @@ import { useCustomers } from '@/hooks/useCustomers';
 import type { Customer } from '@/types/customer';
 import { formatPhone } from '@/utils/phone';
 import { openWhatsApp } from '@/utils/whatsapp';
-
-const LIST_ROW_COLOR = '#1C1C1E';
 
 /** Rows rendered at first, and added each time the end of the list comes near. */
 const PAGE_SIZE = 50;
@@ -193,7 +189,7 @@ const CustomerRow = memo(function CustomerRow({ customer }: { customer: Customer
       isPresented={confirmingDelete}
       onIsPresentedChange={setConfirmingDelete}
       // The row draws its own insets and background (CustomerRowContent)
-      modifiers={[listRowInsets({ top: 0, bottom: 0, leading: 0, trailing: 0 })]}
+      modifiers={[ownRowInsets]}
     >
       <Alert.Trigger>
         <ContextMenu>
@@ -258,10 +254,7 @@ function CustomerRowContent({ customer, onPress }: { customer: Customer; onPress
     <HStack
       spacing={8}
       modifiers={[
-        padding({ horizontal: 16, vertical: 10 }),
-        // insetGrouped's row colour in dark mode (secondarySystemGroupedBackground)
-        background(LIST_ROW_COLOR),
-        contentShape(shapes.rectangle(), 'contextMenuPreview'),
+        ...ownRowBackground(),
       ]}
     >
       <Button onPress={onPress} modifiers={[buttonStyle('plain')]}>

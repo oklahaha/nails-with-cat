@@ -17,7 +17,12 @@ import {
   deleteAppointment,
   updateAppointment,
 } from '@/services/appointmentsApi';
-import type { Appointment, UpdateAppointmentInput } from '@/types/appointment';
+import type { ServiceType } from '@/constants/services';
+import type {
+  Appointment,
+  AppointmentStatus,
+  UpdateAppointmentInput,
+} from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
@@ -173,4 +178,30 @@ export function removeAppointment(apt: Appointment): void {
   const id = realIds.get(apt.id) ?? apt.id;
   setPendingAppointment(id, null);
   sendDelete({ id, apt });
+}
+
+/**
+ * Change only a booking's 狀態 (e.g. No show from a long-press menu). The
+ * rest is sent as it is in the sheet: updateAppointment rewrites every column,
+ * and unlike the forms this keeps an older row's Duration as it was.
+ */
+export function saveAppointmentStatus(apt: Appointment, status: AppointmentStatus): void {
+  saveAppointment(
+    {
+      customerName: apt.customerName,
+      date: apt.date,
+      time: apt.time,
+      service: apt.service as ServiceType,
+      notes: apt.notes,
+      durationMinutes: apt.durationMinutes,
+      handOrFoot: apt.handOrFoot as UpdateAppointmentInput['handOrFoot'],
+      price: apt.price,
+      deposit: apt.deposit,
+      complexDesign: apt.complexDesign as UpdateAppointmentInput['complexDesign'],
+      removal: apt.removal,
+      extension: apt.extension,
+      status,
+    },
+    apt
+  );
 }

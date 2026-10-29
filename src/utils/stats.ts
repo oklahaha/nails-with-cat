@@ -3,12 +3,12 @@
  * a date range; customers are identified by name, as Apps Script resolves
  * 顧客ID refs to names.
  */
-import type { Appointment } from '@/types/appointment';
+import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { addMonths, parseIsoDate, todayIsoDate } from '@/utils/dates';
 
-/** Customer bookings only: 特別事項 rows are notes, not visits. */
+/** Customer bookings only: 特別事項 rows are notes, and No show bookings weren't visits. */
 export function isCustomerBooking(apt: Appointment): boolean {
-  return apt.service !== '特別事項' && apt.customerName.trim() !== '';
+  return apt.service !== '特別事項' && apt.customerName.trim() !== '' && apt.status !== NO_SHOW;
 }
 
 /** A booking that has happened (or is today), so it counts as a visit. */

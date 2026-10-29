@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text } from 'react-native';
 
 import { serviceColor } from '@/constants/services';
 import { colors, radius, tint, type } from '@/constants/theme';
-import type { Appointment } from '@/types/appointment';
+import { NO_SHOW, type Appointment } from '@/types/appointment';
+import { hasCustomerActions, showAppointmentActions } from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 
 export type TimeGridBlockProps = {
@@ -16,22 +17,31 @@ export type TimeGridBlockProps = {
   onPress: (appointment: Appointment) => void;
 };
 
-/** One appointment in the Day / Week grid. iOS has a SwiftUI version with a long-press menu. */
+/**
+ * One appointment in the Day / Week grid. A long press offers 顧客資料 and No
+ * show (Android only); iOS has a SwiftUI version with a native long-press menu.
+ */
 export function TimeGridBlock({ appointment: apt, frame, compact, lanes, onPress }: TimeGridBlockProps) {
   const color = serviceColor(apt.service);
   // Too short for two lines (e.g. 30 min): name and time on one
   const short = frame.height < 44;
+  const noShow = apt.status === NO_SHOW;
   return (
     <Pressable
       onPress={() => onPress(apt)}
+      onLongPress={
+        Platform.OS !== 'web' && hasCustomerActions(apt) ? () => showAppointmentActions(apt) : undefined
+      }
       style={({ pressed }) => [
         styles.block,
         frame,
         { backgroundColor: tint(color, 0.3), borderLeftColor: color },
+        // No show bookings stay in place, faded
+        noShow && styles.blockNoShow,
         pressed && styles.blockPressed,
       ]}
       accessibilityRole="button"
-      accessibilityLabel={`${apt.time} ${appointmentTitle(apt)} ${apt.service}`}
+      accessibilityLabel={`${apt.time} ${appointmentTitle(apt)} ${apt.service}${noShow ? ' No show' : ''}`}
     >
       {compact ? (
         // Narrow lanes get one truncated line rather than wrapping per letter
@@ -79,6 +89,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderRightColor: colors.background,
     borderBottomColor: colors.background,
+  },
+  blockNoShow: {
+    opacity: 0.45,
   },
   blockPressed: {
     opacity: 0.75,

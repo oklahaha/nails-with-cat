@@ -7,10 +7,9 @@
  */
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform } from 'react-native';
 
 import { WhatsAppConfirmationDialog } from '@/components/WhatsAppConfirmationDialog';
-import { colors } from '@/constants/theme';
+import { stackScreenOptions } from '@/constants/stackOptions';
 import { useResumeWrites } from '@/hooks/resumeWrites';
 import { useUpcomingSync } from '@/hooks/useUpcomingSync';
 import { useNotifications } from '@/notifications/notifications';
@@ -26,20 +25,12 @@ export default function RootLayout() {
   return (
     <>
       <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          // On iOS the modal headers keep the system look: Liquid Glass buttons over the sheet
-          headerStyle: Platform.OS === 'ios' ? undefined : { backgroundColor: colors.background },
-          headerShadowVisible: false,
-          headerTintColor: colors.accent,
-          headerTitleStyle: { color: colors.text, fontWeight: '600' },
-          contentStyle: { backgroundColor: colors.background },
-        }}
-      >
+      <Stack screenOptions={stackScreenOptions}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="appointment-details"
-          options={{ title: '預約詳情', presentation: 'modal' }}
+          // Its own stack draws the header (appointment-details/_layout)
+          options={{ headerShown: false, presentation: 'modal' }}
         />
         <Stack.Screen
           name="customer-details"

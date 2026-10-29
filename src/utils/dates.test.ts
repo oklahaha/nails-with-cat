@@ -1,6 +1,18 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { addDays, addMonths, minutesToTime, monthGrid, timeToMinutes } from './dates';
+import { addDays, addMonths, formatDuration, minutesToTime, monthGrid, timeToMinutes } from './dates';
+
+describe('formatDuration', () => {
+  it('shows minutes as hours', () => {
+    expect(formatDuration(120)).toBe('2 小時');
+    expect(formatDuration(150)).toBe('2.5 小時');
+    expect(formatDuration(100)).toBe('1.67 小時');
+  });
+
+  it('keeps durations under an hour in minutes', () => {
+    expect(formatDuration(45)).toBe('45 分鐘');
+  });
+});
 
 describe('minutesToTime', () => {
   it('formats minutes since midnight', () => {

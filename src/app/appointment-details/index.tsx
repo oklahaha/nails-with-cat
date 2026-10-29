@@ -23,7 +23,9 @@ import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/t
 import { removeAppointment } from '@/hooks/appointmentWrites';
 import { findCachedAppointment } from '@/hooks/useAppointments';
 import { showAlert } from '@/utils/alert';
+import { hasCustomerActions, openAppointmentCustomer } from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
+import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 import { formatPhone } from '@/utils/phone';
 
@@ -56,13 +58,14 @@ export default function AppointmentDetailsScreen() {
   const phone = appointment.phone?.trim();
   const hasEnd = Boolean(appointment.endTime && appointment.endTime !== appointment.time);
   const timeRange = `${appointment.time}${hasEnd ? ` – ${appointment.endTime}` : ''}${
-    appointment.durationMinutes ? `（${appointment.durationMinutes} 分鐘）` : ''
+    appointment.durationMinutes ? `（${formatDuration(appointment.durationMinutes)}）` : ''
   }`;
   const showNailExtras = showsNailExtras(appointment.service, appointment.handOrFoot ?? '');
   const extras = NAIL_EXTRAS.filter(({ key }) => appointment[key]).map(({ label }) => label);
   // The form's sections, in its order but with 狀態 last; rows the form hides
   // for this service are left out
-  const rows: { label: string; value?: string }[] = isSpecial
+  // onPress: the 顧客 row opens 顧客資料
+  const rows: { label: string; value?: string; onPress?: () => void }[] = isSpecial
     ? [
         { label: '備注', value: appointment.notes },
         { label: '日期', value: formatDateHeader(appointment.date) },
@@ -70,7 +73,13 @@ export default function AppointmentDetailsScreen() {
         { label: '完結時間', value: hasEnd ? appointment.endTime : undefined },
       ]
     : [
-        { label: '顧客', value: appointment.customerName },
+        {
+          label: '顧客',
+          value: appointment.customerName,
+          onPress: hasCustomerActions(appointment)
+            ? () => openAppointmentCustomer(appointment)
+            : undefined,
+        },
         ...(phone ? [{ label: '電話', value: formatPhone(phone) }] : []),
         { label: '日期', value: formatDateHeader(appointment.date) },
         { label: '開始時間', value: timeRange },
@@ -120,12 +129,26 @@ export default function AppointmentDetailsScreen() {
         </View>
 
         <View style={styles.card}>
-          {rows.map((row, i) => (
-            <View key={row.label} style={[styles.row, i > 0 && styles.rowDivider]}>
-              <Text style={styles.rowLabel}>{row.label}</Text>
-              <Text style={styles.rowValue}>{row.value || '—'}</Text>
-            </View>
-          ))}
+          {rows.map((row, i) =>
+            row.onPress ? (
+              <Pressable
+                key={row.label}
+                onPress={row.onPress}
+                style={({ pressed }) => [styles.row, i > 0 && styles.rowDivider, pressed && pressedStyle]}
+                accessibilityRole="button"
+                accessibilityLabel={`查看 ${row.value} 的顧客資料`}
+              >
+                <Text style={styles.rowLabel}>{row.label}</Text>
+                <Text style={[styles.rowValue, styles.rowLink]}>{row.value}</Text>
+                <Icon name="chevronRight" color={colors.textSecondary} size={18} />
+              </Pressable>
+            ) : (
+              <View key={row.label} style={[styles.row, i > 0 && styles.rowDivider]}>
+                <Text style={styles.rowLabel}>{row.label}</Text>
+                <Text style={styles.rowValue}>{row.value || '—'}</Text>
+              </View>
+            )
+          )}
         </View>
       </ScrollView>
 
@@ -213,6 +236,9 @@ const styles = StyleSheet.create({
     ...type.time,
     flex: 1,
     lineHeight: 21,
+  },
+  rowLink: {
+    color: colors.accent,
   },
   footer: {
     flexDirection: 'row',

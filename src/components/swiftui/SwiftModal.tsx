@@ -1,7 +1,8 @@
 /**
  * Shell for the iOS modals: the SwiftUI content under the native stack
  * header (title from the root layout), with a close button as a native bar
- * button item, and on the right either a ✓ save button (the modal's only
+ * button item (left out without `onClose`, e.g. on a screen pushed inside a
+ * sheet, which shows the back button instead), and on the right either a ✓ save button (the modal's only
  * save button) or a 修改 text button, all drawn by iOS 26 in Liquid Glass.
  * The ✓ uses the `done` style, which iOS 26 fills with the header tint (the
  * accent).
@@ -15,7 +16,7 @@ import type { ReactNode } from 'react';
 import { SwiftHost } from './SwiftHost';
 
 type Props = {
-  onClose: () => void;
+  onClose?: () => void;
   /** Shows the ✓ button. */
   onSave?: () => void;
   saveDisabled?: boolean;
@@ -28,9 +29,11 @@ export function SwiftModal({ onClose, onSave, saveDisabled, onEdit, children }: 
   return (
     <>
       <SwiftHost>{children}</SwiftHost>
-      <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button icon="xmark" accessibilityLabel="關閉" onPress={onClose} />
-      </Stack.Toolbar>
+      {onClose ? (
+        <Stack.Toolbar placement="left">
+          <Stack.Toolbar.Button icon="xmark" accessibilityLabel="關閉" onPress={onClose} />
+        </Stack.Toolbar>
+      ) : null}
       {onSave ? (
         <Stack.Toolbar placement="right">
           <Stack.Toolbar.Button

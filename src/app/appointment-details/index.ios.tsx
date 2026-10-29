@@ -1,10 +1,13 @@
 /**
  * Appointment details modal — SwiftUI Form with the same sections, rows and
- * labels as AppointmentForm, read-only. 修改 (header) swaps the sheet to
+ * labels as AppointmentForm, read-only; the customer row pushes 顧客資料
+ * inside the sheet (appointment-details/_layout).
+ * 修改 (header) swaps the sheet to
  * AppointmentForm in place, with 刪除預約 at the end of the form.
  * Delete / edit still use Apps Script API.
  */
 import {
+  Button,
   Form,
   HStack,
   Image,
@@ -13,7 +16,13 @@ import {
   Spacer,
   Text,
 } from '@expo/ui/swift-ui';
-import { foregroundStyle } from '@expo/ui/swift-ui/modifiers';
+import {
+  accessibilityLabel,
+  buttonStyle,
+  contentShape,
+  foregroundStyle,
+  shapes,
+} from '@expo/ui/swift-ui/modifiers';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
@@ -32,7 +41,9 @@ import {
 import { colors } from '@/constants/theme';
 import { removeAppointment } from '@/hooks/appointmentWrites';
 import { findCachedAppointment } from '@/hooks/useAppointments';
+import { hasCustomerActions, pushAppointmentCustomer } from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
+import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 import { formatPhone } from '@/utils/phone';
 
@@ -107,10 +118,28 @@ export default function AppointmentDetailsScreen() {
           </Section>
         ) : (
           <Section title="顧客">
-            <HStack spacing={10}>
-              <Image systemName="person.fill" size={15} color={colors.textSecondary} />
-              <Text>{appointment.customerName || '—'}</Text>
-            </HStack>
+            {hasCustomerActions(appointment) ? (
+              <Button
+                onPress={() => pushAppointmentCustomer(appointment)}
+                modifiers={[
+                  buttonStyle('plain'),
+                  accessibilityLabel(`查看 ${appointment.customerName} 的顧客資料`),
+                ]}
+              >
+                {/* contentShape + Spacer make the whole row tappable, not only the name */}
+                <HStack spacing={10} modifiers={[contentShape(shapes.rectangle())]}>
+                  <Image systemName="person.fill" size={15} color={colors.textSecondary} />
+                  <Text>{appointment.customerName}</Text>
+                  <Spacer />
+                  <Image systemName="chevron.right" size={13} color={colors.textSecondary} />
+                </HStack>
+              </Button>
+            ) : (
+              <HStack spacing={10}>
+                <Image systemName="person.fill" size={15} color={colors.textSecondary} />
+                <Text>{appointment.customerName || '—'}</Text>
+              </HStack>
+            )}
             {phone ? <Row label="電話" value={formatPhone(phone)} /> : null}
           </Section>
         )}
@@ -121,7 +150,7 @@ export default function AppointmentDetailsScreen() {
           {appointment.endTime ? (
             <Row
               label="完結"
-              value={`${appointment.endTime}${duration ? `（${duration} 分鐘）` : ''}`}
+              value={`${appointment.endTime}${duration ? `（${formatDuration(duration)}）` : ''}`}
             />
           ) : null}
         </Section>

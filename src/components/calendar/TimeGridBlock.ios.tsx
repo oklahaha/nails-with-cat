@@ -1,6 +1,7 @@
 /**
  * One appointment in the Day / Week grid (iOS), drawn in SwiftUI so a long
- * press opens a native context menu with 修改 and 刪除. A tap still opens the
+ * press opens a native context menu with 顧客資料 and No show (customer
+ * bookings only), 修改 and 刪除. A tap still opens the
  * details, and 刪除 asks first with a confirmationDialog, as the details do.
  */
 import {
@@ -24,6 +25,7 @@ import {
   lineLimit,
   monospacedDigit,
   onTapGesture,
+  opacity,
   padding,
   shapes,
 } from '@expo/ui/swift-ui/modifiers';
@@ -33,6 +35,13 @@ import { useState } from 'react';
 import { serviceColor } from '@/constants/services';
 import { colors, radius, tint } from '@/constants/theme';
 import { removeAppointment } from '@/hooks/appointmentWrites';
+import { NO_SHOW } from '@/types/appointment';
+import {
+  hasCustomerActions,
+  noShowLabel,
+  openAppointmentCustomer,
+  toggleNoShow,
+} from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDateHeader } from '@/utils/groupByDate';
 
@@ -46,6 +55,7 @@ export function TimeGridBlock({ appointment: apt, frame: position, compact, lane
   const short = position.height < 44;
   const timeRange = apt.endTime && apt.endTime !== apt.time ? `${apt.time}–${apt.endTime}` : apt.time;
   const shape = shapes.roundedRectangle({ cornerRadius: radius.xs });
+  const noShow = apt.status === NO_SHOW;
 
   return (
     <Host colorScheme="dark" seedColor={colors.accent} style={[{ position: 'absolute' }, position]}>
@@ -58,6 +68,20 @@ export function TimeGridBlock({ appointment: apt, frame: position, compact, lane
         <ConfirmationDialog.Trigger>
           <ContextMenu>
             <ContextMenu.Items>
+              {hasCustomerActions(apt) ? (
+                <>
+                  <Button
+                    label="顧客資料"
+                    systemImage="person.crop.circle"
+                    onPress={() => openAppointmentCustomer(apt)}
+                  />
+                  <Button
+                    label={noShowLabel(apt)}
+                    systemImage={noShow ? 'arrow.uturn.backward' : 'person.crop.circle.badge.xmark'}
+                    onPress={() => toggleNoShow(apt)}
+                  />
+                </>
+              ) : null}
               <Button
                 label="修改"
                 systemImage="pencil"
@@ -82,9 +106,11 @@ export function TimeGridBlock({ appointment: apt, frame: position, compact, lane
                   clipShape('roundedRectangle', radius.xs),
                   // Gap between neighbouring blocks
                   padding({ trailing: 1, bottom: 1 }),
+                  // No show bookings stay in place, faded
+                  opacity(noShow ? 0.45 : 1),
                   contentShape(shape),
                   onTapGesture(() => onPress(apt)),
-                  accessibilityLabel(`${apt.time} ${title} ${apt.service}`),
+                  accessibilityLabel(`${apt.time} ${title} ${apt.service}${noShow ? ' No show' : ''}`),
                 ]}
               >
                 <Rectangle modifiers={[frame({ width: 3 }), foregroundStyle(color)]} />

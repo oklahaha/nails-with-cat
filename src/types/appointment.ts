@@ -21,7 +21,13 @@ import type { ComplexDesign, HandOrFoot, NailExtras, ServiceType } from '@/const
 export type { ServiceType };
 
 /** Appointment status values used in the sheet (狀態); 特別事項 rows are often blank. */
-export type AppointmentStatus = '預約' | '已完成' | '' | string;
+export type AppointmentStatus = '預約' | '已完成' | 'No show' | '' | string;
+
+/** 狀態 for a customer who didn't come; set from the long-press menus or the forms. */
+export const NO_SHOW = 'No show';
+
+/** 狀態 choices when editing (特別事項 rows may also be blank). */
+export const STATUS_OPTIONS = ['預約', '已完成', NO_SHOW] as const;
 
 /**
  * One row from 預約資料, enriched with optional phone from 顧客.
