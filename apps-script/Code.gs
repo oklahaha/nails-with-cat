@@ -50,7 +50,12 @@ const COL = {
   view: 'View',
   // 不是複雜款 / 半個鐘 / 一個鐘, only used by 整甲 and 整甲 + 眼睫毛
   complexDesign: '複雜款',
+  // 保留 when the customer keeps the deposit for their next booking, else blank
+  depositHandling: '訂金處理',
 };
+
+/** 訂金處理 value for a deposit kept for the next booking (the app's keepDeposit). */
+const KEEP_DEPOSIT = '保留';
 
 /** How many of the latest rows to sample for the sheet's current writing style. */
 const STYLE_SAMPLE_ROWS = 200;
@@ -281,6 +286,7 @@ function toAppointment_(row, customers, tz) {
   });
   const endTime = toHHmm_(row.display[COL.endTime]);
   if (endTime) apt.endTime = endTime;
+  if (cellText_(row, COL.depositHandling) === KEEP_DEPOSIT) apt.keepDeposit = true;
 
   return apt;
 }
@@ -445,6 +451,7 @@ function parseAppointmentInput_(input) {
           ? customerName
           : null,
     complexDesign: input.complexDesign != null ? String(input.complexDesign).trim() : null,
+    keepDeposit: input.keepDeposit != null ? toBoolean_(input.keepDeposit) : null,
     // FLAG_COL fields that were sent, as TRUE / FALSE
     flags: parseFlags_(input),
     // Matches AppSheet: rows without a duration (e.g. 特別事項) have End Time = start.
@@ -466,14 +473,20 @@ function requireColumn_(headers, name) {
 }
 
 /**
- * Adds the sent 複雜款 and flags to `cells`, erroring if the sheet lacks one's
- * column.
+ * Adds the sent 複雜款, 保留訂金 and flags to `cells`, erroring if the sheet
+ * lacks one's column. `currentHandling` is the row's 訂金處理 on an edit:
+ * turning 保留訂金 off clears only a 保留, never another value typed there.
  */
-function putOptionalCells_(cells, headers, a) {
+function putOptionalCells_(cells, headers, a, currentHandling) {
   if (a.view != null) cells[COL.view] = plainText_(a.view);
   if (a.complexDesign != null) {
     requireColumn_(headers, COL.complexDesign);
     cells[COL.complexDesign] = a.complexDesign;
+  }
+  if (a.keepDeposit != null) {
+    requireColumn_(headers, COL.depositHandling);
+    if (a.keepDeposit) cells[COL.depositHandling] = KEEP_DEPOSIT;
+    else if (!currentHandling || currentHandling === KEEP_DEPOSIT) cells[COL.depositHandling] = '';
   }
   const flags = a.flags;
   Object.keys(flags).forEach(function (key) {
@@ -498,6 +511,7 @@ function appointmentResponse_(id, a, status, customer) {
   if (a.handOrFoot) out.handOrFoot = a.handOrFoot;
   if (a.price != null) out.price = a.price;
   if (a.complexDesign != null) out.complexDesign = a.complexDesign;
+  if (a.keepDeposit) out.keepDeposit = true;
   Object.keys(a.flags).forEach(function (key) {
     out[key] = a.flags[key];
   });
@@ -622,7 +636,7 @@ function updateAppointment_(id, input) {
     cells[COL.price] = a.price != null ? a.price : '';
     if (hasStatus) cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
-    putOptionalCells_(cells, headers, a);
+    putOptionalCells_(cells, headers, a, cellText_(current, COL.depositHandling));
 
     Object.keys(cells).forEach(function (h) {
       const c = headers.indexOf(h);

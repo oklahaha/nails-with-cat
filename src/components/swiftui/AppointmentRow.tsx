@@ -86,6 +86,7 @@ export const AppointmentRow = memo(function AppointmentRow({
     appointment.service.includes('甲') ? appointment.handOrFoot : null,
     appointment.price ? `$${appointment.price}` : null,
     appointment.status === '已完成' || appointment.status === NO_SHOW ? appointment.status : null,
+    appointment.keepDeposit ? '保留訂金' : null,
   ]
     .filter(Boolean)
     .join(' · ');

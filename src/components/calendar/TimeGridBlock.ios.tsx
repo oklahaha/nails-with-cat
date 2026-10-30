@@ -1,7 +1,7 @@
 /**
  * One appointment in the Day / Week grid (iOS), drawn in SwiftUI so a long
  * press opens a native context menu with 顧客資料 and No show (customer
- * bookings only), 修改 and 刪除. A tap still opens the
+ * bookings only), 保留訂金 (when 訂金 was paid), 修改 and 刪除. A tap still opens the
  * details, and 刪除 asks first with a confirmationDialog, as the details do.
  */
 import {
@@ -34,10 +34,12 @@ import { useState } from 'react';
 
 import { serviceColor } from '@/constants/services';
 import { colors, radius, tint } from '@/constants/theme';
-import { removeAppointment } from '@/hooks/appointmentWrites';
+import { removeAppointment, saveKeepDeposit } from '@/hooks/appointmentWrites';
 import { NO_SHOW } from '@/types/appointment';
 import {
+  canKeepDeposit,
   hasCustomerActions,
+  keepDepositPrompt,
   noShowLabel,
   openAppointmentCustomer,
   toggleNoShow,
@@ -81,6 +83,14 @@ export function TimeGridBlock({ appointment: apt, frame: position, compact, lane
                     onPress={() => toggleNoShow(apt)}
                   />
                 </>
+              ) : null}
+              {canKeepDeposit(apt) ? (
+                // Saved at once, like No show; the same item then undoes it
+                <Button
+                  label={keepDepositPrompt(apt).label}
+                  systemImage={apt.keepDeposit ? 'arrow.uturn.backward' : 'banknote'}
+                  onPress={() => saveKeepDeposit(apt, !apt.keepDeposit)}
+                />
               ) : null}
               <Button
                 label="修改"

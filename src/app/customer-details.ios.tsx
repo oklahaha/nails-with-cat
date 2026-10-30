@@ -1,7 +1,8 @@
 /**
  * Customer details — SwiftUI List laid out like iOS Contacts: avatar, name and
- * 新增預約 at the top, then contact info, visit summary and the booking
- * history (rows led by the date). 修改 edits in place; update/delete +
+ * 新增預約 at the top, then contact info, visit summary, the bookings that
+ * kept their deposit (保留訂金記錄) and the booking history (rows led by the
+ * date). 修改 edits in place; update/delete +
  * history still use Apps Script API.
  */
 import {
@@ -92,6 +93,11 @@ export default function CustomerDetailsScreen() {
       past: pastList,
     };
   }, [historyAppointments, today]);
+  // Bookings marked 保留訂金, newest first
+  const keptDeposits = useMemo(
+    () => historyAppointments.filter((apt) => apt.keepDeposit),
+    [historyAppointments]
+  );
 
   if (!customer) {
     return (
@@ -274,6 +280,14 @@ export default function CustomerDetailsScreen() {
               </>
             )}
           </Section>
+
+          {keptDeposits.length > 0 ? (
+            <Section title="保留訂金記錄">
+              {keptDeposits.map((apt) => (
+                <AppointmentRow key={apt.id} appointment={apt} inCustomerHistory />
+              ))}
+            </Section>
+          ) : null}
 
           {upcoming.length > 0 ? (
             <Section title="即將預約">

@@ -2,7 +2,8 @@
  * Appointment details — opened by tapping a booking in the timetable or the
  * 預約資料 list. Shows the booking's fields in the same order and with the
  * same labels as the add-appointment form, with 修改 (opens the form in edit
- * mode) and 刪除.
+ * mode) and 刪除. Bookings with a paid 訂金 have 保留訂金, which marks the
+ * deposit as kept for the customer's next booking.
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -22,8 +23,14 @@ import {
 import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
 import { removeAppointment } from '@/hooks/appointmentWrites';
 import { findCachedAppointment } from '@/hooks/useAppointments';
+import { useKeptDepositHint } from '@/hooks/useKeptDepositHint';
 import { showAlert } from '@/utils/alert';
-import { hasCustomerActions, openAppointmentCustomer } from '@/utils/appointmentActions';
+import {
+  askKeepDeposit,
+  canKeepDeposit,
+  hasCustomerActions,
+  openAppointmentCustomer,
+} from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -39,7 +46,10 @@ export default function AppointmentDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   // Snapshot at open, so a background reload doesn't change it under the user
-  const [appointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
+  const [appointment, setAppointment] = useState(() =>
+    id ? findCachedAppointment(id) : undefined
+  );
+  const keptDepositHint = useKeptDepositHint(appointment);
 
   // e.g. the web page was reloaded, so the appointment list isn't loaded
   if (!appointment) {
@@ -95,6 +105,7 @@ export default function AppointmentDetailsScreen() {
         ...(usesDeposit(appointment.service)
           ? [{ label: '訂金', value: appointment.deposit ? '已付' : '未付' }]
           : []),
+        ...(appointment.keepDeposit ? [{ label: '保留訂金', value: '是（下次預約用）' }] : []),
         { label: '收費', value: appointment.price != null ? `$${appointment.price}` : undefined },
         { label: '備注', value: appointment.notes },
         { label: '狀態', value: appointment.status },
@@ -126,6 +137,7 @@ export default function AppointmentDetailsScreen() {
             <View style={[styles.serviceDot, { backgroundColor: color }]} />
             <Text style={styles.serviceText}>{appointment.service}</Text>
           </View>
+          {keptDepositHint ? <Text style={styles.keptHint}>{keptDepositHint}</Text> : null}
         </View>
 
         <View style={styles.card}>
@@ -150,6 +162,18 @@ export default function AppointmentDetailsScreen() {
             )
           )}
         </View>
+
+        {canKeepDeposit(appointment) ? (
+          <Pressable
+            onPress={() => askKeepDeposit(appointment, setAppointment)}
+            style={({ pressed }) => [styles.keepDepositBtn, pressed && pressedStyle]}
+            accessibilityRole="button"
+          >
+            <Text style={styles.keepDepositText}>
+              {appointment.keepDeposit ? '取消保留訂金' : '保留訂金'}
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
@@ -202,6 +226,11 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radius.pill,
   },
+  keptHint: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+  },
   serviceDot: {
     width: 8,
     height: 8,
@@ -239,6 +268,21 @@ const styles = StyleSheet.create({
   },
   rowLink: {
     color: colors.accent,
+  },
+  keepDepositBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.md - 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentMuted,
+  },
+  keepDepositText: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '700',
   },
   footer: {
     flexDirection: 'row',

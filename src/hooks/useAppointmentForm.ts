@@ -26,12 +26,13 @@ import {
   type NailExtra,
 } from '@/constants/services';
 import { saveAppointment } from '@/hooks/appointmentWrites';
-import { useAppointments } from '@/hooks/useAppointments';
+import { useAppointments, useCustomerAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
 import { offerWhatsAppConfirmation } from '@/hooks/whatsAppConfirmation';
 import type { Appointment, ServiceType, UpdateAppointmentInput } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
-import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
+import { addDays, formatShortDate, minutesToTime, timeToMinutes } from '@/utils/dates';
+import { previousKeptDeposit } from '@/utils/keptDeposit';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 
@@ -170,6 +171,20 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const clashes =
     validTime && !(isSpecial && endBeforeStart) ? findOverlaps(otherBookings, time, duration) : [];
 
+  // Reminds staff when the customer's previous booking kept its deposit
+  const customerHistory = useCustomerAppointments(
+    knownCustomer && !isSpecial
+      ? { id: knownCustomer.id || undefined, name: knownCustomer.name }
+      : undefined
+  );
+  const keptBefore =
+    knownCustomer && !isSpecial
+      ? previousKeptDeposit(customerHistory.appointments, date, time, editing?.id)
+      : undefined;
+  const keptDepositHint = keptBefore
+    ? `上次預約（${formatShortDate(keptBefore.date)}）保留了訂金`
+    : undefined;
+
   const suggestions = useMemo(() => {
     const q = customerName.trim().toLowerCase();
     if (!q) return [];
@@ -292,6 +307,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     setHandOrFoot,
     deposit,
     setDeposit,
+    keptDepositHint,
     complexDesign,
     setComplexDesign,
     nailExtras,

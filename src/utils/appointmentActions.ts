@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 
-import { saveAppointmentStatus } from '@/hooks/appointmentWrites';
+import { usesDeposit } from '@/constants/services';
+import { saveAppointmentStatus, saveKeepDeposit } from '@/hooks/appointmentWrites';
 import { findCachedCustomer } from '@/hooks/useCustomers';
 import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
@@ -58,4 +59,40 @@ export function showAppointmentActions(appointment: Appointment): void {
       { text: '取消', style: 'cancel' },
     ]
   );
+}
+
+/**
+ * Whether the details offer 保留訂金: customer bookings whose 訂金 was paid,
+ * except No show ones.
+ */
+export function canKeepDeposit(appointment: Appointment): boolean {
+  return (
+    hasCustomerActions(appointment) &&
+    usesDeposit(appointment.service) &&
+    appointment.deposit === true &&
+    appointment.status !== NO_SHOW
+  );
+}
+
+/** The 保留訂金 button's label and question, shared with the iOS button. */
+export function keepDepositPrompt(appointment: Appointment) {
+  const keep = !appointment.keepDeposit;
+  return {
+    keep,
+    label: keep ? '保留訂金' : '取消保留訂金',
+    title: keep ? '保留訂金？' : '取消保留訂金？',
+    message: keep
+      ? `${appointmentTitle(appointment)}\n訂金會保留到顧客下次預約，下次預約會顯示提示。`
+      : `${appointmentTitle(appointment)}\n取消後，下次預約不會再顯示保留訂金提示。`,
+    confirm: keep ? '保留' : '取消保留',
+  };
+}
+
+/** 保留訂金 on Android and web: confirm, then save in the background. */
+export function askKeepDeposit(appointment: Appointment, onDone: (saved: Appointment) => void): void {
+  const prompt = keepDepositPrompt(appointment);
+  showAlert(prompt.title, prompt.message, [
+    { text: '取消', style: 'cancel' },
+    { text: prompt.confirm, onPress: () => onDone(saveKeepDeposit(appointment, prompt.keep)) },
+  ]);
 }

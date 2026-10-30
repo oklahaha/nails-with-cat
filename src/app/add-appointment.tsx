@@ -76,6 +76,7 @@ export default function AddAppointmentScreen() {
     setHandOrFoot,
     deposit,
     setDeposit,
+    keptDepositHint,
     complexDesign,
     setComplexDesign,
     nailExtras,
@@ -371,6 +372,7 @@ export default function AddAppointmentScreen() {
                     );
                   })}
                 </View>
+                {keptDepositHint ? <Text style={styles.keptHint}>{keptDepositHint}</Text> : null}
               </Section>
             ) : null}
 
@@ -643,6 +645,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
     fontVariant: ['tabular-nums'],
+  },
+  keptHint: {
+    marginTop: spacing.sm,
+    color: colors.accent,
+    fontSize: 13,
   },
   priceHint: {
     marginTop: spacing.xs,

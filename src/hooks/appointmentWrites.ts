@@ -181,27 +181,36 @@ export function removeAppointment(apt: Appointment): void {
 }
 
 /**
- * Change only a booking's 狀態 (e.g. No show from a long-press menu). The
- * rest is sent as it is in the sheet: updateAppointment rewrites every column,
- * and unlike the forms this keeps an older row's Duration as it was.
+ * The booking as it is in the sheet, as save input: updateAppointment
+ * rewrites every column, and unlike the forms this keeps an older row's
+ * Duration as it was.
  */
+function inputAsIs(apt: Appointment): UpdateAppointmentInput {
+  return {
+    customerName: apt.customerName,
+    date: apt.date,
+    time: apt.time,
+    service: apt.service as ServiceType,
+    notes: apt.notes,
+    durationMinutes: apt.durationMinutes,
+    handOrFoot: apt.handOrFoot as UpdateAppointmentInput['handOrFoot'],
+    price: apt.price,
+    deposit: apt.deposit,
+    complexDesign: apt.complexDesign as UpdateAppointmentInput['complexDesign'],
+    removal: apt.removal,
+    extension: apt.extension,
+  };
+}
+
+/** Change only a booking's 狀態 (e.g. No show from a long-press menu). */
 export function saveAppointmentStatus(apt: Appointment, status: AppointmentStatus): void {
-  saveAppointment(
-    {
-      customerName: apt.customerName,
-      date: apt.date,
-      time: apt.time,
-      service: apt.service as ServiceType,
-      notes: apt.notes,
-      durationMinutes: apt.durationMinutes,
-      handOrFoot: apt.handOrFoot as UpdateAppointmentInput['handOrFoot'],
-      price: apt.price,
-      deposit: apt.deposit,
-      complexDesign: apt.complexDesign as UpdateAppointmentInput['complexDesign'],
-      removal: apt.removal,
-      extension: apt.extension,
-      status,
-    },
-    apt
-  );
+  saveAppointment({ ...inputAsIs(apt), status }, apt);
+}
+
+/**
+ * Mark (or unmark) a booking as 保留訂金: the customer keeps its paid deposit
+ * for their next booking. Only 訂金處理 changes; 狀態 is left as it is.
+ */
+export function saveKeepDeposit(apt: Appointment, keepDeposit: boolean): Appointment {
+  return saveAppointment({ ...inputAsIs(apt), keepDeposit }, apt);
 }

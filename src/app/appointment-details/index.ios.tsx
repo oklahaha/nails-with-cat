@@ -3,7 +3,9 @@
  * labels as AppointmentForm, read-only; the customer row pushes 顧客資料
  * inside the sheet (appointment-details/_layout).
  * 修改 (header) swaps the sheet to
- * AppointmentForm in place, with 刪除預約 at the end of the form.
+ * AppointmentForm in place, with 刪除預約 at the end of the form. Bookings
+ * with a paid 訂金 have 保留訂金, which marks the deposit as kept for the
+ * customer's next booking.
  * Delete / edit still use Apps Script API.
  */
 import {
@@ -27,6 +29,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
 import { AppointmentForm } from '@/components/swiftui/AppointmentForm';
+import { KeepDepositButton } from '@/components/swiftui/KeepDepositButton';
 import { DeleteConfirmButton } from '@/components/swiftui/DeleteConfirmButton';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
@@ -41,7 +44,12 @@ import {
 import { colors } from '@/constants/theme';
 import { removeAppointment } from '@/hooks/appointmentWrites';
 import { findCachedAppointment } from '@/hooks/useAppointments';
-import { hasCustomerActions, pushAppointmentCustomer } from '@/utils/appointmentActions';
+import { useKeptDepositHint } from '@/hooks/useKeptDepositHint';
+import {
+  canKeepDeposit,
+  hasCustomerActions,
+  pushAppointmentCustomer,
+} from '@/utils/appointmentActions';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -56,6 +64,7 @@ export default function AppointmentDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [appointment, setAppointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
   const [editing, setEditing] = useState(false);
+  const keptDepositHint = useKeptDepositHint(appointment);
 
   if (!appointment) {
     return (
@@ -141,6 +150,9 @@ export default function AppointmentDetailsScreen() {
               </HStack>
             )}
             {phone ? <Row label="電話" value={formatPhone(phone)} /> : null}
+            {keptDepositHint ? (
+              <Text modifiers={[foregroundStyle(colors.accent)]}>{keptDepositHint}</Text>
+            ) : null}
           </Section>
         )}
 
@@ -172,6 +184,7 @@ export default function AppointmentDetailsScreen() {
               {usesDeposit(appointment.service) ? (
                 <Row label="已付訂金" value={appointment.deposit ? '是' : '否'} />
               ) : null}
+              {appointment.keepDeposit ? <Row label="保留訂金" value="是（下次預約用）" /> : null}
               <Row label="收費" value={appointment.price != null ? `$${appointment.price}` : ''} />
             </Section>
 
@@ -182,6 +195,12 @@ export default function AppointmentDetailsScreen() {
             <Section>
               <Row label="狀態" value={appointment.status} />
             </Section>
+
+            {canKeepDeposit(appointment) ? (
+              <Section>
+                <KeepDepositButton appointment={appointment} onDone={setAppointment} />
+              </Section>
+            ) : null}
           </>
         )}
       </Form>

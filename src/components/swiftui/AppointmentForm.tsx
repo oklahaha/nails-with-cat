@@ -97,6 +97,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     setHandOrFoot,
     deposit,
     setDeposit,
+    keptDepositHint,
     complexDesign,
     setComplexDesign,
     nailExtras,
@@ -410,6 +411,11 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                       onIsOnChange={setDeposit}
                       modifiers={[tint(colors.accent)]}
                     />
+                  ) : null}
+                  {usesDeposit(service) && keptDepositHint ? (
+                    <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.accent)]}>
+                      {keptDepositHint}
+                    </Text>
                   ) : null}
                   <LabeledContent label="收費">
                     <HStack spacing={4}>

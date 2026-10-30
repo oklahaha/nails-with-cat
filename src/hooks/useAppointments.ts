@@ -14,9 +14,10 @@ import { parseRanges, serializeRanges } from '@/utils/storedAppointments';
 
 const EMPTY: Appointment[] = [];
 
-const STORAGE_KEY = 'appointments-cache-v2';
-/** v1 saved each range's bookings in full; drop what's left of it. */
+const STORAGE_KEY = 'appointments-cache-v3';
+/** v1 saved each range's bookings in full, and v2 predates keepDeposit; drop them. */
 removeStored('appointments-cache-v1');
+removeStored('appointments-cache-v2');
 /** Most recently loaded ranges kept on the device, so storage doesn't grow. */
 const MAX_STORED = 24;
 
