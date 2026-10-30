@@ -8,7 +8,7 @@ import { reuseUnchanged } from '@/utils/reuseUnchanged';
 
 const nameCollator = new Intl.Collator('zh-Hant');
 
-const STORAGE_KEY = 'customers-cache-v1';
+const STORAGE_KEY = 'customers-cache-v2';
 
 const EMPTY: Customer[] = [];
 

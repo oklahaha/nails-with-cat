@@ -26,6 +26,8 @@ import { removeCustomer, saveCustomer } from '@/hooks/customerWrites';
 import { findCachedCustomer } from '@/hooks/useCustomers';
 import type { Customer } from '@/types/customer';
 import { showAlert } from '@/utils/alert';
+import { formatShortDate } from '@/utils/dates';
+import { instagramHandle, openInstagram } from '@/utils/instagram';
 import { formatPhone, localPhone } from '@/utils/phone';
 
 function close() {
@@ -82,6 +84,8 @@ export default function CustomerDetailsScreen() {
     removeCustomer(customer);
     close();
   };
+
+  const igHandle = instagramHandle(customer.instagram);
 
   const confirmDelete = () => {
     showAlert('刪除顧客？', `${customer.name}\n顧客的預約記錄會保留。刪除後無法復原。`, [
@@ -150,6 +154,27 @@ export default function CustomerDetailsScreen() {
                   {formatPhone(customer.phone) || '未有電話'}
                 </Text>
               </View>
+              {igHandle ? (
+                <View style={[styles.row, styles.rowDivider]}>
+                  <Text style={styles.rowLabel}>IG</Text>
+                  <Pressable
+                    onPress={() => void openInstagram(customer.instagram)}
+                    style={({ pressed }) => [styles.igLink, pressed && pressedStyle]}
+                    accessibilityRole="link"
+                    accessibilityLabel={`開啟 Instagram：${igHandle}`}
+                  >
+                    <Text style={styles.igText} numberOfLines={1}>
+                      @{igHandle}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {customer.joinedDate ? (
+                <View style={[styles.row, styles.rowDivider]}>
+                  <Text style={styles.rowLabel}>加入日期</Text>
+                  <Text style={styles.rowValue}>{formatShortDate(customer.joinedDate)}</Text>
+                </View>
+              ) : null}
               {customer.id ? (
                 <View style={[styles.row, styles.rowDivider]}>
                   <Text style={styles.rowLabel}>顧客ID</Text>
@@ -275,7 +300,7 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     ...type.label,
-    width: 52,
+    width: 64,
     lineHeight: 21,
   },
   rowValue: {
@@ -283,6 +308,16 @@ const styles = StyleSheet.create({
     ...type.time,
     flex: 1,
     lineHeight: 21,
+  },
+  igLink: {
+    flex: 1,
+  },
+  igText: {
+    ...type.body,
+    flexShrink: 1,
+    lineHeight: 21,
+    color: colors.accent,
+    fontWeight: '600',
   },
   rowValueMissing: {
     color: colors.textTertiary,

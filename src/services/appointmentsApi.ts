@@ -17,6 +17,7 @@ import type {
   UpdateAppointmentInput,
 } from '@/types/appointment';
 import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
+import { todayIsoDate } from '@/utils/dates';
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
 const APPS_SCRIPT_TOKEN = process.env.EXPO_PUBLIC_APPS_SCRIPT_TOKEN ?? '';
@@ -271,6 +272,8 @@ export async function listCustomers(): Promise<Customer[]> {
         id: `CUST-MOCK-${byName.size + 1}`,
         name: apt.customerName,
         phone: apt.phone ?? '',
+        joinedDate: '2025-03-01',
+        ...(byName.size === 0 ? { instagram: 'https://www.instagram.com/instagram/' } : {}),
       });
     }
     return [...byName.values()];
@@ -297,6 +300,7 @@ export async function createCustomer(input: CustomerInput): Promise<Customer> {
       id: `CUST-MOCK-${Date.now()}`,
       name: input.name.trim(),
       phone: digits.length === 8 ? `852${digits}` : digits,
+      joinedDate: todayIsoDate(),
     };
     console.log('[appointmentsApi] mock createCustomer:', created);
     return created;

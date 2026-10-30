@@ -18,6 +18,7 @@ import {
 } from '@/services/appointmentsApi';
 import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
 import { showAlert } from '@/utils/alert';
+import { todayIsoDate } from '@/utils/dates';
 
 function keyOf(customer: Customer): CustomerKey {
   return { id: customer.id || undefined, name: customer.name };
@@ -97,6 +98,8 @@ const sendDelete = defineWrite<{ customer: Customer }>('deleteCustomer', {
  */
 export function saveCustomer(input: CustomerInput, before?: Customer): Customer {
   const local: Customer = {
+    // Keeps IG and 加入日期, which aren't edited here; a new customer joins today
+    ...(before ?? { joinedDate: todayIsoDate() }),
     id: before?.id ?? '',
     name: input.name.trim(),
     phone: sheetPhone(input.phone),

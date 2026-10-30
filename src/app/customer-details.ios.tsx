@@ -36,6 +36,7 @@ import { useMemo, useState } from 'react';
 
 import { AppointmentRow } from '@/components/swiftui/AppointmentRow';
 import { DeleteConfirmButton } from '@/components/swiftui/DeleteConfirmButton';
+import { InstagramButton } from '@/components/swiftui/InstagramButton';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { glassButton, glassProminentButton } from '@/components/swiftui/glass';
@@ -46,6 +47,7 @@ import { findCachedCustomer } from '@/hooks/useCustomers';
 import { NO_SHOW } from '@/types/appointment';
 import type { Customer } from '@/types/customer';
 import { formatShortDate, todayIsoDate } from '@/utils/dates';
+import { instagramHandle, openInstagram } from '@/utils/instagram';
 import { formatPhone, localPhone } from '@/utils/phone';
 
 function close() {
@@ -127,6 +129,7 @@ export default function CustomerDetailsScreen() {
   };
 
   const visiblePast = showAllPast ? past : past.slice(0, 10);
+  const igHandle = instagramHandle(customer.instagram);
 
   return (
     <SwiftModal
@@ -217,6 +220,19 @@ export default function CustomerDetailsScreen() {
             <LabeledContent label="電話">
               <Text>{formatPhone(customer.phone) || '未有電話'}</Text>
             </LabeledContent>
+            {igHandle ? (
+              <LabeledContent label="IG">
+                <InstagramButton
+                  handle={igHandle}
+                  onPress={() => void openInstagram(customer.instagram)}
+                />
+              </LabeledContent>
+            ) : null}
+            {customer.joinedDate ? (
+              <LabeledContent label="加入日期">
+                <Text>{formatShortDate(customer.joinedDate)}</Text>
+              </LabeledContent>
+            ) : null}
             {customer.id ? (
               <LabeledContent label="顧客ID">
                 <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>

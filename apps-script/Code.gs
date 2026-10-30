@@ -71,6 +71,10 @@ const CUST_COL = {
   id: '顧客ID',
   name: '顧客姓名',
   phone: '電話',
+  // Filled with the day a customer is added, as AppSheet does
+  joined: '加入日期',
+  // Instagram profile link (or handle), shown as a button in 顧客資料
+  instagram: 'IG',
 };
 
 const DEFAULT_STATUS = '預約';
@@ -288,21 +292,32 @@ function readCustomers_(ss) {
 
   const sheet = ss.getSheetByName(SHEET_CUSTOMERS);
   if (!sheet) return { byId: byId, byName: byName, list: list };
+  const tz = ss.getSpreadsheetTimeZone();
 
   readTable_(sheet).rows.forEach(function (row) {
     const name = cellText_(row, CUST_COL.name);
     if (!name) return;
-    const customer = {
-      id: cellText_(row, CUST_COL.id),
-      name: name,
-      phone: normalizePhone_(cellText_(row, CUST_COL.phone)),
-    };
+    const customer = toCustomer_(row, tz);
     if (customer.id) byId[customer.id] = customer;
     if (!byName[name]) byName[name] = customer;
     list.push(customer);
   });
 
   return { byId: byId, byName: byName, list: list };
+}
+
+/** One 顧客 row as the app's Customer shape; IG and 加入日期 only when filled. */
+function toCustomer_(row, tz) {
+  const customer = {
+    id: cellText_(row, CUST_COL.id),
+    name: cellText_(row, CUST_COL.name),
+    phone: normalizePhone_(cellText_(row, CUST_COL.phone)),
+  };
+  const instagram = cellText_(row, CUST_COL.instagram);
+  if (instagram) customer.instagram = instagram;
+  const joined = cellText_(row, CUST_COL.joined);
+  if (joined) customer.joinedDate = toIsoDate_(row.values[CUST_COL.joined], joined, tz);
+  return customer;
 }
 
 /** Read a sheet into header-keyed rows (raw values + display strings). */
@@ -713,11 +728,7 @@ function createCustomer_(input) {
       if (cellText_(existing, CUST_COL.phone).replace(/[^\d]/g, '') !== phone) {
         throw new Error('已有同名顧客：' + name);
       }
-      return {
-        id: cellText_(existing, CUST_COL.id),
-        name: name,
-        phone: normalizePhone_(cellText_(existing, CUST_COL.phone)),
-      };
+      return toCustomer_(existing, ss.getSpreadsheetTimeZone());
     }
     const id = table.headers.indexOf(CUST_COL.id) === -1 ? '' : newCustomerId_(ids);
 
@@ -725,6 +736,10 @@ function createCustomer_(input) {
     cells[CUST_COL.id] = id;
     cells[CUST_COL.name] = plainText_(name);
     cells[CUST_COL.phone] = phone;
+    // A date cell with no time part, so it shows as 2026/10/30 like the rest
+    const today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+    const [y, m, d] = today.split('-').map(Number);
+    cells[CUST_COL.joined] = new Date(y, m - 1, d);
     // Leave any other columns blank, as createAppointment_ does
     sheet.appendRow(
       table.headers.map(function (h) {
@@ -733,7 +748,9 @@ function createCustomer_(input) {
     );
     SpreadsheetApp.flush();
 
-    return { id: id, name: name, phone: normalizePhone_(phone) };
+    const created = { id: id, name: name, phone: normalizePhone_(phone) };
+    if (table.headers.indexOf(CUST_COL.joined) !== -1) created.joinedDate = today;
+    return created;
   } finally {
     lock.releaseLock();
   }
@@ -801,7 +818,10 @@ function updateCustomer_(key, input) {
     if (name !== found.name) replaceCustomerRefs_(ss, found.name, name);
     SpreadsheetApp.flush();
 
-    return { id: found.id, name: name, phone: normalizePhone_(phone) };
+    // IG and 加入日期 aren't edited here, so they're returned as the row holds them
+    const row = toRows_(found.headers, [found.display], [found.display])[0];
+    const kept = toCustomer_(row, ss.getSpreadsheetTimeZone());
+    return Object.assign(kept, { name: name, phone: normalizePhone_(phone) });
   } finally {
     lock.releaseLock();
   }
@@ -849,7 +869,14 @@ function findCustomerRow_(sheet, key, optional) {
       const rowId = idCol === -1 ? '' : String(rows[i][idCol]).trim();
       const rowName = String(rows[i][nameCol]).trim();
       if (id ? rowId === id : rowName === name) {
-        return { rowIndex: i + 2, headers: headers, nameCol: nameCol, id: rowId, name: rowName };
+        return {
+          rowIndex: i + 2,
+          headers: headers,
+          nameCol: nameCol,
+          id: rowId,
+          name: rowName,
+          display: rows[i],
+        };
       }
     }
   }
