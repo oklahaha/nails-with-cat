@@ -1,0 +1,8 @@
+[Unit]
+Description=Nails with Cat customer analytics: refresh the results spreadsheet
+
+[Service]
+Type=oneshot
+# %h is the home directory; assumes the repo is cloned at ~/nails-with-cat
+WorkingDirectory=%h/nails-with-cat/analysis
+ExecStart=%h/.local/bin/uv run python -m analysis.run --refresh
