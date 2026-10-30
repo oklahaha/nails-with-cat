@@ -33,6 +33,16 @@ One-time setup:
 4. **Android:** in the [Firebase console](https://console.firebase.google.com), add an Android app with the package `com.nailswithcat.app` and download `google-services.json` to the project root. Add `"googleServicesFile": "./google-services.json"` under `android` in `app.json`. Then create a service account key (Project settings → Service accounts) and upload it with `npx eas-cli@latest credentials -p android` → Google Service Account → FCM V1.
 5. Make a new development build on both platforms (`expo-notifications` and `expo-task-manager` are native modules), open the app once on each phone and allow notifications.
 
+## Customer analytics (optional)
+
+統計 can show the nightly results of the `analysis/` project through `listCustomerAnalytics`, which only reads them. To turn it on:
+
+1. Make sure the Google account that deploys this script can open the results spreadsheet.
+2. Paste the new `Code.gs`, then add the script property `ANALYSIS_SPREADSHEET_ID` with the results spreadsheet's ID (not `SPREADSHEET_ID`).
+3. Redeploy as a new version (see "Updating the code").
+
+Without the property the action returns empty lists, and the app keeps showing 久未回來.
+
 ## Notes
 
 - `TEXT_DATE_ORDER` in `Code.gs` only matters for dates stored as plain text. Real date cells are read correctly either way.

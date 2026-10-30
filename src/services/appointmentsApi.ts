@@ -10,6 +10,7 @@
  * SPREADSHEET_ID property, not by the app.
  */
 
+import { mockCustomerAnalytics } from '@/data/mockCustomerAnalytics';
 import { MOCK_APPOINTMENTS } from '@/data/mockAppointments';
 import type {
   Appointment,
@@ -17,6 +18,7 @@ import type {
   UpdateAppointmentInput,
 } from '@/types/appointment';
 import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
+import type { CustomerAnalytics } from '@/types/customerAnalytics';
 import { todayIsoDate } from '@/utils/dates';
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
@@ -288,6 +290,24 @@ export async function listCustomers(): Promise<Customer[]> {
   const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ customers: Customer[] }>(res);
   return data.customers;
+}
+
+/**
+ * Fetch the nightly analysis results for 統計 (see analysis/ in the repo).
+ * Empty until the script's ANALYSIS_SPREADSHEET_ID property is set.
+ */
+export async function listCustomerAnalytics(): Promise<CustomerAnalytics> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return mockCustomerAnalytics();
+  }
+
+  const params = new URLSearchParams({
+    action: 'listCustomerAnalytics',
+    token: APPS_SCRIPT_TOKEN,
+  });
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  return parseResponse<CustomerAnalytics>(res);
 }
 
 /**

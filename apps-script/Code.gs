@@ -7,11 +7,13 @@
  *   SPREADSHEET_ID   ID of the spreadsheet (the copy during development)
  *   API_TOKEN        shared secret; the app sends it as `token`
  *   PUSH_TOKENS      set by the script: devices to tell about booking changes
+ *   ANALYSIS_SPREADSHEET_ID  optional: the results of analysis/, read-only here
  *
  * Endpoints (all responses are JSON: { ok: true, ... } or { ok: false, error }):
  *   GET  ?action=ping&token=...
  *   GET  ?action=listAppointments&token=...[&from=YYYY-MM-DD][&to=YYYY-MM-DD]
  *   GET  ?action=listCustomers&token=...
+ *   GET  ?action=listCustomerAnalytics&token=...
  *   POST body (text/plain JSON): { token, action: 'createAppointment', id?, appointment: {...} }
  *   POST body (text/plain JSON): { token, action: 'updateAppointment', id, appointment: {...} }
  *   POST body (text/plain JSON): { token, action: 'deleteAppointment', id }
@@ -33,6 +35,9 @@
 
 const SHEET_APPOINTMENTS = '預約資料';
 const SHEET_CUSTOMERS = '顧客';
+// In the separate ANALYSIS_SPREADSHEET_ID spreadsheet
+const SHEET_ANALYTICS_CUSTOMERS = '客人分析';
+const SHEET_ANALYTICS_FORECAST = '預測';
 
 const COL = {
   id: '預約ID',
@@ -116,6 +121,8 @@ function doGet(e) {
         return {
           appointments: listCustomerAppointments_({ id: params.id, name: params.name }),
         };
+      case 'listCustomerAnalytics':
+        return listCustomerAnalytics_();
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -324,6 +331,70 @@ function toCustomer_(row, tz) {
   const joined = cellText_(row, CUST_COL.joined);
   if (joined) customer.joinedDate = toIsoDate_(row.values[CUST_COL.joined], joined, tz);
   return customer;
+}
+
+/**
+ * The results the analysis/ project writes each night, for 統計. Read-only:
+ * both tabs are replaced by that job. Dates in them are YYYY-MM-DD text.
+ * Without ANALYSIS_SPREADSHEET_ID (or before the first run) the lists are
+ * empty and the app hides these sections.
+ */
+function listCustomerAnalytics_() {
+  const empty = { updatedAt: null, customers: [], forecast: [] };
+  const id = PropertiesService.getScriptProperties().getProperty('ANALYSIS_SPREADSHEET_ID');
+  if (!id) return empty;
+
+  const ss = SpreadsheetApp.openById(id);
+  const customerSheet = ss.getSheetByName(SHEET_ANALYTICS_CUSTOMERS);
+  const forecastSheet = ss.getSheetByName(SHEET_ANALYTICS_FORECAST);
+  if (!customerSheet || !forecastSheet) return empty;
+
+  const customers = readPlainTable_(customerSheet);
+  const forecast = readPlainTable_(forecastSheet);
+  const first = customers[0] || forecast[0];
+  return {
+    updatedAt: first ? String(first['更新時間']) : null,
+    customers: customers.map(function (row) {
+      return {
+        customerId: String(row['顧客ID']),
+        name: String(row['顧客姓名']),
+        segment: String(row['分群']),
+        pAlive: toNumber_(row['P(alive)']),
+        expectedNextVisit: row['預計下次到訪'] ? String(row['預計下次到訪']) : null,
+        churn: toBoolean_(row['流失']),
+        pReturn60d: toNumber_(row['60日內回來機率']),
+        clv12m: toNumber_(row['12個月CLV']) || 0,
+        lastVisit: String(row['上次到訪']),
+        visits: toNumber_(row['到訪次數']) || 0,
+        hasUpcoming: toBoolean_(row['已有預約']),
+      };
+    }),
+    forecast: forecast.map(function (row) {
+      return {
+        weekStart: String(row['週開始']),
+        bookings: toNumber_(row['預計預約']) || 0,
+        bookingsLow: toNumber_(row['預約下限(80%)']) || 0,
+        bookingsHigh: toNumber_(row['預約上限(80%)']) || 0,
+        revenue: toNumber_(row['預計收入']) || 0,
+        daysOff: toNumber_(row['已知休息日']) || 0,
+      };
+    }),
+  };
+}
+
+/** A tab as objects keyed by header, raw values only (one read, no display strings). */
+function readPlainTable_(sheet) {
+  const values = sheet.getDataRange().getValues();
+  const headers = (values[0] || []).map(function (h) {
+    return String(h).trim();
+  });
+  return values.slice(1).map(function (row) {
+    const out = {};
+    headers.forEach(function (h, c) {
+      out[h] = row[c];
+    });
+    return out;
+  });
 }
 
 /** Read a sheet into header-keyed rows (raw values + display strings). */

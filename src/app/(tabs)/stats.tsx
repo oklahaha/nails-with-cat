@@ -11,14 +11,27 @@ import { Icon } from '@/components/Icon';
 import { WhatsAppIcon } from '@/components/WhatsAppIcon';
 import { StateView } from '@/components/StateView';
 import { BarChart } from '@/components/stats/BarChart';
+import { SegmentBreakdown } from '@/components/stats/SegmentBreakdown';
 import { ServiceBreakdown } from '@/components/stats/ServiceBreakdown';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useAppointments } from '@/hooks/useAppointments';
+import { useCustomerAnalytics } from '@/hooks/useCustomerAnalytics';
 import { useCustomers } from '@/hooks/useCustomers';
 import { useHideTabBarOnScroll, useTabBarInset } from '@/hooks/useTabBarVisibility';
+import type { ForecastWeek } from '@/types/customerAnalytics';
+import {
+  atRiskCustomers,
+  dueSoonCustomers,
+  formatPercent,
+  formatWeekLabel,
+  hasFreshAnalytics,
+  nextForecastWeek,
+  segmentSummary,
+} from '@/utils/customerAnalytics';
 import { addMonths, todayIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 import {
   customerStats,
+  daysBetween,
   formatMoney,
   formatMoneyShort,
   lapsedCustomers,
@@ -73,6 +86,19 @@ export default function StatsScreen() {
     [perCustomer, today]
   );
   const [showAllLapsed, setShowAllLapsed] = useState(false);
+  const { analytics, reload: reloadAnalytics } = useCustomerAnalytics();
+  // Null when the nightly results are missing or stale: 久未回來 shows instead
+  const insights = useMemo(() => {
+    if (!hasFreshAnalytics(analytics, today)) return null;
+    return {
+      updatedAt: analytics.updatedAt,
+      atRisk: atRiskCustomers(analytics, customers, appointments),
+      dueSoon: dueSoonCustomers(analytics, customers, appointments, today),
+      segments: segmentSummary(analytics),
+      forecast: analytics.forecast,
+      nextWeek: nextForecastWeek(analytics.forecast, today),
+    };
+  }, [analytics, customers, appointments, today]);
 
   if (loading) {
     return <StateView loading title="載入統計中…" />;
@@ -114,7 +140,10 @@ export default function StatsScreen() {
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
-          onRefresh={() => void reload(true)}
+          onRefresh={() => {
+            void reload(true);
+            void reloadAnalytics();
+          }}
           tintColor={colors.accent}
         />
       }
@@ -209,39 +238,126 @@ export default function StatsScreen() {
         )}
       </Section>
 
-      <Section
-        title="久未回來"
-        caption={`來過 ${LAPSED_MIN_VISITS} 次或以上、超過 ${LAPSED_MIN_DAYS / 7} 星期未來，亦未有預約`}
-      >
-        {lapsed.length > 0 ? (
-          <>
-            {(showAllLapsed ? lapsed : lapsed.slice(0, LIST_LIMIT)).map((c, i) => (
-              <CustomerRow
-                key={c.name}
-                customer={c}
-                detail={`上次 ${formatDay(c.lastVisit)} · ${c.lastService} · 共 ${c.visits} 次`}
-                value={`${c.daysSince} 日`}
-                divider={i > 0}
-                onPress={() => openCustomer(c.name)}
-                showWhatsApp
+      {insights ? (
+        <>
+          <Section
+            title="可能流失"
+            caption={`模型估計 60 日內不太可能回來、未有預約的熟客，最有價值的排先 · 更新於 ${insights.updatedAt}`}
+          >
+            {insights.atRisk.length > 0 ? (
+              <>
+                {(showAllLapsed ? insights.atRisk : insights.atRisk.slice(0, LIST_LIMIT)).map(
+                  (c, i) => (
+                    <CustomerRow
+                      key={c.customerId}
+                      customer={c}
+                      detail={`${c.segment} · 上次 ${formatDay(c.lastVisit)} · 回來機率 ${formatPercent(c.pReturn60d)}`}
+                      value={`${daysBetween(c.lastVisit, today)} 日`}
+                      divider={i > 0}
+                      onPress={() => openCustomer(c.name)}
+                      showWhatsApp
+                    />
+                  )
+                )}
+                {!showAllLapsed && insights.atRisk.length > LIST_LIMIT ? (
+                  <Pressable
+                    onPress={() => setShowAllLapsed(true)}
+                    style={({ pressed }) => [styles.more, pressed && pressedStyle]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.link}>顯示全部 {insights.atRisk.length} 位</Text>
+                  </Pressable>
+                ) : null}
+              </>
+            ) : (
+              <Text style={styles.empty}>熟客最近都有回來 🎉</Text>
+            )}
+          </Section>
+
+          <Section title="快將回來" caption="預計 3 星期內回來、未有預約，可以先問候">
+            {insights.dueSoon.length > 0 ? (
+              insights.dueSoon.slice(0, LIST_LIMIT).map((c, i) => (
+                <CustomerRow
+                  key={c.customerId}
+                  customer={c}
+                  detail={`上次 ${formatDay(c.lastVisit)} · 共 ${c.visits} 次`}
+                  value={formatDay(c.expectedNextVisit ?? '')}
+                  divider={i > 0}
+                  onPress={() => openCustomer(c.name)}
+                  showWhatsApp
+                />
+              ))
+            ) : (
+              <Text style={styles.empty}>暫時未有</Text>
+            )}
+          </Section>
+
+          <Section title="顧客分群" caption="人數 · 佔未來 12 個月預計收入的比例">
+            <SegmentBreakdown segments={insights.segments} />
+          </Section>
+
+          {insights.forecast.length > 0 ? (
+            <Section title="未來 12 週" caption={FORECAST_CAPTION}>
+              <BarChart
+                bars={insights.forecast.map((w) => ({
+                  key: w.weekStart,
+                  label: formatWeekLabel(w.weekStart),
+                  value: w.bookings,
+                }))}
+                formatValue={(n) => `${Math.round(n)} 個`}
+                selectedKey={insights.nextWeek?.weekStart}
+                height={88}
               />
-            ))}
-            {!showAllLapsed && lapsed.length > LIST_LIMIT ? (
-              <Pressable
-                onPress={() => setShowAllLapsed(true)}
-                style={({ pressed }) => [styles.more, pressed && pressedStyle]}
-                accessibilityRole="button"
-              >
-                <Text style={styles.link}>顯示全部 {lapsed.length} 位</Text>
-              </Pressable>
-            ) : null}
-          </>
-        ) : (
-          <Text style={styles.empty}>熟客最近都有回來 🎉</Text>
-        )}
-      </Section>
+              {insights.nextWeek ? (
+                <Text style={styles.forecastNote}>{forecastSummary(insights.nextWeek)}</Text>
+              ) : null}
+            </Section>
+          ) : null}
+        </>
+      ) : (
+        <Section
+          title="久未回來"
+          caption={`來過 ${LAPSED_MIN_VISITS} 次或以上、超過 ${LAPSED_MIN_DAYS / 7} 星期未來，亦未有預約`}
+        >
+          {lapsed.length > 0 ? (
+            <>
+              {(showAllLapsed ? lapsed : lapsed.slice(0, LIST_LIMIT)).map((c, i) => (
+                <CustomerRow
+                  key={c.name}
+                  customer={c}
+                  detail={`上次 ${formatDay(c.lastVisit)} · ${c.lastService} · 共 ${c.visits} 次`}
+                  value={`${c.daysSince} 日`}
+                  divider={i > 0}
+                  onPress={() => openCustomer(c.name)}
+                  showWhatsApp
+                />
+              ))}
+              {!showAllLapsed && lapsed.length > LIST_LIMIT ? (
+                <Pressable
+                  onPress={() => setShowAllLapsed(true)}
+                  style={({ pressed }) => [styles.more, pressed && pressedStyle]}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.link}>顯示全部 {lapsed.length} 位</Text>
+                </Pressable>
+              ) : null}
+            </>
+          ) : (
+            <Text style={styles.empty}>熟客最近都有回來 🎉</Text>
+          )}
+        </Section>
+      )}
     </ScrollView>
   );
+}
+
+const FORECAST_CAPTION = '每週預計預約數，數字會隨新預約每晚更新 · 爆滿時推走的客人不計在內';
+
+/** e.g. 11月2日 那週預計 14 個預約（約 8–19 個），收入約 $3,330，已知休息 1 日 */
+function forecastSummary(week: ForecastWeek): string {
+  const range = `約 ${Math.round(week.bookingsLow)}–${Math.round(week.bookingsHigh)} 個`;
+  const off = week.daysOff > 0 ? `，已知休息 ${week.daysOff} 日` : '';
+  return `${formatDay(week.weekStart)} 那週預計 ${Math.round(week.bookings)} 個預約（${range}），收入約 ${formatMoney(week.revenue)}${off}`;
 }
 
 /** Percent change from the previous month; null when there's nothing to compare. */
@@ -344,7 +460,7 @@ function CustomerRow({
   onPress,
   showWhatsApp,
 }: {
-  customer: CustomerStats;
+  customer: Pick<CustomerStats, 'name' | 'phone'>;
   rank?: number;
   detail: string;
   value: string;
@@ -468,6 +584,10 @@ const styles = StyleSheet.create({
     ...type.caption,
     textAlign: 'center',
     paddingVertical: spacing.sm,
+  },
+  forecastNote: {
+    ...type.caption,
+    marginTop: spacing.sm,
   },
   customerRow: {
     flexDirection: 'row',
