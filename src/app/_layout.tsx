@@ -37,6 +37,13 @@ export default function RootLayout() {
           options={{ title: '顧客資料', presentation: 'modal' }}
         />
         <Stack.Screen
+          name="segment-customers"
+          options={({ route }) => ({
+            title: (route.params as { segment?: string } | undefined)?.segment ?? '顧客分群',
+            presentation: 'modal',
+          })}
+        />
+        <Stack.Screen
           name="add-customer"
           options={{ title: '新增顧客', presentation: 'modal' }}
         />

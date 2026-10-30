@@ -1,27 +1,40 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, type } from '@/constants/theme';
+import { Icon } from '@/components/Icon';
+import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { formatPercent, type SegmentSummary } from '@/utils/customerAnalytics';
 
-/** Customers per segment, each with a bar for its share of the future value. */
+/** Customers per segment, each with a bar for its share of the future value. Tapping one lists its customers. */
 export function SegmentBreakdown({ segments }: { segments: SegmentSummary[] }) {
   return (
     <View style={styles.list}>
       {segments.map((s) => (
-        <View key={s.segment} style={styles.row}>
+        <Pressable
+          key={s.segment}
+          onPress={() =>
+            router.push({ pathname: '/segment-customers', params: { segment: s.segment } })
+          }
+          style={({ pressed }) => [styles.row, pressed && pressedStyle]}
+          accessibilityRole="button"
+          accessibilityLabel={`${s.segment}，${s.customers} 位，查看名單`}
+        >
           <View style={styles.header}>
             <Text style={styles.name} numberOfLines={1}>
               {s.segment}
             </Text>
-            <Text style={styles.numbers}>
-              {s.customers} 位 · {formatPercent(s.clvShare)}
-            </Text>
+            <View style={styles.right}>
+              <Text style={styles.numbers}>
+                {s.customers} 位 · {formatPercent(s.clvShare)}
+              </Text>
+              <Icon name="chevronRight" color={colors.textTertiary} size={16} />
+            </View>
           </View>
           {s.description ? <Text style={styles.description}>{s.description}</Text> : null}
           <View style={styles.track}>
             <View style={[styles.fill, { width: `${s.clvShare * 100}%` }]} />
           </View>
-        </View>
+        </Pressable>
       ))}
     </View>
   );
@@ -38,6 +51,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  right: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   name: {
     ...type.body,

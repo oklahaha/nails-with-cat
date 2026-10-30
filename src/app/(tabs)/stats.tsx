@@ -292,7 +292,7 @@ export default function StatsScreen() {
             )}
           </Section>
 
-          <Section title="顧客分群" caption="人數 · 佔未來 12 個月預計收入的比例">
+          <Section title="顧客分群" caption="人數 · 佔未來 12 個月預計收入的比例 · 點選查看名單">
             <SegmentBreakdown segments={insights.segments} />
           </Section>
 

@@ -10,6 +10,7 @@ import type {
   CustomerInsight,
   ForecastWeek,
 } from '@/types/customerAnalytics';
+import { addDays, startOfWeek } from '@/utils/dates';
 import { daysBetween, isCustomerBooking } from '@/utils/stats';
 
 /** Older results than this aren't shown; 統計 goes back to the 久未回來 list. */
@@ -142,6 +143,98 @@ export function nextForecastWeek(
   today: string
 ): ForecastWeek | undefined {
   return forecast.find((week) => week.weekStart > today);
+}
+
+/**
+ * Everyone in a segment, with their current name and phone: highest value
+ * first, then (as many have none) most recently seen.
+ */
+export function segmentCustomers(
+  analytics: CustomerAnalytics,
+  customers: Customer[],
+  segment: string
+): InsightRow[] {
+  const byId = new Map(customers.filter((c) => c.id).map((c) => [c.id, c]));
+  return analytics.customers
+    .filter((c) => c.segment === segment)
+    .map((row) => {
+      const customer = byId.get(row.customerId);
+      return { ...row, name: customer?.name ?? row.name, phone: customer?.phone || undefined };
+    })
+    .sort((a, b) => b.clv12m - a.clv12m || b.lastVisit.localeCompare(a.lastVisit));
+}
+
+/** e.g. 上次 9月3日 · 共 12 次 · 已有預約 */
+export function insightSummary(row: CustomerInsight): string {
+  const [, m, d] = row.lastVisit.split('-').map(Number);
+  const parts = [`上次 ${m}月${d}日`, `共 ${row.visits} 次`];
+  if (row.hasUpcoming) parts.push('已有預約');
+  return parts.join(' · ');
+}
+
+/** How many visits count for each bar of the visit-count chart. */
+const VISIT_BUCKETS = [
+  { label: '1 次', max: 1 },
+  { label: '2–3', max: 3 },
+  { label: '4–7', max: 7 },
+  { label: '8–15', max: 15 },
+  { label: '16+', max: Infinity },
+];
+
+/** Customers per number of visits, over their whole history. */
+export function visitDistribution(
+  analytics: CustomerAnalytics
+): { label: string; customers: number }[] {
+  const counts = VISIT_BUCKETS.map((b) => ({ label: b.label, customers: 0 }));
+  for (const c of analytics.customers) {
+    const bucket = VISIT_BUCKETS.findIndex((b) => c.visits <= b.max);
+    if (bucket >= 0) counts[bucket].customers += 1;
+  }
+  return counts;
+}
+
+/** Height of the forecast's tick, in bookings. */
+const FORECAST_TICK = 0.5;
+
+export type ForecastSegment = {
+  x: string;
+  y: number;
+  kind: 'gap' | 'range' | 'tick';
+};
+
+/**
+ * One week's forecast as stacked bar segments, since Swift Charts stacks bars
+ * sharing an x and has no floating bar: an invisible gap up to the 80% range's
+ * bottom, the range, and a tick at the forecast itself.
+ */
+export function forecastSegments(forecast: ForecastWeek[]): ForecastSegment[] {
+  return forecast.flatMap((week) => {
+    const x = formatWeekLabel(week.weekStart);
+    const tickStart = Math.max(week.bookings - FORECAST_TICK / 2, week.bookingsLow);
+    const tickEnd = Math.min(tickStart + FORECAST_TICK, week.bookingsHigh);
+    return [
+      { x, y: week.bookingsLow, kind: 'gap' as const },
+      { x, y: tickStart - week.bookingsLow, kind: 'range' as const },
+      { x, y: tickEnd - tickStart, kind: 'tick' as const },
+      { x, y: week.bookingsHigh - tickEnd, kind: 'range' as const },
+    ];
+  });
+}
+
+/** Bookings per week over the last `weeks` finished Monday-to-Sunday weeks, to compare with the forecast. */
+export function recentWeeklyBookings(
+  appointments: Appointment[],
+  today: string,
+  weeks = 8
+): number {
+  // startOfWeek is a Sunday: on a Sunday, this Monday is six days back
+  const sunday = startOfWeek(today);
+  const monday = sunday === today ? addDays(today, -6) : addDays(sunday, 1);
+  const from = addDays(monday, -7 * weeks);
+  const count = appointments.filter(
+    (apt) => isCustomerBooking(apt) && apt.date >= from && apt.date < monday
+  ).length;
+  return count / weeks;
 }
 
 /** 0.234 → 23%; — when unknown. */

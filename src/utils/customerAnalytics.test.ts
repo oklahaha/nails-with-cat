@@ -6,10 +6,15 @@ import type { CustomerAnalytics, CustomerInsight } from '@/types/customerAnalyti
 import {
   atRiskCustomers,
   dueSoonCustomers,
+  forecastSegments,
   formatPercent,
   hasFreshAnalytics,
+  insightSummary,
   nextForecastWeek,
+  recentWeeklyBookings,
+  segmentCustomers,
   segmentSummary,
+  visitDistribution,
 } from './customerAnalytics';
 
 const TODAY = '2026-10-30';
@@ -150,5 +155,76 @@ describe('formatPercent', () => {
   it('rounds, and shows a dash when unknown', () => {
     expect(formatPercent(0.234)).toBe('23%');
     expect(formatPercent(null)).toBe('—');
+  });
+});
+
+describe('visitDistribution', () => {
+  it('sorts customers into visit-count buckets, keeping empty ones', () => {
+    const counts = visitDistribution(
+      analytics([insight({ visits: 1 }), insight({ visits: 3 }), insight({ visits: 40 })])
+    );
+    expect(counts.map((c) => c.customers)).toEqual([1, 1, 0, 0, 1]);
+  });
+});
+
+describe('forecastSegments', () => {
+  const week = { weekStart: '2026-11-02', bookings: 14, bookingsLow: 8, bookingsHigh: 20, revenue: 0, daysOff: 0 };
+
+  it('stacks up to the top of the range, with the tick at the forecast', () => {
+    const segments = forecastSegments([week]);
+    expect(segments.map((s) => s.kind)).toEqual(['gap', 'range', 'tick', 'range']);
+    expect(segments.every((s) => s.x === '11/2')).toBe(true);
+    expect(segments.reduce((sum, s) => sum + s.y, 0)).toBeCloseTo(20);
+    expect(segments[0].y + segments[1].y).toBeCloseTo(13.75);
+  });
+
+  it('never goes negative, even with no range to speak of', () => {
+    const flat = forecastSegments([{ ...week, bookings: 0, bookingsLow: 0, bookingsHigh: 0 }]);
+    expect(flat.every((s) => s.y >= 0)).toBe(true);
+  });
+});
+
+describe('recentWeeklyBookings', () => {
+  it('averages the finished weeks only', () => {
+    const apts = [
+      // 2026-10-30 is a Friday; finished weeks end on Sunday 2026-10-25
+      makeAppointment({ id: 'in', date: '2026-10-25' }),
+      makeAppointment({ id: 'first', date: '2026-08-31' }),
+      makeAppointment({ id: 'this-week', date: '2026-10-26' }),
+      makeAppointment({ id: 'too-old', date: '2026-08-30' }),
+    ];
+    expect(recentWeeklyBookings(apts, TODAY)).toBe(2 / 8);
+  });
+
+  it('treats a Sunday as part of the week still going', () => {
+    const apts = [makeAppointment({ id: 'sunday', date: '2026-11-01' })];
+    expect(recentWeeklyBookings(apts, '2026-11-01')).toBe(0);
+  });
+});
+
+describe('segmentCustomers', () => {
+  it('lists one segment, highest value first, then most recently seen', () => {
+    const rows = segmentCustomers(
+      analytics([
+        insight({ customerId: 'old', segment: '一次客', clv12m: 0, lastVisit: '2024-01-01' }),
+        insight({ customerId: 'recent', segment: '一次客', clv12m: 0, lastVisit: '2026-01-01' }),
+        insight({ customerId: 'rich', segment: '一次客', clv12m: 50, lastVisit: '2023-01-01' }),
+        insight({ customerId: 'other', segment: '新客', clv12m: 900 }),
+      ]),
+      [],
+      '一次客'
+    );
+    expect(rows.map((r) => r.customerId)).toEqual(['rich', 'recent', 'old']);
+  });
+
+  it('keeps customers who have booked, and uses the current name and phone', () => {
+    const [row] = segmentCustomers(
+      analytics([insight({ hasUpcoming: true })]),
+      [{ id: '1', name: '陳美', phone: '85291234567' }],
+      '活躍熟客'
+    );
+    expect(row.name).toBe('陳美');
+    expect(row.phone).toBe('85291234567');
+    expect(insightSummary(row)).toBe('上次 8月1日 · 共 10 次 · 已有預約');
   });
 });

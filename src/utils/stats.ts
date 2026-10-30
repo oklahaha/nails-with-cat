@@ -85,6 +85,49 @@ export function weekdayCounts(apts: Appointment[], today = todayIsoDate()): numb
   return counts;
 }
 
+/** Start-time bands of the busy-times heatmap: label, and the hour each one ends before. */
+const HEATMAP_BANDS = [
+  { label: '11時前', before: 11 },
+  { label: '11–13', before: 13 },
+  { label: '13–15', before: 15 },
+  { label: '15–17', before: 17 },
+  { label: '17–19', before: 19 },
+  { label: '19時後', before: 24 },
+];
+
+export type BusyHeatmap = {
+  bands: string[];
+  /** Visits per band, then per weekday (Sunday first). */
+  counts: number[][];
+  max: number;
+  /** The busiest cell; null with no visits. */
+  peak: { band: string; weekday: number } | null;
+};
+
+/** Visits by start time and weekday, up to today. */
+export function busyHeatmap(apts: Appointment[], today = todayIsoDate()): BusyHeatmap {
+  const counts = HEATMAP_BANDS.map(() => [0, 0, 0, 0, 0, 0, 0]);
+  for (const apt of apts) {
+    if (!isCustomerBooking(apt) || !isPastOrToday(apt, today)) continue;
+    if (!apt.time) continue;
+    const hour = Number(apt.time.slice(0, 2));
+    const band = HEATMAP_BANDS.findIndex((b) => hour < b.before);
+    if (band < 0) continue;
+    counts[band][parseIsoDate(apt.date).getDay()] += 1;
+  }
+  let max = 0;
+  let peak: BusyHeatmap['peak'] = null;
+  counts.forEach((row, band) =>
+    row.forEach((count, weekday) => {
+      if (count > max) {
+        max = count;
+        peak = { band: HEATMAP_BANDS[band].label, weekday };
+      }
+    })
+  );
+  return { bands: HEATMAP_BANDS.map((b) => b.label), counts, max, peak };
+}
+
 export type CustomerStats = {
   name: string;
   phone?: string;
@@ -126,6 +169,13 @@ export function customerStats(apts: Appointment[], today = todayIsoDate()): Cust
   return [...byName.values()].filter((c) => c.visits > 0);
 }
 
+/** Share of the total spend held by the top `limit` customers, 0–1. */
+export function topCustomersShare(stats: CustomerStats[], limit: number): number {
+  const total = stats.reduce((sum, c) => sum + c.spend, 0);
+  if (total === 0) return 0;
+  return topCustomers(stats, limit).reduce((sum, c) => sum + c.spend, 0) / total;
+}
+
 /** Highest spending customers. */
 export function topCustomers(stats: CustomerStats[], limit: number): CustomerStats[] {
   return [...stats].sort((a, b) => b.spend - a.spend || b.visits - a.visits).slice(0, limit);
@@ -145,6 +195,15 @@ export function lapsedCustomers(
     .map((c) => ({ ...c, daysSince: daysBetween(c.lastVisit, today) }))
     .filter((c) => c.daysSince >= minDays)
     .sort((a, b) => a.daysSince - b.daysSince);
+}
+
+/**
+ * Average revenue of the months before the last one, which isn't over yet;
+ * months with nothing (closed, or before the data starts) don't count.
+ */
+export function averageFullMonthRevenue(monthly: MonthStats[]): number {
+  const full = monthly.slice(0, -1).filter((m) => m.revenue > 0);
+  return full.length > 0 ? full.reduce((sum, m) => sum + m.revenue, 0) / full.length : 0;
 }
 
 export function daysBetween(from: string, to: string): number {
