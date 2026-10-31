@@ -75,7 +75,7 @@ export default function AppointmentDetailsScreen() {
   // The form's sections, in its order but with 狀態 last; rows the form hides
   // for this service are left out
   // onPress: the 顧客 row opens 顧客資料
-  const rows: { label: string; value?: string; onPress?: () => void }[] = isSpecial
+  const rows: { label: string; value?: string; onPress?: () => void; selectable?: boolean }[] = isSpecial
     ? [
         { label: '備注', value: appointment.notes },
         { label: '日期', value: formatDateHeader(appointment.date) },
@@ -90,7 +90,7 @@ export default function AppointmentDetailsScreen() {
             ? () => openAppointmentCustomer(appointment)
             : undefined,
         },
-        ...(phone ? [{ label: '電話', value: formatPhone(phone) }] : []),
+        ...(phone ? [{ label: '電話', value: formatPhone(phone), selectable: true }] : []),
         { label: '日期', value: formatDateHeader(appointment.date) },
         { label: '開始時間', value: timeRange },
         ...(usesHandOrFoot(appointment.service)
@@ -157,7 +157,9 @@ export default function AppointmentDetailsScreen() {
             ) : (
               <View key={row.label} style={[styles.row, i > 0 && styles.rowDivider]}>
                 <Text style={styles.rowLabel}>{row.label}</Text>
-                <Text style={styles.rowValue}>{row.value || '—'}</Text>
+                <Text selectable={row.selectable} style={styles.rowValue}>
+                  {row.value || '—'}
+                </Text>
               </View>
             )
           )}

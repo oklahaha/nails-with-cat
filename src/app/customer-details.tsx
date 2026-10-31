@@ -150,7 +150,10 @@ export default function CustomerDetailsScreen() {
             <View style={styles.card}>
               <View style={styles.row}>
                 <Text style={styles.rowLabel}>電話</Text>
-                <Text style={[styles.rowValue, !customer.phone && styles.rowValueMissing]}>
+                <Text
+                  selectable={Boolean(customer.phone)}
+                  style={[styles.rowValue, !customer.phone && styles.rowValueMissing]}
+                >
                   {formatPhone(customer.phone) || '未有電話'}
                 </Text>
               </View>

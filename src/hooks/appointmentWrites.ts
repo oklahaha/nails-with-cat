@@ -27,6 +27,7 @@ import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { hapticWarning } from '@/utils/haptics';
 
 /**
  * Bookings being created: their 預約ID once Apps Script has the row, or
@@ -178,6 +179,7 @@ export function removeAppointment(apt: Appointment): void {
   const id = realIds.get(apt.id) ?? apt.id;
   setPendingAppointment(id, null);
   sendDelete({ id, apt });
+  hapticWarning();
 }
 
 /**

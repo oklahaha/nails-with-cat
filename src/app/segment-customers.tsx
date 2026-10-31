@@ -2,6 +2,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StateView } from '@/components/StateView';
 import { WhatsAppIcon } from '@/components/WhatsAppIcon';
@@ -19,6 +20,7 @@ import { formatMoney } from '@/utils/stats';
 import { openWhatsApp } from '@/utils/whatsapp';
 
 export default function SegmentCustomersScreen() {
+  const insets = useSafeAreaInsets();
   const { segment = '' } = useLocalSearchParams<{ segment?: string }>();
   const { analytics } = useCustomerAnalytics();
   const { customers } = useCustomers();
@@ -48,7 +50,10 @@ export default function SegmentCustomersScreen() {
   return (
     <FlatList
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: Math.max(insets.bottom, spacing.md) },
+      ]}
       data={rows}
       keyExtractor={(c) => c.customerId}
       ListHeaderComponent={

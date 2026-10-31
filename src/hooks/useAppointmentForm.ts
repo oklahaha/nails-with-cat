@@ -26,6 +26,7 @@ import {
   type NailExtra,
 } from '@/constants/services';
 import { saveAppointment } from '@/hooks/appointmentWrites';
+import { hapticSuccess } from '@/utils/haptics';
 import { useAppointments, useCustomerAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
 import { offerWhatsAppConfirmation } from '@/hooks/whatsAppConfirmation';
@@ -268,6 +269,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     const chosen = service;
     const save = () => {
       const saved = saveAppointment(toInput(text, chosen), editing);
+      hapticSuccess();
       // Once the form has closed, ask about a WhatsApp confirmation
       if (!editing) offerWhatsAppConfirmation(saved);
       onSaved(saved);

@@ -7,6 +7,7 @@ import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { hapticLight, hapticWarning } from '@/utils/haptics';
 
 /** Open the details screen, which offers WhatsApp, 修改 and 刪除. */
 export function openAppointmentDetails(appointment: Appointment): void {
@@ -37,7 +38,10 @@ export function pushAppointmentCustomer(appointment: Appointment): void {
 
 /** Mark a booking No show, or (when it already is) back to 預約. Saved in the background. */
 export function toggleNoShow(appointment: Appointment): void {
-  saveAppointmentStatus(appointment, appointment.status === NO_SHOW ? '預約' : NO_SHOW);
+  const wasNoShow = appointment.status === NO_SHOW;
+  saveAppointmentStatus(appointment, wasNoShow ? '預約' : NO_SHOW);
+  if (wasNoShow) hapticLight();
+  else hapticWarning();
 }
 
 /** The menu item's label for toggleNoShow. */
