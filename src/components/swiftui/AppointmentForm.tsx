@@ -23,6 +23,8 @@ import {
   VStack,
 } from '@expo/ui/swift-ui';
 import {
+  animation,
+  Animation,
   buttonStyle,
   contentShape,
   datePickerStyle,
@@ -56,6 +58,7 @@ import {
 } from '@/constants/services';
 import { colors } from '@/constants/theme';
 import { useAppointmentForm, type FormField } from '@/hooks/useAppointmentForm';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { STATUS_OPTIONS, type Appointment, type ServiceType } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration, minutesToTime, todayIsoDate } from '@/utils/dates';
@@ -138,6 +141,13 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     if (autoPrice != null && followAutoPrice) priceTextState.set(String(autoPrice));
   }, [autoPrice, followAutoPrice, priceTextState]);
 
+  const reduceMotion = useReduceMotion();
+  // Changes whenever the form gains or loses rows, which then slide rather than jump
+  const rowLayout =
+    (SERVICES.findIndex((s) => s.name === service) + 1) * 1000 +
+    (showNailExtras ? 100 : 0) +
+    clashes.length;
+
   const handleSubmit = () =>
     submit(
       {
@@ -159,7 +169,12 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
       onSave={handleSubmit}
       saveDisabled={!service}
     >
-      <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
+      <Form
+        modifiers={[
+          scrollDismissesKeyboard('immediately'),
+          ...(reduceMotion ? [] : [animation(Animation.snappy({ duration: 0.25 }), rowLayout)]),
+        ]}
+      >
         <Section footer={!service ? <Text>先揀活動，再填其他資料</Text> : undefined}>
           {/* Two columns: the 活動 label stays put on the left, and the right
               column is the Menu, wide enough that tapping anywhere in it opens

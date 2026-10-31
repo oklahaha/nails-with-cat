@@ -1,8 +1,11 @@
 /** Small pieces shared by the 統計 tabs on iOS. */
 import { Button, HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import {
+  animation,
+  Animation,
   buttonStyle,
   contentShape,
+  contentTransition,
   font,
   foregroundStyle,
   frame,
@@ -12,6 +15,7 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 
 import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import type { CustomerStats } from '@/utils/stats';
 import { openWhatsApp } from '@/utils/whatsapp';
 
@@ -26,12 +30,28 @@ export function formatDay(iso: string): string {
   return m && d ? `${m}月${d}日` : iso;
 }
 
-/** A number with its label, for a row of up to three. */
-export function Stat({ label, value }: { label: string; value: string | number }) {
+/**
+ * A number with its label, for a row of up to three. Give it `rollOn` to have
+ * the number roll to its new value whenever that changes.
+ */
+export function Stat({
+  label,
+  value,
+  rollOn,
+}: {
+  label: string;
+  value: string | number;
+  rollOn?: number;
+}) {
+  const reduceMotion = useReduceMotion();
+  const roll =
+    rollOn != null && !reduceMotion
+      ? [contentTransition('numericText'), animation(Animation.smooth({ duration: 0.25 }), rollOn)]
+      : [];
   return (
     <VStack spacing={2} alignment="leading" modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}>
       <Text modifiers={[font({ size: 12 }), SECONDARY]}>{label}</Text>
-      <Text modifiers={[font({ size: 20, weight: 'semibold' }), monospacedDigit(), lineLimit(1)]}>
+      <Text modifiers={[font({ size: 20, weight: 'semibold' }), monospacedDigit(), lineLimit(1), ...roll]}>
         {value}
       </Text>
     </VStack>

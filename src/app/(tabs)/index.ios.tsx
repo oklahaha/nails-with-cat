@@ -10,6 +10,7 @@ import {
   ProgressView,
   Spacer,
   Text,
+  useNativeState,
   VStack,
   ZStack,
 } from '@expo/ui/swift-ui';
@@ -24,10 +25,12 @@ import {
   minimumScaleFactor,
   padding,
   pickerStyle,
+  symbolEffect,
   tag,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 
 import {
   shiftAnchor,
@@ -41,6 +44,7 @@ import { TimetablePager } from '@/components/swiftui/TimetablePager';
 import { glassButton } from '@/components/swiftui/glass';
 import { colors, spacing } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { useTabReselect } from '@/hooks/useTabReselect';
 import {
   addMonths,
@@ -50,6 +54,9 @@ import {
 } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 
+/** SF Symbols' rotate effect needs iOS 18. */
+const CAN_ROTATE_ICON = Number.parseInt(String(Platform.Version), 10) >= 18;
+
 export default function TimetableScreen() {
   const [mode, setMode] = useState<ViewMode>('month');
   const [anchor, setAnchor] = useState(todayIsoDate);
@@ -58,6 +65,14 @@ export default function TimetableScreen() {
 
   // The pages read this range from the cache; this loads it and reports progress
   const { loading, reloading, error, reload } = useAppointments(range);
+
+  // The reload icon spins while loading, or a spinner shows where it can't
+  const reduceMotion = useReduceMotion();
+  const spinIcon = CAN_ROTATE_ICON && !reduceMotion;
+  const iconSpinning = useNativeState(false);
+  useEffect(() => {
+    iconSpinning.set(reloading);
+  }, [reloading, iconSpinning]);
 
   // Once this month is on screen, load the months either side so paging is instant
   useEffect(() => {
@@ -107,7 +122,7 @@ export default function TimetableScreen() {
               {title}
             </Text>
             <Spacer />
-            {reloading ? <ProgressView /> : null}
+            {reloading && !spinIcon ? <ProgressView /> : null}
             <Button
               label="重新載入"
               systemImage="arrow.clockwise"
@@ -117,6 +132,9 @@ export default function TimetableScreen() {
                 buttonBorderShape('circle'),
                 labelStyle('iconOnly'),
                 tint(colors.textSecondary),
+                ...(spinIcon
+                  ? [symbolEffect({ effect: 'rotate' as const }, { isActive: iconSpinning })]
+                  : []),
               ]}
             />
             <Button

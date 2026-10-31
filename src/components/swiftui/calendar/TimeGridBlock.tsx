@@ -15,6 +15,8 @@ import {
 } from '@expo/ui/swift-ui';
 import {
   accessibilityLabel,
+  animation,
+  Animation,
   background,
   clipShape,
   contentShape,
@@ -124,6 +126,7 @@ export function TimeGridBlock({ appointment: apt, height, compact, lanes, onPres
                 padding({ trailing: 1, bottom: 1 }),
                 // No show bookings stay in place, faded
                 opacity(noShow ? 0.45 : 1),
+                animation(Animation.easeOut({ duration: 0.2 }), noShow),
                 contentShape(shape),
                 onTapGesture(() => onPress(apt)),
                 accessibilityLabel(`${apt.time} ${title} ${apt.service}${noShow ? ' No show' : ''}`),

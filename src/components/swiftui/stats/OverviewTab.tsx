@@ -88,11 +88,12 @@ export function OverviewTab({ months, monthly, selected, onSelect, services, hea
           ) : null}
         </VStack>
         <HStack>
-          <Stat label="預約" value={current.bookings} />
-          <Stat label="顧客" value={current.customers} />
+          <Stat label="預約" value={current.bookings} rollOn={index} />
+          <Stat label="顧客" value={current.customers} rollOn={index} />
           <Stat
             label="平均消費"
             value={current.averageSpend != null ? formatMoney(current.averageSpend) : '—'}
+            rollOn={index}
           />
         </HStack>
       </Section>
