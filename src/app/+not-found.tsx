@@ -10,7 +10,7 @@ export default function NotFoundScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>此頁面不存在</Text>
         <Link href="/" style={styles.link}>
-          <Text style={styles.linkText}>回到預約一覽</Text>
+          <Text style={styles.linkText}>回到時間表</Text>
         </Link>
       </View>
     </>

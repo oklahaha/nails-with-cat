@@ -1,7 +1,6 @@
 /**
  * Asks whether to WhatsApp a confirmation for a booking just added (see
- * whatsAppConfirmation). Android and web use showAlert; iOS has a SwiftUI
- * alert. Mounted once, in the root layout.
+ * whatsAppConfirmation). Mounted once, in the root layout.
  */
 import { useEffect } from 'react';
 

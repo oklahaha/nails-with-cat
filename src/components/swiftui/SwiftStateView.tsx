@@ -1,5 +1,6 @@
 /**
  * Loading / error / empty states using native SwiftUI ProgressView + ContentUnavailableView.
+ * SwiftStateContent goes inside a screen's existing Host.
  */
 import {
   Button,
@@ -21,7 +22,15 @@ type Props = {
   action?: { label: string; onPress: () => void };
 };
 
-export function SwiftStateView({
+export function SwiftStateView(props: Props) {
+  return (
+    <SwiftHost>
+      <SwiftStateContent {...props} />
+    </SwiftHost>
+  );
+}
+
+export function SwiftStateContent({
   loading,
   title,
   message,
@@ -30,34 +39,30 @@ export function SwiftStateView({
 }: Props) {
   if (loading) {
     return (
-      <SwiftHost>
-        <VStack
-          spacing={12}
-          modifiers={[padding({ all: 24 }), frame({ maxWidth: Infinity, maxHeight: Infinity })]}
-          alignment="center"
+      <VStack
+        spacing={12}
+        modifiers={[padding({ all: 24 }), frame({ maxWidth: Infinity, maxHeight: Infinity })]}
+        alignment="center"
+      >
+        <ProgressView />
+        <Text
+          modifiers={[
+            font({ size: 15 }),
+            foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+          ]}
         >
-          <ProgressView />
-          <Text
-            modifiers={[
-              font({ size: 15 }),
-              foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-            ]}
-          >
-            {title}
-          </Text>
-        </VStack>
-      </SwiftHost>
+          {title}
+        </Text>
+      </VStack>
     );
   }
 
   return (
-    <SwiftHost>
-      <VStack spacing={16} modifiers={[padding({ all: 24 })]} alignment="center">
-        <ContentUnavailableView title={title} systemImage={systemImage} description={message} />
-        {action ? (
-          <Button label={action.label} onPress={action.onPress} />
-        ) : null}
-      </VStack>
-    </SwiftHost>
+    <VStack spacing={16} modifiers={[padding({ all: 24 })]} alignment="center">
+      <ContentUnavailableView title={title} systemImage={systemImage} description={message} />
+      {action ? (
+        <Button label={action.label} onPress={action.onPress} />
+      ) : null}
+    </VStack>
   );
 }

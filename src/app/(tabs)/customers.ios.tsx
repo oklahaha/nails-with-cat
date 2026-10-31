@@ -16,6 +16,7 @@ import {
   Spacer,
   Text,
   VStack,
+  ZStack,
   useNativeState,
 } from '@expo/ui/swift-ui';
 import {
@@ -33,7 +34,6 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
 import { memo, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
 
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
@@ -92,8 +92,8 @@ export default function CustomersScreen() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <SwiftHost>
+    <SwiftHost>
+      <ZStack alignment="bottomTrailing">
         {/* searchable only shows its field inside a NavigationStack, whose bar replaces the tab header */}
         <NavigationStack>
           <List
@@ -147,18 +147,18 @@ export default function CustomersScreen() {
             </Section>
           </List>
         </NavigationStack>
-      </SwiftHost>
 
-      <SwiftFab
-        label="新增顧客"
-        onPress={() =>
-          router.push({
-            pathname: '/add-customer',
-            params: prefillFrom(query, filtered),
-          })
-        }
-      />
-    </View>
+        <SwiftFab
+          label="新增顧客"
+          onPress={() =>
+            router.push({
+              pathname: '/add-customer',
+              params: prefillFrom(query, filtered),
+            })
+          }
+        />
+      </ZStack>
+    </SwiftHost>
   );
 }
 

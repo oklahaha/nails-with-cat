@@ -13,6 +13,7 @@
 import { Stack } from 'expo-router';
 import type { ReactNode } from 'react';
 
+import { AlertPresenter } from './AlertPresenter';
 import { SwiftHost } from './SwiftHost';
 
 type Props = {
@@ -28,7 +29,10 @@ type Props = {
 export function SwiftModal({ onClose, onSave, saveDisabled, onEdit, children }: Props) {
   return (
     <>
-      <SwiftHost>{children}</SwiftHost>
+      <SwiftHost>
+        <AlertPresenter />
+        {children}
+      </SwiftHost>
       {onClose ? (
         <Stack.Toolbar placement="left">
           <Stack.Toolbar.Button icon="xmark" accessibilityLabel="關閉" onPress={onClose} />

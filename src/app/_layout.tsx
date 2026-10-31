@@ -8,6 +8,7 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
+import { RootAlerts } from '@/components/RootAlerts';
 import { WhatsAppConfirmationDialog } from '@/components/WhatsAppConfirmationDialog';
 import { stackScreenOptions } from '@/constants/stackOptions';
 import { useResumeWrites } from '@/hooks/resumeWrites';
@@ -58,6 +59,7 @@ export default function RootLayout() {
       </Stack>
       {/* After a new booking is created, offers to WhatsApp the customer */}
       <WhatsAppConfirmationDialog />
+      <RootAlerts />
     </>
   );
 }

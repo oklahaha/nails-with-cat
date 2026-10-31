@@ -19,7 +19,7 @@ export type TimeGridBlockProps = {
 
 /**
  * One appointment in the Day / Week grid. A long press offers 顧客資料 and No
- * show (Android only); iOS has a SwiftUI version with a native long-press menu.
+ * show (Android only). iOS draws the calendar in src/components/swiftui/calendar.
  */
 export function TimeGridBlock({ appointment: apt, frame, compact, lanes, onPress }: TimeGridBlockProps) {
   const color = serviceColor(apt.service);
