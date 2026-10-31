@@ -1,6 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { pageKey, shiftAnchor } from './timetablePages';
+import {
+  pageKey,
+  shiftAnchor,
+  shouldDrawPage,
+} from './timetablePages';
 
 describe('shiftAnchor', () => {
   it('moves by months, weeks or days', () => {
@@ -18,5 +22,29 @@ describe('pageKey', () => {
     expect(pageKey('week', '2026-10-29')).toBe('2026-10-25');
     expect(pageKey('week', '2026-10-24')).not.toBe(pageKey('week', '2026-10-25'));
     expect(pageKey('day', '2026-10-29')).toBe('2026-10-29');
+  });
+});
+
+describe('shouldDrawPage', () => {
+  it('draws only the page on screen until one has settled', () => {
+    expect(shouldDrawPage(5, 5, -1)).toBe(true);
+    expect(shouldDrawPage(4, 5, -1)).toBe(false);
+    expect(shouldDrawPage(6, 5, -1)).toBe(false);
+  });
+
+  it('draws both neighbours once settled', () => {
+    expect(shouldDrawPage(4, 5, 5)).toBe(true);
+    expect(shouldDrawPage(6, 5, 5)).toBe(true);
+  });
+
+  it('leaves pages further away undrawn', () => {
+    expect(shouldDrawPage(3, 5, 5)).toBe(false);
+    expect(shouldDrawPage(7, 5, 5)).toBe(false);
+  });
+
+  it('keeps the page just left drawn during a swipe, but waits with the new neighbour', () => {
+    // Swiped from 5 to 6, not settled yet
+    expect(shouldDrawPage(5, 6, 5)).toBe(true);
+    expect(shouldDrawPage(7, 6, 5)).toBe(false);
   });
 });

@@ -4,17 +4,19 @@
  * Calendar. The pager
  * holds a window of pages around the anchor, recentred as the user nears its
  * ends or jumps away (今日, a day tapped in the month); only the page on
- * screen and its neighbours draw their grid, from the cache the screen
- * prefetches.
+ * screen draws its grid at once and its neighbours follow shortly after, from
+ * the cache the screen prefetches, since every SwiftUI element is a native view.
  */
-import { Spacer, TabView } from '@expo/ui/swift-ui';
-import { onGeometryChange, tabViewStyle } from '@expo/ui/swift-ui/modifiers';
-import { useMemo, useState } from 'react';
+import { Spacer, TabView, VStack } from '@expo/ui/swift-ui';
+import { frame, onGeometryChange, tabViewStyle } from '@expo/ui/swift-ui/modifiers';
+import { useEffect, useMemo, useState } from 'react';
+import { useWindowDimensions } from 'react-native';
 
 import {
   groupByDateSorted,
   pageKey,
   shiftAnchor,
+  shouldDrawPage,
   timetableRange,
   type ViewMode,
 } from '@/components/calendar/timetablePages';
@@ -26,7 +28,11 @@ import { MonthView } from './calendar/MonthView';
 import { TimeGrid } from './calendar/TimeGrid';
 
 /** Pages each side of the window's centre. */
-const RADIUS = 12;
+const RADIUS = 6;
+/** After the page has opened and any swipe has finished. */
+const NEIGHBOURS_AFTER_MS = 350;
+/** Of the window, for the pages' height until it's measured, so they draw at once. */
+const ESTIMATED_HEIGHT_SHARE = 0.68;
 
 type Props = {
   mode: ViewMode;
@@ -38,7 +44,9 @@ type Props = {
 export function TimetablePager({ mode, anchor, onAnchorChange, onPressDay }: Props) {
   const [center, setCenter] = useState({ mode, anchor });
   // The month fits itself to this height rather than scrolling
-  const [height, setHeight] = useState(0);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  const windowHeight = useWindowDimensions().height;
+  const height = measuredHeight || windowHeight * ESTIMATED_HEIGHT_SHARE;
   const pages = useMemo(
     () =>
       Array.from({ length: RADIUS * 2 + 1 }, (_, i) => {
@@ -55,6 +63,13 @@ export function TimetablePager({ mode, anchor, onAnchorChange, onPressDay }: Pro
     setCenter({ mode, anchor });
   }
 
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledKey(selected), NEIGHBOURS_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [selected]);
+  const settled = pages.findIndex((page) => page.key === settledKey);
+
   return (
     <TabView
       selection={selected}
@@ -64,22 +79,26 @@ export function TimetablePager({ mode, anchor, onAnchorChange, onPressDay }: Pro
       }}
       modifiers={[
         tabViewStyle({ type: 'page', indexDisplayMode: 'never' }),
-        onGeometryChange((frame) => setHeight(frame.height)),
+        onGeometryChange((geometry) => setMeasuredHeight(geometry.height)),
       ]}
     >
       {pages.map((page, i) => (
         <TabView.Tab key={page.key} value={page.key}>
-          {Math.abs(i - index) <= 1 ? (
-            <TimetablePage
-              mode={mode}
-              // The page on screen keeps the exact anchor (e.g. the day in a month)
-              date={i === index ? anchor : page.date}
-              onPressDay={onPressDay}
-              height={height}
-            />
-          ) : (
-            <Spacer />
-          )}
+          {/* Always here: TabView doesn't redraw when a Tab's own children change, only
+              when its own props do, so what changes has to sit inside this stack */}
+          <VStack spacing={0} modifiers={[frame({ maxWidth: Infinity, maxHeight: Infinity })]}>
+            {shouldDrawPage(i, index, settled) ? (
+              <TimetablePage
+                mode={mode}
+                // The page on screen keeps the exact anchor (e.g. the day in a month)
+                date={i === index ? anchor : page.date}
+                onPressDay={onPressDay}
+                height={height}
+              />
+            ) : (
+              <Spacer />
+            )}
+          </VStack>
         </TabView.Tab>
       ))}
     </TabView>

@@ -32,6 +32,17 @@ export function timetableRange(anchor: string): { from: string; to: string } {
   return { from, to };
 }
 
+/**
+ * Whether the iOS pager draws page `i`: the one on screen at once, and its
+ * neighbours only once they're next to the page it last settled on (-1 if
+ * none yet). So a page opens without waiting for the two beside it, and the
+ * page just left stays drawn while it slides away.
+ */
+export function shouldDrawPage(i: number, current: number, settled: number): boolean {
+  if (i === current) return true;
+  return Math.abs(i - current) <= 1 && settled !== -1 && Math.abs(i - settled) <= 1;
+}
+
 export function groupByDateSorted(appointments: Appointment[]): Map<string, Appointment[]> {
   const map = new Map<string, Appointment[]>();
   for (const apt of appointments) {
