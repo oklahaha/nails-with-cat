@@ -43,6 +43,13 @@ One-time setup:
 
 Without the property the action returns empty lists, and the app keeps showing 久未回來.
 
+## Marking finished bookings 已完成
+
+`completePastBookings` changes 狀態 from `預約` to `已完成` once a booking's End Time has passed, looking back 30 days. It leaves `No show` and 特別事項 alone, and sends no push. A wrongly marked booking can still be changed in the app. To turn it on:
+
+1. Paste the new `Code.gs`, then run `completePastBookings` once from the editor and check the log.
+2. Under **Triggers → Add Trigger**, choose the function `completePastBookings`, deployment **Head**, event source **Time-driven**, **Hour timer**, **Every hour**.
+
 ## Notes
 
 - `TEXT_DATE_ORDER` in `Code.gs` only matters for dates stored as plain text. Real date cells are read correctly either way.

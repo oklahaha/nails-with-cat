@@ -88,6 +88,10 @@ const CUST_COL = {
 };
 
 const DEFAULT_STATUS = '預約';
+const DONE_STATUS = '已完成';
+
+/** How far back completePastBookings looks, so a stopped trigger can catch up. */
+const COMPLETE_LOOKBACK_DAYS = 30;
 
 /** 活動 for notes rather than customer bookings: no customer and a blank 狀態. */
 const SPECIAL_SERVICE = '特別事項';
@@ -405,7 +409,11 @@ function readTable_(sheet) {
   const headers = (values[0] || []).map(function (h) {
     return String(h).trim();
   });
-  return { headers: headers, rows: toRows_(headers, values.slice(1), display.slice(1)) };
+  return {
+    headers: headers,
+    rows: toRows_(headers, values.slice(1), display.slice(1)),
+    firstRow: 2,
+  };
 }
 
 /**
@@ -469,6 +477,7 @@ function readTableInDateRange_(sheet, from, to, tz) {
   return {
     headers: headers,
     rows: toRows_(headers, block.getValues(), block.getDisplayValues()),
+    firstRow: first + 2,
   };
 }
 
@@ -752,6 +761,61 @@ function deleteAppointment_(id) {
     lock.releaseLock();
   }
   return toAppointment_(row, readCustomers_(ss), ss.getSpreadsheetTimeZone());
+}
+
+/**
+ * Run by an hourly time-driven trigger (see README): mark bookings whose End
+ * Time has passed as 已完成. Only an exact 預約 changes, so No show and 特別事項
+ * are left alone. Nothing is pushed, since no one needs telling. If the script
+ * is busy, the next run catches up.
+ */
+function completePastBookings() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return;
+  try {
+    const ss = openSpreadsheet_();
+    const tz = ss.getSpreadsheetTimeZone();
+    const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+    const now = new Date();
+    const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+    const nowTime = Utilities.formatDate(now, tz, 'HH:mm');
+    const from = Utilities.formatDate(
+      new Date(now.getTime() - COMPLETE_LOOKBACK_DAYS * 864e5),
+      tz,
+      'yyyy-MM-dd'
+    );
+
+    const table = readTableInDateRange_(sheet, from, today, tz);
+    requireColumn_(table.headers, COL.status);
+    const statusCol = table.headers.indexOf(COL.status);
+    let changed = 0;
+    table.rows.forEach(function (row, i) {
+      if (cellText_(row, COL.status) !== DEFAULT_STATUS) return;
+      const date = toIsoDate_(row.values[COL.date], row.display[COL.date], tz);
+      if (!date || date < from) return;
+      const time = toHHmm_(row.display[COL.time]);
+      const endTime = toHHmm_(row.display[COL.endTime]);
+      if (!hasEnded_(date, time, endTime, today, nowTime)) return;
+      sheet.getRange(table.firstRow + i, statusCol + 1).setValue(DONE_STATUS);
+      changed++;
+    });
+    if (changed) SpreadsheetApp.flush();
+    Logger.log('Marked ' + changed + ' bookings ' + DONE_STATUS);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Whether a booking is over. On its own day that needs a readable End Time
+ * (or 時間), and one earlier than 時間 means it runs past midnight.
+ */
+function hasEnded_(date, time, endTime, today, nowTime) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) return false;
+  if (date < today) return true;
+  const end = endTime || time;
+  if (!/^\d{2}:\d{2}$/.test(end) || end < time) return false;
+  return end <= nowTime;
 }
 
 /**
