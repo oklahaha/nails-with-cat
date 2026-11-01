@@ -19,6 +19,7 @@ import type {
 } from '@/types/appointment';
 import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
 import type { CustomerAnalytics } from '@/types/customerAnalytics';
+import type { PhotoKind, PhotoSize } from '@/utils/appointmentPhotos';
 import { todayIsoDate } from '@/utils/dates';
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
@@ -261,6 +262,80 @@ export async function deleteAppointment(id: string): Promise<void> {
   });
   await parseResponse<object>(res);
   notifyChanged();
+}
+
+/**
+ * Save a photo to Drive and add its path to the booking's 參考作品 / 完成作品.
+ * The path is chosen in the app, so sending it twice is harmless. Doesn't call
+ * notifyChanged: nothing a photo changes reaches the widget or the reminders.
+ */
+export async function addAppointmentPhoto(
+  id: string,
+  kind: PhotoKind,
+  path: string,
+  base64: string
+): Promise<void> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return;
+  }
+
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'addAppointmentPhoto',
+      id,
+      kind,
+      path,
+      base64,
+    }),
+  });
+  await parseResponse<object>(res);
+}
+
+/** Take a photo off a booking and move its file to Drive's trash. */
+export async function removeAppointmentPhoto(
+  id: string,
+  kind: PhotoKind,
+  path: string
+): Promise<void> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return;
+  }
+
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'removeAppointmentPhoto',
+      id,
+      kind,
+      path,
+    }),
+  });
+  await parseResponse<object>(res);
+}
+
+/** A photo's bytes as base64, as Drive's small preview or the full file. */
+export async function getAppointmentPhoto(path: string, size: PhotoSize): Promise<string> {
+  if (isUsingMockApi) {
+    await delay(300);
+    throw new Error('示範資料沒有相片');
+  }
+
+  const params = new URLSearchParams({
+    action: 'getAppointmentPhoto',
+    token: APPS_SCRIPT_TOKEN,
+    path,
+    size,
+  });
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const data = await parseResponse<{ base64: string }>(res);
+  return data.base64;
 }
 
 /**

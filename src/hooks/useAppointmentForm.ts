@@ -25,7 +25,8 @@ import {
   type HandOrFoot,
   type NailExtra,
 } from '@/constants/services';
-import { saveAppointment } from '@/hooks/appointmentWrites';
+import { addPhotos, saveAppointment } from '@/hooks/appointmentWrites';
+import { useDraftPhotos } from '@/hooks/useAddPhotos';
 import { hapticSuccess } from '@/utils/haptics';
 import { useAppointments, useCustomerAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
@@ -88,6 +89,9 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const [priceEdited, setPriceEdited] = useState(false);
   const [status, setStatus] = useState(editing?.status ?? initial.status);
   const [errors, setErrors] = useState<FormErrors>({});
+
+  // 參考作品 picked for a new booking; existing bookings add them in their details
+  const referenceDrafts = useDraftPhotos('reference');
 
   const { customers } = useCustomers();
   const dayBookings = useAppointments({ from: date, to: date }, { enabled: date !== '' });
@@ -269,6 +273,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     const chosen = service;
     const save = () => {
       const saved = saveAppointment(toInput(text, chosen), editing);
+      if (!editing && !isSpecial) addPhotos(saved, 'reference', referenceDrafts.take());
       hapticSuccess();
       // Once the form has closed, ask about a WhatsApp confirmation
       if (!editing) offerWhatsAppConfirmation(saved);
@@ -309,6 +314,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     setHandOrFoot,
     deposit,
     setDeposit,
+    referenceDrafts,
     keptDepositHint,
     complexDesign,
     setComplexDesign,

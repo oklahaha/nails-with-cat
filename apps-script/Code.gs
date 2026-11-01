@@ -59,6 +59,16 @@ const COL = {
   depositHandling: '訂金處理',
 };
 
+/**
+ * Photo columns, keyed by the app's kind. Each cell holds the Drive paths of
+ * the booking's photos, one per line (a single path is what AppSheet writes),
+ * relative to the folder holding the spreadsheet: <folder>/<file name>.
+ */
+const PHOTO_COL = { reference: '參考作品', finished: '完成作品' };
+const PHOTO_FOLDER = { reference: '參考作品_images', finished: '完成作品_images' };
+/** Where older paths' files live now, after AppSheet's folder was split up. */
+const LEGACY_PHOTO_FOLDER = { '預約資料_Images': '完成作品_images' };
+
 /** 訂金處理 value for a deposit kept for the next booking (the app's keepDeposit). */
 const KEEP_DEPOSIT = '保留';
 
@@ -127,6 +137,8 @@ function doGet(e) {
         };
       case 'listCustomerAnalytics':
         return listCustomerAnalytics_();
+      case 'getAppointmentPhoto':
+        return getAppointmentPhoto_(params.path, params.size);
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -155,6 +167,10 @@ function doPost(e) {
         if (deleted) notifyAppointmentChange_('delete', deleted, body.pushToken);
         return {};
       }
+      case 'addAppointmentPhoto':
+        return addAppointmentPhoto_(body.id, body.kind, body.path, body.base64);
+      case 'removeAppointmentPhoto':
+        return removeAppointmentPhoto_(body.id, body.kind, body.path);
       case 'createCustomer':
         return { customer: createCustomer_(body.customer || {}) };
       case 'updateCustomer':
@@ -298,6 +314,10 @@ function toAppointment_(row, customers, tz) {
   const endTime = toHHmm_(row.display[COL.endTime]);
   if (endTime) apt.endTime = endTime;
   if (cellText_(row, COL.depositHandling) === KEEP_DEPOSIT) apt.keepDeposit = true;
+  const referencePhotos = photoPaths_(cellText_(row, PHOTO_COL.reference));
+  if (referencePhotos.length > 0) apt.referencePhotos = referencePhotos;
+  const finishedPhotos = photoPaths_(cellText_(row, PHOTO_COL.finished));
+  if (finishedPhotos.length > 0) apt.finishedPhotos = finishedPhotos;
 
   return apt;
 }
@@ -761,6 +781,198 @@ function deleteAppointment_(id) {
     lock.releaseLock();
   }
   return toAppointment_(row, readCustomers_(ss), ss.getSpreadsheetTimeZone());
+}
+
+// ---------------------------------------------------------------------------
+// Photos (參考作品, 完成作品)
+// ---------------------------------------------------------------------------
+
+/** The paths in a photo cell. */
+function photoPaths_(cell) {
+  return String(cell || '')
+    .split(/\r?\n/)
+    .map(function (path) {
+      return path.trim();
+    })
+    .filter(Boolean);
+}
+
+/**
+ * A photo folder beside the spreadsheet, found by name so that switching to
+ * the real sheet needs no new IDs. Its id is cached: each Drive lookup is slow.
+ */
+function photoFolder_(ss, name, createIfMissing) {
+  const cache = CacheService.getScriptCache();
+  const key = 'photo-folder:' + ss.getId() + ':' + name;
+  const cached = cache.get(key);
+  if (cached) {
+    try {
+      const folder = DriveApp.getFolderById(cached);
+      if (!folder.isTrashed()) return folder;
+    } catch (err) {
+      // Deleted since: look it up again
+    }
+  }
+  const parents = DriveApp.getFileById(ss.getId()).getParents();
+  if (!parents.hasNext()) throw new Error('找不到試算表所在的資料夾');
+  const parent = parents.next();
+  const found = parent.getFoldersByName(name);
+  let folder = null;
+  while (found.hasNext() && !folder) {
+    const candidate = found.next();
+    if (!candidate.isTrashed()) folder = candidate;
+  }
+  if (!folder) {
+    if (!createIfMissing) throw new Error('找不到資料夾：' + name);
+    folder = parent.createFolder(name);
+  }
+  cache.put(key, folder.getId(), 21600);
+  return folder;
+}
+
+/** The untrashed file called `name` in `folder`, or null. */
+function photoFileIn_(folder, name) {
+  const files = folder.getFilesByName(name);
+  while (files.hasNext()) {
+    const file = files.next();
+    if (!file.isTrashed()) return file;
+  }
+  return null;
+}
+
+/**
+ * The file a sheet path points at, or null. Only the photo folders can be
+ * reached, so a path can't read anything else in the deployer's Drive.
+ */
+function photoFileAt_(ss, path) {
+  const match = String(path || '').match(/^([^\/]+)\/([^\/]+)$/);
+  if (!match) throw new Error('相片路徑不正確');
+  const folderName = LEGACY_PHOTO_FOLDER[match[1]] || match[1];
+  const allowed = Object.keys(PHOTO_FOLDER).some(function (kind) {
+    return PHOTO_FOLDER[kind] === folderName;
+  });
+  if (!allowed) throw new Error('相片路徑不正確');
+  return photoFileIn_(photoFolder_(ss, folderName, false), match[2]);
+}
+
+/**
+ * A photo's bytes as base64. `size` is 'thumb' for Drive's small preview, or
+ * the full file when there's no preview yet (a file just uploaded) or asked.
+ */
+function getAppointmentPhoto_(path, size) {
+  const file = photoFileAt_(openSpreadsheet_(), path);
+  if (!file) throw new Error('找不到相片');
+  let blob = null;
+  if (size === 'thumb') {
+    try {
+      blob = file.getThumbnail();
+    } catch (err) {
+      // No preview yet: send the file
+    }
+  }
+  return { base64: Utilities.base64Encode((blob || file.getBlob()).getBytes()) };
+}
+
+function photoKindOrThrow_(kind) {
+  if (!Object.prototype.hasOwnProperty.call(PHOTO_COL, kind)) {
+    throw new Error('Unknown photo kind: ' + kind);
+  }
+  return PHOTO_COL[kind];
+}
+
+/**
+ * Save a photo to Drive and add its path to the booking. The app picks the
+ * path, so a repeat (see the outbox) finds the file and the cell entry already
+ * there. A booking deleted before its upload ran is reported as `missing`.
+ * The file is written outside the lock, as Drive is slow and bookings can wait.
+ */
+function addAppointmentPhoto_(id, kind, path, base64) {
+  id = String(id || '').trim();
+  const column = photoKindOrThrow_(kind);
+  const pattern = new RegExp(
+    '^' + PHOTO_FOLDER[kind] + '/([A-Za-z0-9]{22}\\.' + column + '\\.\\d{6}\\.jpg)$'
+  );
+  const match = String(path || '').match(pattern);
+  if (!match) throw new Error('相片路徑不正確');
+  if (!base64) throw new Error('沒有相片資料');
+
+  const ss = openSpreadsheet_();
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  const headers = readHeaders_(sheet);
+  requireColumn_(headers, column);
+  if (findAppointmentRowIndex_(sheet, headers, id) === -1) return { missing: true };
+
+  const folder = photoFolder_(ss, PHOTO_FOLDER[kind], true);
+  if (!photoFileIn_(folder, match[1])) {
+    folder.createFile(
+      Utilities.newBlob(Utilities.base64Decode(base64), 'image/jpeg', match[1])
+    );
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    // Rows may have moved while the file was written
+    const rowIndex = findAppointmentRowIndex_(sheet, headers, id);
+    if (rowIndex === -1) return { missing: true };
+    const cell = sheet.getRange(rowIndex, headers.indexOf(column) + 1);
+    const paths = photoPaths_(cell.getDisplayValue());
+    if (paths.indexOf(path) === -1) {
+      cell.setValue(paths.concat(path).join('\n'));
+      SpreadsheetApp.flush();
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return {};
+}
+
+/**
+ * Take a photo's path off the booking and move its file to Drive's trash,
+ * where it can still be restored for 30 days. Repeating it is harmless.
+ */
+function removeAppointmentPhoto_(id, kind, path) {
+  id = String(id || '').trim();
+  const column = photoKindOrThrow_(kind);
+  const ss = openSpreadsheet_();
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  // Checked before anything changes, and limits the trash to the photo folders
+  const file = photoFileAt_(ss, path);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const headers = readHeaders_(sheet);
+    const rowIndex = findAppointmentRowIndex_(sheet, headers, id);
+    const col = headers.indexOf(column);
+    if (rowIndex !== -1 && col !== -1) {
+      const cell = sheet.getRange(rowIndex, col + 1);
+      const paths = photoPaths_(cell.getDisplayValue());
+      if (paths.indexOf(path) !== -1) {
+        cell.setValue(
+          paths
+            .filter(function (p) {
+              return p !== path;
+            })
+            .join('\n')
+        );
+        SpreadsheetApp.flush();
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  if (file) file.setTrashed(true);
+  return {};
+}
+
+/** Run once from the editor to approve Drive access and check the folders. */
+function debugPhotoFolders() {
+  const ss = openSpreadsheet_();
+  Object.keys(PHOTO_FOLDER).forEach(function (kind) {
+    const folder = photoFolder_(ss, PHOTO_FOLDER[kind], false);
+    Logger.log(PHOTO_FOLDER[kind] + ': ' + folder.getUrl());
+  });
 }
 
 /**

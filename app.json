@@ -41,6 +41,14 @@
       "expo-web-browser",
       "expo-asset",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "揀選顧客的參考作品和完成作品相片",
+          "cameraPermission": "影低完成作品或參考作品",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-widgets",
         {
           "widgets": [

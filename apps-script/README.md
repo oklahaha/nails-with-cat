@@ -50,6 +50,17 @@ Without the property the action returns empty lists, and the app keeps showing �
 1. Paste the new `Code.gs`, then run `completePastBookings` once from the editor and check the log.
 2. Under **Triggers → Add Trigger**, choose the function `completePastBookings`, deployment **Head**, event source **Time-driven**, **Hour timer**, **Every hour**.
 
+## Photos (參考作品, 完成作品)
+
+The app uploads and shows booking photos through the script, which keeps them in the `參考作品_images` and `完成作品_images` folders beside the spreadsheet (found by name, and created if missing when uploading). `參考作品` and `完成作品` hold each photo's path, one per line. To turn it on:
+
+1. Paste the new `Code.gs` and `appsscript.json` (it now asks for Google Drive access).
+2. Run `debugPhotoFolders` once from the editor, approve the new permission and check the log lists both folders.
+3. Redeploy as a new version (see "Updating the code").
+4. Before switching to the real sheet, add its `參考作品` column. Uploads there fail with a clear error until it exists.
+
+The script can only read or trash files in those folders (and `預約資料_Images` paths, whose files moved to `完成作品_images`). Removing a photo in the app moves the file to Drive's trash. Deleting a booking leaves its photos in Drive.
+
 ## Notes
 
 - `TEXT_DATE_ORDER` in `Code.gs` only matters for dates stored as plain text. Real date cells are read correctly either way.

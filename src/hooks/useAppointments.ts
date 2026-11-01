@@ -9,15 +9,23 @@ import {
 import type { Appointment } from '@/types/appointment';
 import type { CustomerKey } from '@/types/customer';
 import { readStored, removeStored, writeStored } from '@/utils/persistentStorage';
+import {
+  applyPhotoOps,
+  livePhotoOps,
+  type PhotoKind,
+  withPhotosOf,
+  type PhotoOp,
+} from '@/utils/appointmentPhotos';
 import { reuseUnchanged } from '@/utils/reuseUnchanged';
 import { parseRanges, serializeRanges } from '@/utils/storedAppointments';
 
 const EMPTY: Appointment[] = [];
 
-const STORAGE_KEY = 'appointments-cache-v3';
-/** v1 saved each range's bookings in full, and v2 predates keepDeposit; drop them. */
+const STORAGE_KEY = 'appointments-cache-v4';
+/** v1 saved each range's bookings in full, v2 predates keepDeposit, v3 the photos; drop them. */
 removeStored('appointments-cache-v1');
 removeStored('appointments-cache-v2');
+removeStored('appointments-cache-v3');
 /** Most recently loaded ranges kept on the device, so storage doesn't grow. */
 const MAX_STORED = 24;
 
@@ -151,7 +159,7 @@ function withAppointment(
   const rest = list.filter((a) => !matches(a));
   if (!apt || covers === false) return rest;
   if (index === -1) return [...rest, apt];
-  rest.splice(Math.min(index, rest.length), 0, apt);
+  rest.splice(Math.min(index, rest.length), 0, withPhotosOf(list[index], apt));
   return rest;
 }
 
@@ -173,7 +181,88 @@ function applyLocalWrites(key: string, list: Appointment[], startedAt: number): 
       next = withAppointment(key, next, id, write.apt);
     }
   }
-  return next;
+  return withPhotoOps(next, startedAt);
+}
+
+/**
+ * Photos being added or removed, or done since a reload may have started.
+ * They're applied over every list, so neither a reload's older response nor a
+ * booking edit saved just before can bring back the photos as they were.
+ */
+let photoOps: PhotoOp[] = [];
+
+function withPhotoOps(list: Appointment[], startedAt?: number): Appointment[] {
+  photoOps = livePhotoOps(photoOps, Date.now());
+  if (photoOps.length === 0) return list;
+  let changed = false;
+  const next = list.map((apt) => {
+    const shown = applyPhotoOps(apt, photoOps, startedAt);
+    if (shown !== apt) changed = true;
+    return shown;
+  });
+  return changed ? next : list;
+}
+
+/** Show the photo changes in every cached list, and tell screens about pending ones. */
+function refreshPhotos(id: string, change: (apt: Appointment) => Appointment): void {
+  for (const [key, list] of cache) {
+    if (!list.some((apt) => apt.id === id)) continue;
+    setCache(key, list.map((apt) => (apt.id === id ? change(apt) : apt)));
+  }
+  cacheVersion++;
+  for (const listener of cacheListeners) listener();
+}
+
+/** Show a photo added or removed at once, while it's being sent. */
+export function setPendingPhoto(
+  appointmentId: string,
+  kind: PhotoKind,
+  path: string,
+  type: PhotoOp['type']
+): void {
+  const op: PhotoOp = { appointmentId, kind, path, type, pending: true, at: Date.now() };
+  photoOps = [...photoOps.filter((o) => o.path !== path), op];
+  refreshPhotos(appointmentId, (apt) => applyPhotoOps(apt, [op]));
+}
+
+/** The photo write is done: keep it over reloads that started before now. */
+export function settlePhoto(path: string, type: PhotoOp['type']): void {
+  // A photo removed while still uploading has its add replaced by the remove
+  const op = photoOps.find((o) => o.path === path && o.type === type);
+  if (!op) return;
+  photoOps = photoOps.map((o) => (o === op ? { ...o, pending: false, at: Date.now() } : o));
+  refreshPhotos(op.appointmentId, (apt) => apt);
+}
+
+/** The photo write failed: undo it in every list. */
+export function undoPhoto(path: string, type: PhotoOp['type']): void {
+  const op = photoOps.find((o) => o.path === path && o.type === type);
+  if (!op) return;
+  photoOps = photoOps.filter((o) => o !== op);
+  const opposite: PhotoOp = { ...op, type: op.type === 'add' ? 'remove' : 'add' };
+  refreshPhotos(op.appointmentId, (apt) => applyPhotoOps(apt, [opposite]));
+}
+
+/** The photos still being sent, joined so the result is stable between changes. */
+function pendingPhotoKey(): string {
+  return photoOps
+    .filter((op) => op.pending && op.type === 'add')
+    .map((op) => op.path)
+    .join('\n');
+}
+
+/** Paths of the photos still uploading, to mark them on screen. */
+export function usePendingPhotos(): ReadonlySet<string> {
+  const key = useSyncExternalStore(subscribeCache, pendingPhotoKey);
+  return useMemo(() => new Set(key ? key.split('\n') : []), [key]);
+}
+
+/**
+ * The cached booking as it is now, for what can change while its details are
+ * open (the photos); those screens otherwise keep the snapshot they opened with.
+ */
+export function useLiveAppointment(id: string | undefined): Appointment | undefined {
+  return useSyncExternalStore(subscribeCache, () => (id ? findCachedAppointment(id) : undefined));
 }
 
 /**
@@ -195,8 +284,9 @@ export function settleAppointment(id: string, apt: Appointment | null): void {
 }
 
 function applyToCache(id: string, apt: Appointment | null): void {
+  const shown = apt && applyPhotoOps(apt, photoOps);
   for (const [key, list] of cache) {
-    const next = withAppointment(key, list, id, apt);
+    const next = withAppointment(key, list, id, shown);
     if (next !== list) setCache(key, next);
   }
 }

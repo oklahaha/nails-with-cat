@@ -3,12 +3,13 @@
  *
  * Sheet "預約資料" columns:
  *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金,
- *   複雜款, 拆甲, 延長, 訂金處理
+ *   複雜款, 拆甲, 延長, 訂金處理, 完成作品, 參考作品
  *   (View holds the customer's name, or 備注 for 特別事項 rows; the script fills it in)
  *   (訂金 is used by every service but 特別事項)
  *   (複雜款 is 不是複雜款 / 半個鐘 / 一個鐘, and 拆甲 and 延長 are TRUE / FALSE; only 整甲 and
  *   整甲 + 眼睫毛 use them)
  *   (訂金處理 holds 保留 when the customer keeps the deposit for the next booking)
+ *   (參考作品 and 完成作品 hold Google Drive paths of the booking's photos, one per line)
  *
  * Sheet "顧客" columns:
  *   顧客ID, 顧客姓名, 電話
@@ -68,6 +69,10 @@ export type Appointment = {
   endTime?: string;
   /** 訂金處理 is 保留: the customer keeps this deposit for their next booking */
   keepDeposit?: boolean;
+  /** 參考作品 — Drive paths of what the customer asked for; only photo writes change these */
+  referencePhotos?: string[];
+  /** 完成作品 — Drive paths of the finished work; only photo writes change these */
+  finishedPhotos?: string[];
 };
 
 /** Payload for creating a new appointment (Add screen → API). */

@@ -14,6 +14,7 @@ import { stackScreenOptions } from '@/constants/stackOptions';
 import { useResumeWrites } from '@/hooks/resumeWrites';
 import { useUpcomingSync } from '@/hooks/useUpcomingSync';
 import { useNotifications } from '@/notifications/notifications';
+import { PHOTO_KINDS, type PhotoKind } from '@/utils/appointmentPhotos';
 
 export default function RootLayout() {
   // Sends saves a closed app left unsent
@@ -32,6 +33,17 @@ export default function RootLayout() {
           name="appointment-details"
           // Its own stack draws the header (appointment-details/_layout)
           options={{ headerShown: false, presentation: 'modal' }}
+        />
+        <Stack.Screen
+          name="appointment-photo"
+          options={({ route }) => ({
+            title:
+              (route.params as { kind?: PhotoKind } | undefined)?.kind === 'finished'
+                ? PHOTO_KINDS.finished.title
+                : PHOTO_KINDS.reference.title,
+            // Over the sheet it was opened from, which stays as it was
+            presentation: 'fullScreenModal',
+          })}
         />
         <Stack.Screen
           name="customer-details"

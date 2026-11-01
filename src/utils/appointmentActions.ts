@@ -5,6 +5,7 @@ import { saveAppointmentStatus, saveKeepDeposit } from '@/hooks/appointmentWrite
 import { findCachedCustomer } from '@/hooks/useCustomers';
 import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
+import type { PhotoKind } from '@/utils/appointmentPhotos';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDateHeader } from '@/utils/groupByDate';
 import { hapticLight, hapticWarning } from '@/utils/haptics';
@@ -12,6 +13,28 @@ import { hapticLight, hapticWarning } from '@/utils/haptics';
 /** Open the details screen, which offers WhatsApp, 修改 and 刪除. */
 export function openAppointmentDetails(appointment: Appointment): void {
   router.push({ pathname: '/appointment-details', params: { id: appointment.id } });
+}
+
+/**
+ * Open the full-screen photo viewer. With `appointmentId` it follows that
+ * booking's photos and can remove them; without, it shows `paths` as they are
+ * (a form's unsaved photos).
+ */
+export function openPhotoViewer(options: {
+  kind: PhotoKind;
+  start: string;
+  paths: string[];
+  appointmentId?: string;
+}): void {
+  router.push({
+    pathname: '/appointment-photo',
+    params: {
+      kind: options.kind,
+      start: options.start,
+      paths: JSON.stringify(options.paths),
+      ...(options.appointmentId ? { id: options.appointmentId } : {}),
+    },
+  });
 }
 
 /** Whether the long-press menus offer 顧客資料 and No show: customer bookings only. */

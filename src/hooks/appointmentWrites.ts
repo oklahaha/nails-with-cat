@@ -8,15 +8,24 @@
  * deleted while it's still being created. A failed write is undone in the
  * lists and reported with an alert.
  */
-import { setPendingAppointment, settleAppointment } from '@/hooks/useAppointments';
+import {
+  setPendingAppointment,
+  setPendingPhoto,
+  settleAppointment,
+  settlePhoto,
+  undoPhoto,
+} from '@/hooks/useAppointments';
 import { syncUpcoming } from '@/hooks/useUpcomingSync';
 import { findCachedCustomer } from '@/hooks/useCustomers';
 import { defineWrite } from '@/hooks/writeQueue';
 import {
+  addAppointmentPhoto,
   createAppointment,
   deleteAppointment,
+  removeAppointmentPhoto,
   updateAppointment,
 } from '@/services/appointmentsApi';
+import { discardPhoto, markPhotoUploaded, readPendingPhoto } from '@/services/photoFiles';
 import type { ServiceType } from '@/constants/services';
 import type {
   Appointment,
@@ -24,6 +33,7 @@ import type {
   UpdateAppointmentInput,
 } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
+import type { PhotoKind } from '@/utils/appointmentPhotos';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -67,12 +77,15 @@ function settleCreate(id: string, real: string | null): void {
   creates.get(id)?.settle(real);
 }
 
+/** Its create already reported the failure, so what waited for it needn't. */
+const CREATE_FAILED = new Error('此預約未能新增');
+
 /** The 預約ID to send for `id`, which may be a booking still being created. */
 async function sheetId(id: string): Promise<string> {
   const created = creates.get(id);
   if (!created) return realIds.get(id) ?? id;
   const real = await created.realId;
-  if (real == null) throw new Error('此預約未能新增');
+  if (real == null) throw CREATE_FAILED;
   return real;
 }
 
@@ -161,6 +174,57 @@ const sendDelete = defineWrite<DeletePayload>('deleteAppointment', {
     }
   },
 });
+
+type PhotoPayload = { apt: Appointment; kind: PhotoKind; path: string };
+
+const sendPhotoAdd = defineWrite<PhotoPayload>('addAppointmentPhoto', {
+  restore: ({ apt, kind, path }) => setPendingPhoto(apt.id, kind, path, 'add'),
+  run: async ({ apt, kind, path }) => {
+    try {
+      const realId = await sheetId(apt.id);
+      await addAppointmentPhoto(realId, kind, path, await readPendingPhoto(path));
+      markPhotoUploaded(path);
+      settlePhoto(path, 'add');
+    } catch (e) {
+      undoPhoto(path, 'add');
+      discardPhoto(path);
+      if (e !== CREATE_FAILED) reportFailure('上傳相片', apt, e);
+    }
+  },
+});
+
+const sendPhotoRemove = defineWrite<PhotoPayload>('removeAppointmentPhoto', {
+  restore: ({ apt, kind, path }) => setPendingPhoto(apt.id, kind, path, 'remove'),
+  run: async ({ apt, kind, path }) => {
+    try {
+      await removeAppointmentPhoto(await sheetId(apt.id), kind, path);
+      discardPhoto(path);
+      settlePhoto(path, 'remove');
+    } catch (e) {
+      undoPhoto(path, 'remove');
+      if (e !== CREATE_FAILED) reportFailure('移除相片', apt, e);
+    }
+  },
+});
+
+/**
+ * Attach photos already saved on the device (see photoFiles). Like a booking
+ * save they show at once and upload in the background, behind the booking's
+ * own create; a failed upload is undone and reported.
+ */
+export function addPhotos(apt: Appointment, kind: PhotoKind, paths: string[]): void {
+  for (const path of paths) {
+    setPendingPhoto(apt.id, kind, path, 'add');
+    sendPhotoAdd({ apt, kind, path });
+  }
+}
+
+/** Take a photo off a booking and move its file to Drive's trash, in the background. */
+export function removePhoto(apt: Appointment, kind: PhotoKind, path: string): void {
+  setPendingPhoto(apt.id, kind, path, 'remove');
+  sendPhotoRemove({ apt, kind, path });
+  hapticWarning();
+}
 
 /**
  * Create a booking, or edit `before`. Returns at once with the booking as it

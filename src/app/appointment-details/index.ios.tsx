@@ -5,7 +5,8 @@
  * 修改 (header) swaps the sheet to
  * AppointmentForm in place, with 刪除預約 at the end of the form. Bookings
  * with a paid 訂金 have 保留訂金, which marks the deposit as kept for the
- * customer's next booking.
+ * customer's next booking. 參考作品 and, from the booking's start time, 完成作品
+ * are added right here, without 修改; they upload in the background.
  * Delete / edit still use Apps Script API.
  */
 import {
@@ -30,6 +31,7 @@ import { useState } from 'react';
 
 import { AppointmentForm } from '@/components/swiftui/AppointmentForm';
 import { KeepDepositButton } from '@/components/swiftui/KeepDepositButton';
+import { BookingPhotoSection } from '@/components/swiftui/PhotoSection';
 import { DeleteConfirmButton } from '@/components/swiftui/DeleteConfirmButton';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
@@ -50,6 +52,7 @@ import {
   hasCustomerActions,
   pushAppointmentCustomer,
 } from '@/utils/appointmentActions';
+import { showsFinishedPhotos, showsReferencePhotos } from '@/utils/appointmentPhotos';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -166,6 +169,17 @@ export default function AppointmentDetailsScreen() {
             />
           ) : null}
         </Section>
+
+        {showsReferencePhotos(appointment) ? (
+          <BookingPhotoSection appointment={appointment} kind="reference" />
+        ) : null}
+        {showsFinishedPhotos(appointment) ? (
+          <BookingPhotoSection
+            appointment={appointment}
+            kind="finished"
+            hint="影低或揀選做好的作品"
+          />
+        ) : null}
 
         {isSpecial ? null : (
           <>

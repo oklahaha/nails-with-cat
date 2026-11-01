@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BookingPhotos } from '@/components/form/PhotoStrip';
 import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
 import {
@@ -31,6 +32,7 @@ import {
   hasCustomerActions,
   openAppointmentCustomer,
 } from '@/utils/appointmentActions';
+import { showsFinishedPhotos, showsReferencePhotos } from '@/utils/appointmentPhotos';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -164,6 +166,13 @@ export default function AppointmentDetailsScreen() {
             )
           )}
         </View>
+
+        {showsReferencePhotos(appointment) ? (
+          <BookingPhotos appointment={appointment} kind="reference" />
+        ) : null}
+        {showsFinishedPhotos(appointment) ? (
+          <BookingPhotos appointment={appointment} kind="finished" />
+        ) : null}
 
         {canKeepDeposit(appointment) ? (
           <Pressable

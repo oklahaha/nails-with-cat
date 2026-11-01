@@ -64,7 +64,10 @@ import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration, minutesToTime, todayIsoDate } from '@/utils/dates';
 import { formatPhone } from '@/utils/phone';
 
+import { openPhotoViewer } from '@/utils/appointmentActions';
+
 import { dateToIso, dateToTime, isoToDate, timeToDate } from './dateIso';
+import { PhotoSection } from './PhotoSection';
 import { SwiftModal } from './SwiftModal';
 
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
@@ -100,6 +103,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     setHandOrFoot,
     deposit,
     setDeposit,
+    referenceDrafts,
     keptDepositHint,
     complexDesign,
     setComplexDesign,
@@ -364,6 +368,27 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
 
             {isSpecial ? null : (
               <>
+                {/* Before 詳情: 複雜款 and 收費 are usually decided from this photo.
+                    An existing booking adds photos in its details instead. */}
+                {editing ? null : (
+                  <PhotoSection
+                    kind="reference"
+                    paths={referenceDrafts.paths}
+                    hint="顧客 WhatsApp 傳來的款式相片，儲存預約後會上傳"
+                    adding={referenceDrafts.adding}
+                    canAdd={referenceDrafts.canAdd}
+                    onAdd={(source) => void referenceDrafts.add(source)}
+                    onOpen={(path) =>
+                      openPhotoViewer({
+                        kind: 'reference',
+                        start: path,
+                        paths: referenceDrafts.paths,
+                      })
+                    }
+                    onRemove={referenceDrafts.remove}
+                  />
+                )}
+
                 <Section
                   title="詳情"
                   footer={
