@@ -59,6 +59,8 @@ The app uploads and shows booking photos through the script, which keeps them in
 3. Redeploy as a new version (see "Updating the code").
 4. Before switching to the real sheet, add its `參考作品` column. Uploads there fail with a clear error until it exists.
 
+The 作品 tab lists bookings through `listFinishedPhotoAppointments`, so it also needs the new `Code.gs` redeployed.
+
 The script can only read or trash files in those folders (and `預約資料_Images` paths, whose files moved to `完成作品_images`). Removing a photo in the app moves the file to Drive's trash. Deleting a booking leaves its photos in Drive.
 
 ## Notes

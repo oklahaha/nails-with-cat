@@ -137,6 +137,8 @@ function doGet(e) {
         };
       case 'listCustomerAnalytics':
         return listCustomerAnalytics_();
+      case 'listFinishedPhotoAppointments':
+        return { appointments: listFinishedPhotoAppointments_() };
       case 'getAppointmentPhoto':
         return getAppointmentPhoto_(params.path, params.size);
       default:
@@ -797,6 +799,49 @@ function photoPaths_(cell) {
     .filter(Boolean);
 }
 
+/** Rows this close together are read as one block rather than with a call each. */
+const PHOTO_ROW_BLOCK_GAP = 50;
+
+/**
+ * Every booking with 完成作品, any date. Only that column is scanned first;
+ * full rows are read for blocks around the matches, since photos are spread
+ * over years of history and reading it all takes several seconds.
+ */
+function listFinishedPhotoAppointments_() {
+  const ss = openSpreadsheet_();
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  const headers = readHeaders_(sheet);
+  const col = headers.indexOf(PHOTO_COL.finished);
+  const lastRow = sheet.getLastRow();
+  if (col === -1 || lastRow < 2) return [];
+
+  const blocks = [];
+  sheet
+    .getRange(2, col + 1, lastRow - 1, 1)
+    .getValues()
+    .forEach(function (cell, i) {
+      if (!String(cell[0]).trim()) return;
+      const row = i + 2;
+      const block = blocks[blocks.length - 1];
+      if (block && row - block.last <= PHOTO_ROW_BLOCK_GAP) block.last = row;
+      else blocks.push({ first: row, last: row });
+    });
+  if (blocks.length === 0) return [];
+
+  const tz = ss.getSpreadsheetTimeZone();
+  const customers = readCustomers_(ss);
+  const out = [];
+  blocks.forEach(function (block) {
+    const range = sheet.getRange(block.first, 1, block.last - block.first + 1, headers.length);
+    toRows_(headers, range.getValues(), range.getDisplayValues()).forEach(function (row) {
+      if (cellText_(row, COL.id) && cellText_(row, PHOTO_COL.finished)) {
+        out.push(toAppointment_(row, customers, tz));
+      }
+    });
+  });
+  return out;
+}
+
 /**
  * A photo folder beside the spreadsheet, found by name so that switching to
  * the real sheet needs no new IDs. Its id is cached: each Drive lookup is slow.
@@ -855,8 +900,29 @@ function photoFileAt_(ss, path) {
   return photoFileIn_(photoFolder_(ss, folderName, false), match[2]);
 }
 
+/** Long side of a thumbnail, sharp in a three-column grid on a phone. */
+const THUMB_PIXELS = 720;
+
 /**
- * A photo's bytes as base64. `size` is 'thumb' for Drive's small preview, or
+ * Drive's preview at THUMB_PIXELS. file.getThumbnail() has no size option and
+ * is too small for the 作品 grid, so this asks Drive's thumbnail address, and
+ * returns null if that doesn't give an image.
+ */
+function sizedThumbnail_(file) {
+  try {
+    const res = UrlFetchApp.fetch(
+      'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w' + THUMB_PIXELS,
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }
+    );
+    const isImage = /^image\//.test(String(res.getHeaders()['Content-Type'] || ''));
+    return res.getResponseCode() === 200 && isImage ? res.getBlob() : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * A photo's bytes as base64. `size` is 'thumb' for a preview from Drive, or
  * the full file when there's no preview yet (a file just uploaded) or asked.
  */
 function getAppointmentPhoto_(path, size) {
@@ -865,7 +931,7 @@ function getAppointmentPhoto_(path, size) {
   let blob = null;
   if (size === 'thumb') {
     try {
-      blob = file.getThumbnail();
+      blob = sizedThumbnail_(file) || file.getThumbnail();
     } catch (err) {
       // No preview yet: send the file
     }

@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 're
 import {
   listAppointments,
   listCustomerAppointments,
+  listFinishedPhotoAppointments,
   type ListAppointmentsOptions,
 } from '@/services/appointmentsApi';
 import type { Appointment } from '@/types/appointment';
@@ -55,10 +56,9 @@ function subscribeCache(listener: () => void): () => void {
  * write, since a covering range may change what it shows.
  */
 function useCacheSnapshot(key: string): Appointment[] | number {
-  return useSyncExternalStore(
-    subscribeCache,
-    useCallback(() => cache.get(key) ?? cacheVersion, [key])
-  );
+  const snapshot = useCallback(() => cache.get(key) ?? cacheVersion, [key]);
+  // The same on the server: web renders routes there first
+  return useSyncExternalStore(subscribeCache, snapshot, snapshot);
 }
 
 /** Every cache write goes through here, so it's saved on the device too. */
@@ -81,6 +81,14 @@ const inflight = new Map<string, Promise<Appointment[]>>();
 
 function rangeKey({ from, to }: ListAppointmentsOptions): string {
   return `${from ?? ''}|${to ?? ''}`;
+}
+
+/** The bookings with 完成作品, whatever their date: edited in the cache like a customer's history. */
+const FINISHED_PHOTOS_KEY = 'photos:finished';
+
+/** Lists kept by something other than a date range, so a booking's date doesn't decide what's in them. */
+function isDateRangeKey(key: string): boolean {
+  return !key.startsWith('customer:') && key !== FINISHED_PHOTOS_KEY;
 }
 
 function customerKey({ id, name }: CustomerKey): string {
@@ -223,6 +231,12 @@ export function setPendingPhoto(
   const op: PhotoOp = { appointmentId, kind, path, type, pending: true, at: Date.now() };
   photoOps = [...photoOps.filter((o) => o.path !== path), op];
   refreshPhotos(appointmentId, (apt) => applyPhotoOps(apt, [op]));
+  // A booking's first 完成作品 joins the 作品 tab's list without waiting for a reload
+  const gallery = cache.get(FINISHED_PHOTOS_KEY);
+  const apt = findCachedAppointment(appointmentId);
+  if (kind === 'finished' && type === 'add' && gallery && apt) {
+    if (!gallery.some((a) => a.id === appointmentId)) setCache(FINISHED_PHOTOS_KEY, [...gallery, apt]);
+  }
 }
 
 /** The photo write is done: keep it over reloads that started before now. */
@@ -253,7 +267,7 @@ function pendingPhotoKey(): string {
 
 /** Paths of the photos still uploading, to mark them on screen. */
 export function usePendingPhotos(): ReadonlySet<string> {
-  const key = useSyncExternalStore(subscribeCache, pendingPhotoKey);
+  const key = useSyncExternalStore(subscribeCache, pendingPhotoKey, pendingPhotoKey);
   return useMemo(() => new Set(key ? key.split('\n') : []), [key]);
 }
 
@@ -262,7 +276,8 @@ export function usePendingPhotos(): ReadonlySet<string> {
  * open (the photos); those screens otherwise keep the snapshot they opened with.
  */
 export function useLiveAppointment(id: string | undefined): Appointment | undefined {
-  return useSyncExternalStore(subscribeCache, () => (id ? findCachedAppointment(id) : undefined));
+  const snapshot = () => (id ? findCachedAppointment(id) : undefined);
+  return useSyncExternalStore(subscribeCache, snapshot, snapshot);
 }
 
 /**
@@ -293,7 +308,7 @@ function applyToCache(id: string, apt: Appointment | null): void {
 
 /** Whether a date-range cache key covers `date`; undefined for customer histories. */
 function rangeCovers(key: string, date: string): boolean | undefined {
-  if (key.startsWith('customer:')) return undefined;
+  if (!isDateRangeKey(key)) return undefined;
   const [from, to] = key.split('|');
   return (!from || date >= from) && (!to || date <= to);
 }
@@ -305,7 +320,7 @@ function rangeCovers(key: string, date: string): boolean | undefined {
  */
 function fromCoveringRange(from: string | undefined, to: string | undefined) {
   for (const [key, list] of cache) {
-    if (key.startsWith('customer:')) continue;
+    if (!isDateRangeKey(key)) continue;
     const [f, t] = key.split('|');
     if ((!f || (from != null && from >= f)) && (!t || (to != null && to <= t))) {
       return list.filter((apt) => (!from || apt.date >= from) && (!to || apt.date <= to));
@@ -444,6 +459,43 @@ export function useCachedAppointments({ from, to }: ListAppointmentsOptions): Ap
     // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot tracks the cache
     [key, from, to, snapshot]
   );
+}
+
+/**
+ * Every booking with 完成作品, for the 作品 tab. Cached like date ranges, so
+ * the details screen can open any of them, and reloaded on focus.
+ */
+export function useFinishedPhotoAppointments() {
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      await fetchCached(FINISHED_PHOTOS_KEY, listFinishedPhotoAppointments);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '載入失敗');
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  const current = useCacheSnapshot(FINISHED_PHOTOS_KEY);
+  const appointments = typeof current === 'number' ? undefined : current;
+  return {
+    appointments: appointments ?? EMPTY,
+    loading: appointments === undefined && error === null,
+    error,
+    reload: load,
+  };
+}
+
+/** What the cache holds for the 作品 tab, without loading it: for its viewer. */
+export function useCachedFinishedPhotoAppointments(): Appointment[] {
+  const current = useCacheSnapshot(FINISHED_PHOTOS_KEY);
+  return typeof current === 'number' ? EMPTY : current;
 }
 
 /**

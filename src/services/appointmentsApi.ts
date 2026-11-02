@@ -139,6 +139,22 @@ export async function listCustomerAppointments(key: CustomerKey): Promise<Appoin
   return data.appointments;
 }
 
+/** Fetch every booking with 完成作品, any date, for the 作品 tab. */
+export async function listFinishedPhotoAppointments(): Promise<Appointment[]> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return MOCK_APPOINTMENTS.filter((apt) => (apt.finishedPhotos?.length ?? 0) > 0);
+  }
+
+  const params = new URLSearchParams({
+    action: 'listFinishedPhotoAppointments',
+    token: APPS_SCRIPT_TOKEN,
+  });
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const data = await parseResponse<{ appointments: Appointment[] }>(res);
+  return data.appointments;
+}
+
 /**
  * Create a new appointment — appends a row to 預約資料.
  */

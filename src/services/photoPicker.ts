@@ -19,7 +19,7 @@ export type PhotoSource = 'library' | 'camera';
 /** Sharp enough to read a nail design when zoomed, at a few hundred KB. */
 const FULL_LONG_SIDE = 1600;
 const FULL_QUALITY = 0.75;
-const THUMB_LONG_SIDE = 360;
+const THUMB_LONG_SIDE = 720;
 const THUMB_QUALITY = 0.6;
 
 function loadModules() {

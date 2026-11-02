@@ -1,6 +1,6 @@
 /**
  * Bottom tabs (iOS) — the native UITabBar via NativeTabs, which draws the
- * Liquid Glass bar on iOS 26+: 統計 · 顧客資料 · 預約資料 · 時間表 (home).
+ * Liquid Glass bar on iOS 26+: 統計 · 作品 · 顧客資料 · 預約資料 · 時間表 (home).
  * New bookings start from the ＋ buttons.
  *
  * Native tabs have no headers, so each iOS screen draws its own title
@@ -29,6 +29,12 @@ function Tabs() {
       <NativeTabs.Trigger name="stats">
         <NativeTabs.Trigger.Icon sf={{ default: 'chart.bar', selected: 'chart.bar.fill' }} />
         <NativeTabs.Trigger.Label>統計</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="gallery">
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'photo.on.rectangle', selected: 'photo.fill.on.rectangle.fill' }}
+        />
+        <NativeTabs.Trigger.Label>作品</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="customers">
         <NativeTabs.Trigger.Icon

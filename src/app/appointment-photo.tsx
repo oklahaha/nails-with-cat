@@ -5,9 +5,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -16,11 +14,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PhotoPage } from '@/components/form/PhotoPage';
 import { Icon } from '@/components/Icon';
 import { colors, pressedStyle, radius, spacing } from '@/constants/theme';
 import { removePhoto } from '@/hooks/appointmentWrites';
 import { useLiveAppointment } from '@/hooks/useAppointments';
-import { usePhotoUri } from '@/hooks/usePhotoUri';
 import { showAlert } from '@/utils/alert';
 import { photosOf, type PhotoKind } from '@/utils/appointmentPhotos';
 
@@ -94,40 +92,10 @@ export default function AppointmentPhotoScreen() {
   );
 }
 
-function PhotoPage({ path, width }: { path: string; width: number }) {
-  const { uri, failed, retry } = usePhotoUri(path, 'full');
-  return (
-    <View style={[styles.page, { width }]}>
-      {uri ? (
-        <Image source={{ uri }} style={styles.photo} resizeMode="contain" accessibilityIgnoresInvertColors />
-      ) : failed ? (
-        <Pressable onPress={retry} accessibilityRole="button">
-          <Text style={styles.failed}>未能載入相片，按此重試</Text>
-        </Pressable>
-      ) : (
-        <ActivityIndicator color={colors.accent} />
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  page: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photo: {
-    width: '100%',
-    height: '100%',
-  },
-  failed: {
-    color: colors.textSecondary,
-    fontSize: 15,
   },
   footer: {
     paddingHorizontal: spacing.md,

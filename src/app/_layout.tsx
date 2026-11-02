@@ -46,6 +46,10 @@ export default function RootLayout() {
           })}
         />
         <Stack.Screen
+          name="gallery-photo"
+          options={{ title: '作品', presentation: 'fullScreenModal' }}
+        />
+        <Stack.Screen
           name="customer-details"
           options={{ title: '顧客資料', presentation: 'modal' }}
         />

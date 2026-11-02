@@ -1,6 +1,6 @@
 /**
  * Bottom tabs (Android, web; iOS uses _layout.ios.tsx), in the same order as iOS:
- * 統計 · 顧客資料 · 預約資料 · 時間表 (home). New bookings start from the ＋ buttons.
+ * 統計 · 作品 · 顧客資料 · 預約資料 · 時間表 (home). New bookings start from the ＋ buttons.
  * The bar hides while scrolling down and slides back up on scroll up
  * (useHideTabBarOnScroll → SlidingTabBar).
  */
@@ -35,6 +35,13 @@ export default function TabLayout() {
           options={{
             title: '統計',
             tabBarIcon: ({ color }) => <Icon name="chart" color={color} size={22} />,
+          }}
+        />
+        <Tabs.Screen
+          name="gallery"
+          options={{
+            title: '作品',
+            tabBarIcon: ({ color }) => <Icon name="gallery" color={color} size={22} />,
           }}
         />
         <Tabs.Screen

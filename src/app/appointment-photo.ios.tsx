@@ -4,41 +4,19 @@
  * bottom bar shares the photo (to WhatsApp or 儲存影像) and, for a saved
  * booking, removes it.
  */
-import {
-  Alert,
-  Button,
-  HStack,
-  Image,
-  Label,
-  ProgressView,
-  ScrollView,
-  ShareLink,
-  Spacer,
-  TabView,
-  Text,
-  VStack,
-} from '@expo/ui/swift-ui';
-import {
-  aspectRatio,
-  frame,
-  onGeometryChange,
-  padding,
-  resizable,
-  tabViewStyle,
-} from '@expo/ui/swift-ui/modifiers';
+import { Alert, Button, HStack, Spacer, TabView, Text, VStack } from '@expo/ui/swift-ui';
+import { frame, onGeometryChange, padding, tabViewStyle } from '@expo/ui/swift-ui/modifiers';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
 
 import { glassButton } from '@/components/swiftui/glass';
+import { PhotoPage, PhotoShareButton } from '@/components/swiftui/PhotoPage';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
-import { colors } from '@/constants/theme';
 import { removePhoto } from '@/hooks/appointmentWrites';
 import { useLiveAppointment } from '@/hooks/useAppointments';
-import { usePhotoUri } from '@/hooks/usePhotoUri';
 import { photosOf, type PhotoKind } from '@/utils/appointmentPhotos';
 
-const ZOOM = 2.5;
 /** Each drawn page is a decoded image, so only the one on screen and its neighbours are. */
 const DRAWN_PAGES_EACH_SIDE = 1;
 
@@ -98,7 +76,7 @@ export default function AppointmentPhotoScreen() {
         </TabView>
 
         <HStack spacing={12} modifiers={[padding({ horizontal: 16, vertical: 12 })]}>
-          <ShareButton key={current} path={current} />
+          <PhotoShareButton key={current} path={current} />
           <Spacer />
           {live ? (
             <Alert title="移除此相片？" isPresented={askRemove} onIsPresentedChange={setAskRemove}>
@@ -130,51 +108,5 @@ export default function AppointmentPhotoScreen() {
         </HStack>
       </VStack>
     </SwiftModal>
-  );
-}
-
-function PhotoPage({ path, width, height }: { path: string; width: number; height: number }) {
-  const { uri, failed, retry } = usePhotoUri(path, 'full');
-  const [zoomed, setZoomed] = useState(false);
-  const scale = zoomed ? ZOOM : 1;
-
-  if (failed) {
-    return (
-      <VStack spacing={12} modifiers={[frame({ maxWidth: Infinity, maxHeight: Infinity })]}>
-        <Text>未能載入相片</Text>
-        <Button label="重試" onPress={retry} modifiers={[glassButton()]} />
-      </VStack>
-    );
-  }
-  if (!uri) {
-    return (
-      <VStack modifiers={[frame({ maxWidth: Infinity, maxHeight: Infinity })]}>
-        <ProgressView />
-      </VStack>
-    );
-  }
-  return (
-    <ScrollView axes={zoomed ? 'both' : 'vertical'} showsIndicators={false}>
-      <Image
-        uiImage={uri}
-        onPress={() => setZoomed((z) => !z)}
-        modifiers={[
-          resizable(),
-          aspectRatio({ contentMode: 'fit' }),
-          frame({ width: width * scale, height: height * scale }),
-        ]}
-      />
-    </ScrollView>
-  );
-}
-
-/** Shares the local file, once it's there. */
-function ShareButton({ path }: { path: string }) {
-  const { uri } = usePhotoUri(path, 'full');
-  if (!uri) return <Label title="分享" systemImage="square.and.arrow.up" color={colors.textTertiary} />;
-  return (
-    <ShareLink item={uri} modifiers={[glassButton()]}>
-      <Label title="分享" systemImage="square.and.arrow.up" />
-    </ShareLink>
   );
 }
