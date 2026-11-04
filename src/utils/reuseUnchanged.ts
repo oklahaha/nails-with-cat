@@ -21,7 +21,8 @@ export function reuseUnchanged<T extends object>(
   return same ? prev : merged;
 }
 
-function shallowEqual(a: object, b: object): boolean {
+/** Whether two objects hold the same fields (photo path arrays compared by value). */
+export function shallowEqual(a: object, b: object): boolean {
   const aKeys = Object.keys(a);
   if (aKeys.length !== Object.keys(b).length) return false;
   return aKeys.every((key) =>

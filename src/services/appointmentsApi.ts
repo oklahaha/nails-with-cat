@@ -21,6 +21,7 @@ import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
 import type { CustomerAnalytics } from '@/types/customerAnalytics';
 import type { PhotoKind, PhotoSize } from '@/utils/appointmentPhotos';
 import { todayIsoDate } from '@/utils/dates';
+import { sheetPhone } from '@/utils/phone';
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
 const APPS_SCRIPT_TOKEN = process.env.EXPO_PUBLIC_APPS_SCRIPT_TOKEN ?? '';
@@ -408,11 +409,10 @@ export async function createCustomer(input: CustomerInput): Promise<Customer> {
   if (isUsingMockApi) {
     await delay(300);
     // Not persisted; the list is rebuilt from MOCK_APPOINTMENTS
-    const digits = input.phone.replace(/[^\d]/g, '');
     const created: Customer = {
       id: `CUST-MOCK-${Date.now()}`,
       name: input.name.trim(),
-      phone: digits.length === 8 ? `852${digits}` : digits,
+      phone: sheetPhone(input.phone),
       joinedDate: todayIsoDate(),
     };
     console.log('[appointmentsApi] mock createCustomer:', created);
@@ -443,11 +443,10 @@ export async function updateCustomer(
   if (isUsingMockApi) {
     await delay(300);
     // Not persisted; the list is rebuilt from MOCK_APPOINTMENTS
-    const digits = input.phone.replace(/[^\d]/g, '');
     const updated: Customer = {
       id: key.id ?? '',
       name: input.name.trim(),
-      phone: digits.length === 8 ? `852${digits}` : digits,
+      phone: sheetPhone(input.phone),
     };
     console.log('[appointmentsApi] mock updateCustomer:', updated);
     return updated;

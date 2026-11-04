@@ -701,11 +701,15 @@ function updateAppointment_(id, input) {
   const a = parseAppointmentInput_(input);
   const hasStatus = input.status != null;
   const status = hasStatus ? String(input.status).trim() : null;
+  const ss = openSpreadsheet_();
+  // Read before the lock and the row lookup: AppSheet doesn't take the lock,
+  // so rows it deletes meanwhile would shift the row found below
+  const customers = readCustomers_(ss);
+  const customer = customers.byName[a.customerName];
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
-    const ss = openSpreadsheet_();
     const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
     const found = findAppointmentRow_(sheet, id);
     const headers = found.headers;
@@ -713,9 +717,10 @@ function updateAppointment_(id, input) {
 
     const range = sheet.getRange(rowIndex, 1, 1, headers.length);
     const current = toRows_(headers, range.getValues(), range.getDisplayValues())[0];
-
-    const customers = readCustomers_(ss);
-    const customer = customers.byName[a.customerName];
+    // The row moved between the lookup and this read: don't write over another booking
+    if (String(current.values[COL.id]).trim() !== String(id).trim()) {
+      throw new Error('試算表剛被修改，請再試一次');
+    }
     // Keep the row's existing style: a 顧客ID (AppSheet Ref) or a plain name
     const currentCustomer = cellText_(current, COL.customerName);
     const storesId =

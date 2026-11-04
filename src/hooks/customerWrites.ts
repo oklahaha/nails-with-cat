@@ -19,15 +19,10 @@ import {
 import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
 import { showAlert } from '@/utils/alert';
 import { todayIsoDate } from '@/utils/dates';
+import { sheetPhone } from '@/utils/phone';
 
 function keyOf(customer: Customer): CustomerKey {
   return { id: customer.id || undefined, name: customer.name };
-}
-
-/** Phone as Apps Script reads it back: digits, with 852 before 8-digit numbers. */
-function sheetPhone(phone: string): string {
-  const digits = phone.replace(/[^\d]/g, '');
-  return digits.length === 8 ? `852${digits}` : digits;
 }
 
 function reportFailure(action: string, name: string, e: unknown): void {

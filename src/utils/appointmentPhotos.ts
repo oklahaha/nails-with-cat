@@ -6,6 +6,7 @@
  */
 import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { toIsoDate } from '@/utils/dates';
+import { randomId } from '@/utils/randomId';
 
 export type PhotoKind = 'reference' | 'finished';
 /** Thumbnails come from Drive's small preview, and the viewer opens the full file. */
@@ -19,8 +20,6 @@ export const PHOTO_KINDS = {
 /** Per kind: enough for a few angles, and each one is a slow upload. */
 export const MAX_PHOTOS = 6;
 
-const ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-
 /** A new path, the shape AppSheet uses: <folder>/<22 chars>.<column>.<HHmmss>.jpg */
 export function newPhotoPath(
   kind: PhotoKind,
@@ -28,8 +27,7 @@ export function newPhotoPath(
   random: () => number = Math.random
 ): string {
   const { folder, title } = PHOTO_KINDS[kind];
-  let id = '';
-  for (let i = 0; i < 22; i++) id += ID_CHARS[Math.floor(random() * ID_CHARS.length)];
+  const id = randomId(random);
   const stamp = [now.getHours(), now.getMinutes(), now.getSeconds()]
     .map((n) => String(n).padStart(2, '0'))
     .join('');

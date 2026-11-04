@@ -37,6 +37,7 @@ import type { PhotoKind } from '@/utils/appointmentPhotos';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { randomId } from '@/utils/randomId';
 import { hapticWarning } from '@/utils/haptics';
 
 /**
@@ -52,19 +53,6 @@ const creates = new Map<
  * deployed before the app chose its own ids make up their own.
  */
 const realIds = new Map<string, string>();
-
-const ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-
-/**
- * A new 預約ID, the same shape as AppSheet's (22 letters and digits). Chosen
- * here rather than by Apps Script, so a create sent twice (see writeQueue)
- * finds the row it already made instead of adding a second one.
- */
-function newAppointmentId(): string {
-  let id = '';
-  for (let i = 0; i < 22; i++) id += ID_CHARS[Math.floor(Math.random() * ID_CHARS.length)];
-  return id;
-}
 
 /** Let edits and deletes queued behind a new booking wait for its 預約ID. */
 function trackCreate(id: string): void {
@@ -231,7 +219,9 @@ export function removePhoto(apt: Appointment, kind: PhotoKind, path: string): vo
  * will be saved; the write itself runs in the background.
  */
 export function saveAppointment(input: UpdateAppointmentInput, before?: Appointment): Appointment {
-  const id = before ? (realIds.get(before.id) ?? before.id) : newAppointmentId();
+  // A new booking's 預約ID is chosen here, not by Apps Script, so a create sent
+  // twice (see writeQueue) finds the row it already made instead of adding another
+  const id = before ? (realIds.get(before.id) ?? before.id) : randomId();
   const payload = { id, input, local: localAppointment(id, input, before), before };
   showSave(payload);
   sendSave(payload);

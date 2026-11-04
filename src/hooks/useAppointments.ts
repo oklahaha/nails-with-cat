@@ -17,7 +17,7 @@ import {
   withPhotosOf,
   type PhotoOp,
 } from '@/utils/appointmentPhotos';
-import { reuseUnchanged } from '@/utils/reuseUnchanged';
+import { reuseUnchanged, shallowEqual } from '@/utils/reuseUnchanged';
 import { parseRanges, serializeRanges } from '@/utils/storedAppointments';
 
 const EMPTY: Appointment[] = [];
@@ -109,15 +109,64 @@ function fetchCached(key: string, load: () => Promise<Appointment[]>): Promise<A
     const startedAt = Date.now();
     request = load()
       .then((data) => {
-        const withLocal = applyLocalWrites(key, data, startedAt);
+        // A reload that started earlier but answered later mustn't bring back
+        // the old copies of rows a later-started one already returned
+        const current = withRows(key, data, (id) => {
+          const known = newest.get(id);
+          return known && known.at > startedAt ? known.apt : undefined;
+        });
+        const withLocal = applyLocalWrites(key, current, startedAt);
         const merged = reuseUnchanged(cache.get(key), withLocal, (apt) => apt.id);
         setCache(key, merged);
+        spreadFresh(key, merged, startedAt);
         return merged;
       })
       .finally(() => inflight.delete(key));
     inflight.set(key, request);
   }
   return request;
+}
+
+/** Per booking, its copy from the latest-started reload that returned it, and when that started. */
+const newest = new Map<string, { at: number; apt: Appointment }>();
+
+/**
+ * `list` with each row that `latestOf` has another copy of swapped for that
+ * copy, or dropped when the copy's date has left `key`'s range.
+ */
+function withRows(
+  key: string,
+  list: Appointment[],
+  latestOf: (id: string) => Appointment | undefined
+): Appointment[] {
+  let changed = false;
+  const next = list.flatMap((apt) => {
+    const latest = latestOf(apt.id);
+    if (!latest || latest === apt || shallowEqual(latest, apt)) return [apt];
+    changed = true;
+    return rangeCovers(key, latest.date) === false ? [] : [latest];
+  });
+  return changed ? next : list;
+}
+
+/**
+ * Copy the rows a reload of `fromKey` just returned into every other cached
+ * list holding them. Without this a list not reloaded (the timetable's month
+ * while the push sync reloads only today onwards) keeps an old copy, and No
+ * show or 保留訂金, which send every column, would write the old values back
+ * over the other phone's edit.
+ */
+function spreadFresh(fromKey: string, fresh: Appointment[], startedAt: number): void {
+  for (const apt of fresh) {
+    const known = newest.get(apt.id);
+    if (!known || known.at <= startedAt) newest.set(apt.id, { at: startedAt, apt });
+  }
+  const byId = new Map(fresh.map((apt) => [apt.id, apt]));
+  for (const [key, list] of cache) {
+    if (key === fromKey) continue;
+    const next = withRows(key, list, (id) => byId.get(id));
+    if (next !== list) setCache(key, next);
+  }
 }
 
 /** Warm the cache for a range the user is likely to open next. */
@@ -135,18 +184,6 @@ export function findCachedAppointment(id: string): Appointment | undefined {
     if (found) return found;
   }
   return undefined;
-}
-
-/**
- * Put a just-saved appointment into every cached range that covers its date
- * (and out of those that no longer do), so screens show it at once instead
- * of after the next Apps Script reload. Customer histories only get edits.
- */
-export function upsertCachedAppointment(saved: Appointment): void {
-  for (const [key, list] of cache) {
-    const next = withAppointment(key, list, saved.id, saved);
-    if (next !== list) setCache(key, next);
-  }
 }
 
 /**
@@ -347,15 +384,6 @@ export function renameCachedCustomer(from: string, to: string, phone?: string): 
   }
 }
 
-/** Drop a deleted appointment from every cached range, so it disappears at once. */
-export function removeCachedAppointment(id: string): void {
-  for (const [key, list] of cache) {
-    if (list.some((apt) => apt.id === id)) {
-      setCache(key, list.filter((apt) => apt.id !== id));
-    }
-  }
-}
-
 type Result = {
   key: string;
   appointments?: Appointment[];
@@ -424,7 +452,7 @@ export function useAppointments(
   // Re-render when a save or delete elsewhere changes this range's cache
   const snapshot = useCacheSnapshot(key);
   // The cache is never older than `result` (fetches fill it first), and it
-  // also reflects local edits such as removeCachedAppointment, so prefer it.
+  // also reflects local edits such as a pending delete, so prefer it.
   // After a range change, this shows that range's cache until its own result
   // lands, or else what a wider cached range holds for it.
   const covering = useMemo(
