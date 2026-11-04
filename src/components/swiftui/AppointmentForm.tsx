@@ -23,6 +23,8 @@ import {
   VStack,
 } from '@expo/ui/swift-ui';
 import {
+  animation,
+  Animation,
   buttonStyle,
   contentShape,
   datePickerStyle,
@@ -56,15 +58,18 @@ import {
 } from '@/constants/services';
 import { colors } from '@/constants/theme';
 import { useAppointmentForm, type FormField } from '@/hooks/useAppointmentForm';
-import type { Appointment, ServiceType } from '@/types/appointment';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { STATUS_OPTIONS, type Appointment, type ServiceType } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import { minutesToTime, todayIsoDate } from '@/utils/dates';
+import { formatDuration, minutesToTime, todayIsoDate } from '@/utils/dates';
 import { formatPhone } from '@/utils/phone';
 
+import { openPhotoViewer } from '@/utils/appointmentActions';
+
 import { dateToIso, dateToTime, isoToDate, timeToDate } from './dateIso';
+import { PhotoSection } from './PhotoSection';
 import { SwiftModal } from './SwiftModal';
 
-const STATUS_OPTIONS = ['預約', '已完成'] as const;
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
 const PICKER_LOOK = [tint(colors.accent), environment('locale', 'zh_Hant_HK')];
 
@@ -98,6 +103,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     setHandOrFoot,
     deposit,
     setDeposit,
+    referenceDrafts,
+    keptDepositHint,
     complexDesign,
     setComplexDesign,
     nailExtras,
@@ -138,6 +145,13 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     if (autoPrice != null && followAutoPrice) priceTextState.set(String(autoPrice));
   }, [autoPrice, followAutoPrice, priceTextState]);
 
+  const reduceMotion = useReduceMotion();
+  // Changes whenever the form gains or loses rows, which then slide rather than jump
+  const rowLayout =
+    (SERVICES.findIndex((s) => s.name === service) + 1) * 1000 +
+    (showNailExtras ? 100 : 0) +
+    clashes.length;
+
   const handleSubmit = () =>
     submit(
       {
@@ -159,7 +173,12 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
       onSave={handleSubmit}
       saveDisabled={!service}
     >
-      <Form modifiers={[scrollDismissesKeyboard('immediately')]}>
+      <Form
+        modifiers={[
+          scrollDismissesKeyboard('immediately'),
+          ...(reduceMotion ? [] : [animation(Animation.snappy({ duration: 0.25 }), rowLayout)]),
+        ]}
+      >
         <Section footer={!service ? <Text>先揀活動，再填其他資料</Text> : undefined}>
           {/* Two columns: the 活動 label stays put on the left, and the right
               column is the Menu, wide enough that tapping anywhere in it opens
@@ -316,7 +335,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                   }}
                 />
               ) : endTime ? (
-                <PlaceholderRow label="完結" text={`${endTime}（${duration} 分鐘）`} />
+                <PlaceholderRow label="完結" text={`${endTime}（${formatDuration(duration ?? 0)}）`} />
               ) : null}
               {endTimeError ? (
                 <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>
@@ -349,6 +368,27 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
 
             {isSpecial ? null : (
               <>
+                {/* Before 詳情: 複雜款 and 收費 are usually decided from this photo.
+                    An existing booking adds photos in its details instead. */}
+                {editing ? null : (
+                  <PhotoSection
+                    kind="reference"
+                    paths={referenceDrafts.paths}
+                    hint="顧客 WhatsApp 傳來的款式相片，儲存預約後會上傳"
+                    adding={referenceDrafts.adding}
+                    canAdd={referenceDrafts.canAdd}
+                    onAdd={(source) => void referenceDrafts.add(source)}
+                    onOpen={(path) =>
+                      openPhotoViewer({
+                        kind: 'reference',
+                        start: path,
+                        paths: referenceDrafts.paths,
+                      })
+                    }
+                    onRemove={referenceDrafts.remove}
+                  />
+                )}
+
                 <Section
                   title="詳情"
                   footer={
@@ -412,6 +452,11 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                       modifiers={[tint(colors.accent)]}
                     />
                   ) : null}
+                  {usesDeposit(service) && keptDepositHint ? (
+                    <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.accent)]}>
+                      {keptDepositHint}
+                    </Text>
+                  ) : null}
                   <LabeledContent label="收費">
                     <HStack spacing={4}>
                       <Text
@@ -450,7 +495,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                         onSelectionChange={(value) => {
                           if (typeof value === 'string') setStatus(value);
                         }}
-                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 180 })]}
+                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 240 })]}
                       >
                         {STATUS_OPTIONS.map((option) => (
                           <Text key={option} modifiers={[tag(option)]}>

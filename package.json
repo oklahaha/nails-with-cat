@@ -11,7 +11,11 @@
     "expo-constants": "~58.0.13",
     "expo-crypto": "~58.0.7",
     "expo-dev-client": "~58.0.16",
+    "expo-file-system": "~58.0.13",
     "expo-font": "~58.0.9",
+    "expo-haptics": "~58.0.7",
+    "expo-image-manipulator": "~58.0.16",
+    "expo-image-picker": "~58.0.10",
     "expo-linking": "~58.0.14",
     "expo-notifications": "~58.1.6",
     "expo-router": "~58.0.25",
@@ -55,6 +59,9 @@
   },
   "jest": {
     "preset": "jest-expo",
+    "modulePathIgnorePatterns": [
+      "<rootDir>/analysis/"
+    ],
     "modulePaths": [
       "<rootDir>/node_modules/expo/node_modules"
     ]

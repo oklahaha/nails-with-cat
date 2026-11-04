@@ -1,51 +1,61 @@
 /**
- * 時間表 (iOS) — the same React Native MonthView / TimeGrid layout as the
- * other platforms, with the controls around it as small SwiftUI Host islands
- * (segmented 日/週/月 picker, 今日, ‹ ›, + button). SwiftUI has no calendar
- * grid, so the grid itself stays in React Native.
+ * 時間表 (iOS): the title, segmented 日/週/月 picker, 今日, ‹ › and + button
+ * around the calendar pages, which TimetablePager slides between as in iOS
+ * Calendar.
  */
 import {
   Button,
   HStack,
-  Host,
   Picker,
   ProgressView,
   Spacer,
-  Text as SwiftText,
+  Text,
+  useNativeState,
+  VStack,
+  ZStack,
 } from '@expo/ui/swift-ui';
 import {
   buttonBorderShape,
+  font,
+  foregroundStyle,
   frame,
+  kerning,
   labelStyle,
+  lineLimit,
+  minimumScaleFactor,
+  padding,
   pickerStyle,
+  symbolEffect,
   tag,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
 
-import { MonthView } from '@/components/calendar/MonthView';
-import { TimeGrid } from '@/components/calendar/TimeGrid';
-import { SwiftFab } from '@/components/swiftui/SwiftFab';
-import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
-import { glassButton } from '@/components/swiftui/glass';
-import { colors, spacing, type } from '@/constants/theme';
-import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
-import type { Appointment } from '@/types/appointment';
-import { openAppointmentDetails } from '@/utils/appointmentActions';
 import {
-  addDays,
+  shiftAnchor,
+  timetableRange,
+  type ViewMode,
+} from '@/components/calendar/timetablePages';
+import { SwiftFab } from '@/components/swiftui/SwiftFab';
+import { SwiftHost } from '@/components/swiftui/SwiftHost';
+import { SwiftStateContent } from '@/components/swiftui/SwiftStateView';
+import { TimetablePager } from '@/components/swiftui/TimetablePager';
+import { glassButton } from '@/components/swiftui/glass';
+import { colors, spacing } from '@/constants/theme';
+import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useTabReselect } from '@/hooks/useTabReselect';
+import {
   addMonths,
   formatMonthTitle,
   formatWeekTitle,
-  monthGrid,
   todayIsoDate,
-  weekDates,
 } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 
-type ViewMode = 'day' | 'week' | 'month';
+/** SF Symbols' rotate effect needs iOS 18. */
+const CAN_ROTATE_ICON = Number.parseInt(String(Platform.Version), 10) >= 18;
 
 export default function TimetableScreen() {
   const [mode, setMode] = useState<ViewMode>('month');
@@ -53,7 +63,16 @@ export default function TimetableScreen() {
 
   const range = useMemo(() => timetableRange(anchor), [anchor]);
 
-  const { appointments, loading, reloading, error, reload } = useAppointments(range);
+  // The pages read this range from the cache; this loads it and reports progress
+  const { loading, reloading, error, reload } = useAppointments(range);
+
+  // The reload icon spins while loading, or a spinner shows where it can't
+  const reduceMotion = useReduceMotion();
+  const spinIcon = CAN_ROTATE_ICON && !reduceMotion;
+  const iconSpinning = useNativeState(false);
+  useEffect(() => {
+    iconSpinning.set(reloading);
+  }, [reloading, iconSpinning]);
 
   // Once this month is on screen, load the months either side so paging is instant
   useEffect(() => {
@@ -62,12 +81,10 @@ export default function TimetableScreen() {
     prefetchAppointments(timetableRange(addMonths(anchor, -1)));
   }, [anchor, loading]);
 
-  const byDate = useMemo(() => groupByDateSorted(appointments), [appointments]);
+  const step = (direction: 1 | -1) => setAnchor(shiftAnchor(mode, anchor, direction));
 
-  const step = (direction: 1 | -1) => {
-    if (mode === 'month') setAnchor(addMonths(anchor, direction));
-    else setAnchor(addDays(anchor, direction * (mode === 'week' ? 7 : 1)));
-  };
+  // Tapping the 時間表 tab again goes back to the month, from a day or week
+  useTabReselect(() => setMode('month'));
 
   const openDay = (date: string) => {
     setAnchor(date);
@@ -81,161 +98,115 @@ export default function TimetableScreen() {
         ? formatWeekTitle(anchor)
         : formatDateHeader(anchor);
 
-  // Bottom edge too: the native tab bar floats over the screen
+  // The Host's safe area keeps all of this clear of the status bar and the floating tab bar
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <View style={styles.topBar}>
-        <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit>
-          {title}
-        </Text>
-        <View style={styles.topActions}>
-          <Host matchContents colorScheme="dark" seedColor={colors.accent}>
+    <SwiftHost style={{ backgroundColor: colors.background }}>
+      <ZStack
+        alignment="bottomTrailing"
+        modifiers={[frame({ maxWidth: Infinity, maxHeight: Infinity })]}
+      >
+        <VStack spacing={0} modifiers={[frame({ maxWidth: Infinity, maxHeight: Infinity, alignment: 'top' })]}>
+          <HStack
+            spacing={spacing.sm}
+            modifiers={[padding({ top: spacing.md, horizontal: spacing.md })]}
+          >
+            <Text
+              modifiers={[
+                font({ size: 22, weight: 'bold' }),
+                kerning(-0.3),
+                foregroundStyle(colors.text),
+                lineLimit(1),
+                minimumScaleFactor(0.6),
+              ]}
+            >
+              {title}
+            </Text>
+            <Spacer />
+            {reloading && !spinIcon ? <ProgressView /> : null}
+            <Button
+              label="重新載入"
+              systemImage="arrow.clockwise"
+              onPress={() => void reload()}
+              modifiers={[
+                glassButton(),
+                buttonBorderShape('circle'),
+                labelStyle('iconOnly'),
+                tint(colors.textSecondary),
+                ...(spinIcon
+                  ? [symbolEffect({ effect: 'rotate' as const }, { isActive: iconSpinning })]
+                  : []),
+              ]}
+            />
+            <Button
+              label="今日"
+              onPress={() => setAnchor(todayIsoDate())}
+              modifiers={[
+                glassButton(),
+                buttonBorderShape('capsule'),
+                tint(colors.accent),
+              ]}
+            />
+          </HStack>
+
+          <HStack
+            modifiers={[
+              padding({ top: spacing.md, bottom: spacing.sm, horizontal: spacing.md }),
+            ]}
+          >
+            <Picker
+              label="檢視"
+              selection={mode}
+              onSelectionChange={(value) => setMode(value as ViewMode)}
+              modifiers={[pickerStyle('segmented'), frame({ width: 168 })]}
+            >
+              <Text modifiers={[tag('day')]}>日</Text>
+              <Text modifiers={[tag('week')]}>週</Text>
+              <Text modifiers={[tag('month')]}>月</Text>
+            </Picker>
+            <Spacer />
             <HStack spacing={spacing.sm}>
-              {reloading ? <ProgressView /> : null}
               <Button
-                label="重新載入"
-                systemImage="arrow.clockwise"
-                onPress={() => void reload()}
+                label="上一頁"
+                systemImage="chevron.left"
+                onPress={() => step(-1)}
                 modifiers={[
                   glassButton(),
                   buttonBorderShape('circle'),
                   labelStyle('iconOnly'),
-                  tint(colors.textSecondary),
+                  tint(colors.text),
                 ]}
               />
               <Button
-                label="今日"
-                onPress={() => setAnchor(todayIsoDate())}
+                label="下一頁"
+                systemImage="chevron.right"
+                onPress={() => step(1)}
                 modifiers={[
                   glassButton(),
-                  buttonBorderShape('capsule'),
-                  tint(colors.accent),
+                  buttonBorderShape('circle'),
+                  labelStyle('iconOnly'),
+                  tint(colors.text),
                 ]}
               />
             </HStack>
-          </Host>
-        </View>
-      </View>
-
-      {/* Width comes from React Native; only the height follows the SwiftUI content */}
-      <Host
-        matchContents={{ vertical: true }}
-        colorScheme="dark"
-        seedColor={colors.accent}
-        style={styles.navRow}
-      >
-        <HStack>
-          <Picker
-            label="檢視"
-            selection={mode}
-            onSelectionChange={(value) => setMode(value as ViewMode)}
-            modifiers={[pickerStyle('segmented'), frame({ width: 168 })]}
-          >
-            <SwiftText modifiers={[tag('day')]}>日</SwiftText>
-            <SwiftText modifiers={[tag('week')]}>週</SwiftText>
-            <SwiftText modifiers={[tag('month')]}>月</SwiftText>
-          </Picker>
-          <Spacer />
-          <HStack spacing={spacing.sm}>
-            <Button
-              label="上一頁"
-              systemImage="chevron.left"
-              onPress={() => step(-1)}
-              modifiers={[
-                glassButton(),
-                buttonBorderShape('circle'),
-                labelStyle('iconOnly'),
-                tint(colors.text),
-              ]}
-            />
-            <Button
-              label="下一頁"
-              systemImage="chevron.right"
-              onPress={() => step(1)}
-              modifiers={[
-                glassButton(),
-                buttonBorderShape('circle'),
-                labelStyle('iconOnly'),
-                tint(colors.text),
-              ]}
-            />
           </HStack>
-        </HStack>
-      </Host>
 
-      {loading ? (
-        <SwiftStateView loading title="載入時間表中…" />
-      ) : error ? (
-        <SwiftStateView
-          title="未能載入時間表"
-          message={error}
-          systemImage="exclamationmark.triangle"
-          action={{ label: '重試', onPress: () => void reload() }}
-        />
-      ) : mode === 'month' ? (
-        <MonthView anchor={anchor} byDate={byDate} onPressDay={openDay} />
-      ) : (
-        <TimeGrid
-          days={mode === 'week' ? weekDates(anchor) : [anchor]}
-          byDate={byDate}
-          onPressAppointment={openAppointmentDetails}
-          onPressDay={openDay}
-        />
-      )}
+          {loading ? (
+            <SwiftStateContent loading title="載入時間表中…" />
+          ) : error ? (
+            <SwiftStateContent
+              title="未能載入時間表"
+              message={error}
+              systemImage="exclamationmark.triangle"
+              action={{ label: '重試', onPress: () => void reload() }}
+            />
+          ) : (
+            // Swipe for the next / previous month, week or day, as in iOS Calendar
+            <TimetablePager mode={mode} anchor={anchor} onAnchorChange={setAnchor} onPressDay={openDay} />
+          )}
+        </VStack>
 
-      <SwiftFab date={mode === 'day' ? anchor : undefined} />
-    </SafeAreaView>
+        <SwiftFab date={mode === 'day' ? anchor : undefined} />
+      </ZStack>
+    </SwiftHost>
   );
 }
-
-/**
- * Fetch the whole month grid (plus the anchor's week, which can spill into
- * the next month), so switching Day/Week/Month within a month doesn't refetch.
- */
-function timetableRange(anchor: string): { from: string; to: string } {
-  const grid = monthGrid(anchor);
-  const week = weekDates(anchor);
-  const from = week[0] < grid[0][0] ? week[0] : grid[0][0];
-  const last = grid[grid.length - 1][6];
-  const to = week[6] > last ? week[6] : last;
-  return { from, to };
-}
-
-function groupByDateSorted(appointments: Appointment[]): Map<string, Appointment[]> {
-  const map = new Map<string, Appointment[]>();
-  for (const apt of appointments) {
-    const list = map.get(apt.date) ?? [];
-    list.push(apt);
-    map.set(apt.date, list);
-  }
-  for (const list of map.values()) list.sort((a, b) => a.time.localeCompare(b.time));
-  return map;
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-  },
-  title: {
-    ...type.title,
-    flexShrink: 1,
-  },
-  topActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  navRow: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-});

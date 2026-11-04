@@ -10,6 +10,7 @@ import {
   Section,
   Spacer,
   Text,
+  ZStack,
 } from '@expo/ui/swift-ui';
 import {
   buttonStyle,
@@ -23,7 +24,6 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { View } from 'react-native';
 
 import { AppointmentRow } from '@/components/swiftui/AppointmentRow';
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
@@ -60,20 +60,18 @@ export default function AppointmentsScreen() {
 
   if (groups.length === 0) {
     return (
-      <View style={{ flex: 1 }}>
-        <SwiftStateView
-          title="目前沒有預約"
-          message="新增的預約會按日期列在這裡。"
-          systemImage="calendar"
-          action={{ label: '新增預約', onPress: () => router.push('/add-appointment') }}
-        />
-      </View>
+      <SwiftStateView
+        title="目前沒有預約"
+        message="新增的預約會按日期列在這裡。"
+        systemImage="calendar"
+        action={{ label: '新增預約', onPress: () => router.push('/add-appointment') }}
+      />
     );
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <SwiftHost>
+    <SwiftHost>
+      <ZStack alignment="bottomTrailing">
         <NavigationStack>
           <List
             modifiers={[
@@ -127,8 +125,8 @@ export default function AppointmentsScreen() {
             </Section>
           </List>
         </NavigationStack>
-      </SwiftHost>
-      <SwiftFab />
-    </View>
+        <SwiftFab />
+      </ZStack>
+    </SwiftHost>
   );
 }

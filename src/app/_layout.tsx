@@ -9,13 +9,15 @@
  */
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform } from 'react-native';
 
 import { useSession } from '@/auth/session';
-import { colors } from '@/constants/theme';
+import { RootAlerts } from '@/components/RootAlerts';
+import { WhatsAppConfirmationDialog } from '@/components/WhatsAppConfirmationDialog';
+import { stackScreenOptions } from '@/constants/stackOptions';
 import { useResumeWrites } from '@/hooks/resumeWrites';
 import { useUpcomingSync } from '@/hooks/useUpcomingSync';
 import { useNotifications } from '@/notifications/notifications';
+import { PHOTO_KINDS, type PhotoKind } from '@/utils/appointmentPhotos';
 
 /** Background work that only runs once signed in. */
 function SignedInSync() {
@@ -35,16 +37,7 @@ export default function RootLayout() {
     <>
       <StatusBar style="light" />
       {signedIn ? <SignedInSync /> : null}
-      <Stack
-        screenOptions={{
-          // On iOS the modal headers keep the system look: Liquid Glass buttons over the sheet
-          headerStyle: Platform.OS === 'ios' ? undefined : { backgroundColor: colors.background },
-          headerShadowVisible: false,
-          headerTintColor: colors.accent,
-          headerTitleStyle: { color: colors.text, fontWeight: '600' },
-          contentStyle: { backgroundColor: colors.background },
-        }}
-      >
+      <Stack screenOptions={stackScreenOptions}>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
@@ -52,11 +45,34 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen
             name="appointment-details"
-            options={{ title: '預約詳情', presentation: 'modal' }}
+            // Its own stack draws the header (appointment-details/_layout)
+            options={{ headerShown: false, presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="appointment-photo"
+            options={({ route }) => ({
+              title:
+                (route.params as { kind?: PhotoKind } | undefined)?.kind === 'finished'
+                  ? PHOTO_KINDS.finished.title
+                  : PHOTO_KINDS.reference.title,
+              // Over the sheet it was opened from, which stays as it was
+              presentation: 'fullScreenModal',
+            })}
+          />
+          <Stack.Screen
+            name="gallery-photo"
+            options={{ title: '作品', presentation: 'fullScreenModal' }}
           />
           <Stack.Screen
             name="customer-details"
             options={{ title: '顧客資料', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="segment-customers"
+            options={({ route }) => ({
+              title: (route.params as { segment?: string } | undefined)?.segment ?? '顧客分群',
+              presentation: 'modal',
+            })}
           />
           <Stack.Screen
             name="add-customer"
@@ -72,6 +88,9 @@ export default function RootLayout() {
           />
         </Stack.Protected>
       </Stack>
+      {/* After a new booking is created, offers to WhatsApp the customer */}
+      <WhatsAppConfirmationDialog />
+      <RootAlerts />
     </>
   );
 }

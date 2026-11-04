@@ -52,10 +52,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.accent,
     // Warm-tinted shadow to match the background
-    shadowColor: '#0A0605',
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    boxShadow: '0 4px 10px rgba(10, 6, 5, 0.5)',
   },
 });

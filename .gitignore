@@ -40,5 +40,5 @@ yarn-error.*
 /ios
 /android
 
-# Google OAuth client downloads (hold a client secret)
-client_secret_*.json
+# Google OAuth client files
+client_secret*.json

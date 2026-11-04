@@ -45,6 +45,36 @@ The app opens on a sign-in screen and only lets in the accounts listed in `src/a
 
 The allowlist is checked in the app, so it stops anyone who installs the app. It doesn't protect the Apps Script URL itself, which still relies on `API_TOKEN` (see below).
 
+## Customer analytics (optional)
+
+統計 can show the nightly results of the `analysis/` project through `listCustomerAnalytics`, which only reads them. To turn it on:
+
+1. Make sure the Google account that deploys this script can open the results spreadsheet.
+2. Paste the new `Code.gs`, then add the script property `ANALYSIS_SPREADSHEET_ID` with the results spreadsheet's ID (not `SPREADSHEET_ID`).
+3. Redeploy as a new version (see "Updating the code").
+
+Without the property the action returns empty lists, and the app keeps showing 久未回來.
+
+## Marking finished bookings 已完成
+
+`completePastBookings` changes 狀態 from `預約` to `已完成` once a booking's End Time has passed, looking back 30 days. It leaves `No show` and 特別事項 alone, and sends no push. A wrongly marked booking can still be changed in the app. To turn it on:
+
+1. Paste the new `Code.gs`, then run `completePastBookings` once from the editor and check the log.
+2. Under **Triggers → Add Trigger**, choose the function `completePastBookings`, deployment **Head**, event source **Time-driven**, **Hour timer**, **Every hour**.
+
+## Photos (參考作品, 完成作品)
+
+The app uploads and shows booking photos through the script, which keeps them in the `參考作品_images` and `完成作品_images` folders beside the spreadsheet (found by name, and created if missing when uploading). `參考作品` and `完成作品` hold each photo's path, one per line. To turn it on:
+
+1. Paste the new `Code.gs` and `appsscript.json` (it now asks for Google Drive access).
+2. Run `debugPhotoFolders` once from the editor, approve the new permission and check the log lists both folders.
+3. Redeploy as a new version (see "Updating the code").
+4. Before switching to the real sheet, add its `參考作品` column. Uploads there fail with a clear error until it exists.
+
+The 作品 tab lists bookings through `listFinishedPhotoAppointments`, so it also needs the new `Code.gs` redeployed.
+
+The script can only read or trash files in those folders (and `預約資料_Images` paths, whose files moved to `完成作品_images`). Removing a photo in the app moves the file to Drive's trash. Deleting a booking leaves its photos in Drive.
+
 ## Notes
 
 - `TEXT_DATE_ORDER` in `Code.gs` only matters for dates stored as plain text. Real date cells are read correctly either way.

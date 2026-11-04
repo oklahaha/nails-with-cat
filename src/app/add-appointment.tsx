@@ -28,6 +28,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DatePicker } from '@/components/form/DatePicker';
+import { PhotoStrip } from '@/components/form/PhotoStrip';
 import { ServicePicker } from '@/components/form/ServicePicker';
 import { TimeSlotPicker } from '@/components/form/TimeSlotPicker';
 import { StateView } from '@/components/StateView';
@@ -41,6 +42,9 @@ import {
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useAppointmentForm } from '@/hooks/useAppointmentForm';
 import { findCachedAppointment } from '@/hooks/useAppointments';
+import { STATUS_OPTIONS } from '@/types/appointment';
+import { openPhotoViewer } from '@/utils/appointmentActions';
+import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 
 /** 訂金 is TRUE / FALSE in the sheet. */
@@ -50,9 +54,6 @@ const DEPOSIT_OPTIONS = [
 ] as const;
 
 const HHMM = /^\d{2}:\d{2}$/;
-
-/** 狀態 choices when editing (特別事項 rows may also be blank). */
-const STATUS_OPTIONS = ['預約', '已完成'] as const;
 
 export default function AddAppointmentScreen() {
   const insets = useSafeAreaInsets();
@@ -77,6 +78,8 @@ export default function AddAppointmentScreen() {
     setHandOrFoot,
     deposit,
     setDeposit,
+    referenceDrafts,
+    keptDepositHint,
     complexDesign,
     setComplexDesign,
     nailExtras,
@@ -160,7 +163,7 @@ export default function AddAppointmentScreen() {
   const timeSection = (
     <Section
       title="開始時間"
-      hint={endTime ? `${time} – ${endTime}（${duration} 分鐘）` : undefined}
+      hint={endTime ? `${time} – ${endTime}（${formatDuration(duration ?? 0)}）` : undefined}
     >
       {date ? (
         <TimeSlotPicker
@@ -283,6 +286,28 @@ export default function AddAppointmentScreen() {
             {dateSection}
             {timeSection}
 
+            {/* Before 手/腳 and 收費: they're usually decided from this photo.
+                An existing booking adds photos in its details instead. */}
+            {editing ? null : (
+              <Section title="參考作品">
+                <PhotoStrip
+                  kind="reference"
+                  paths={referenceDrafts.paths}
+                  adding={referenceDrafts.adding}
+                  canAdd={referenceDrafts.canAdd}
+                  onAdd={(source) => void referenceDrafts.add(source)}
+                  onOpen={(path) =>
+                    openPhotoViewer({
+                      kind: 'reference',
+                      start: path,
+                      paths: referenceDrafts.paths,
+                    })
+                  }
+                  onRemove={referenceDrafts.remove}
+                />
+              </Section>
+            )}
+
             {usesHandOrFoot(service) ? (
               <Section title="手/腳">
                 <View style={styles.segmented}>
@@ -372,6 +397,7 @@ export default function AddAppointmentScreen() {
                     );
                   })}
                 </View>
+                {keptDepositHint ? <Text style={styles.keptHint}>{keptDepositHint}</Text> : null}
               </Section>
             ) : null}
 
@@ -644,6 +670,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
     fontVariant: ['tabular-nums'],
+  },
+  keptHint: {
+    marginTop: spacing.sm,
+    color: colors.accent,
+    fontSize: 13,
   },
   priceHint: {
     marginTop: spacing.xs,

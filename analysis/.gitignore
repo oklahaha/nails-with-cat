@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Config and credentials: the service-account key must never be committed
+.env
+secrets/
+*service-account*.json
+client_secret*.json
+
+# Cached raw sheet and cleaned frames (a full copy of the customer data)
+data/
+
+# Saved outputs contain real customer names, and the repo is public
+notebooks/*.ipynb

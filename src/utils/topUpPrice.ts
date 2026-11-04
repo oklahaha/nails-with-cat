@@ -4,7 +4,7 @@
  * - 補眼睫毛 (after 眼睫毛): within 5 days → $0, within 14 days → $214, else $428
  * - 補甲 (after 整甲): within 5 days → $0, else $30
  */
-import type { Appointment } from '@/types/appointment';
+import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { addDays, formatShortDate, parseIsoDate } from '@/utils/dates';
 
 export type TopUpRule = {
@@ -60,6 +60,7 @@ export function lastSetDate(
   for (const apt of history) {
     if (
       apt.id !== excludeId &&
+      apt.status !== NO_SHOW &&
       apt.customerName.trim() === name &&
       rule.setServices.includes(apt.service) &&
       apt.date <= date &&

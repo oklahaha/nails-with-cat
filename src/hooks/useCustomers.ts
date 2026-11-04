@@ -8,7 +8,7 @@ import { reuseUnchanged } from '@/utils/reuseUnchanged';
 
 const nameCollator = new Intl.Collator('zh-Hant');
 
-const STORAGE_KEY = 'customers-cache-v1';
+const STORAGE_KEY = 'customers-cache-v2';
 
 const EMPTY: Customer[] = [];
 
@@ -116,6 +116,26 @@ export function findCachedCustomer(key: CustomerKey): Customer | undefined {
   return cachedCustomers?.find((c) => matches(c, key));
 }
 
+/** The reload running now, so screens focused together (e.g. a form over the list) share one call. */
+let inflight: Promise<void> | null = null;
+
+function reloadCustomers(): Promise<void> {
+  inflight ??= (async () => {
+    const startedAt = Date.now();
+    const data = await listCustomers();
+    const next = reuseUnchanged(
+      cachedCustomers,
+      applyLocalWrites(sortByName(data), startedAt),
+      (c) => c.id || c.name
+    );
+    // Unchanged reloads keep the same array: nothing to save or re-render
+    if (next !== cachedCustomers) setCachedCustomers(next);
+  })().finally(() => {
+    inflight = null;
+  });
+  return inflight;
+}
+
 /** Customers from the 顧客 sheet, sorted by name. Reloads on focus. */
 export function useCustomers() {
   const customers = useSyncExternalStore(subscribe, getCachedCustomers) ?? EMPTY;
@@ -125,16 +145,8 @@ export function useCustomers() {
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
-    const startedAt = Date.now();
     try {
-      const data = await listCustomers();
-      const next = reuseUnchanged(
-        cachedCustomers,
-        applyLocalWrites(sortByName(data), startedAt),
-        (c) => c.id || c.name
-      );
-      // Unchanged reloads keep the same array: nothing to save or re-render
-      if (next !== cachedCustomers) setCachedCustomers(next);
+      await reloadCustomers();
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : '載入失敗');

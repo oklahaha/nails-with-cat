@@ -7,11 +7,13 @@
  *   SPREADSHEET_ID   ID of the spreadsheet (the copy during development)
  *   API_TOKEN        shared secret; the app sends it as `token`
  *   PUSH_TOKENS      set by the script: devices to tell about booking changes
+ *   ANALYSIS_SPREADSHEET_ID  optional: the results of analysis/, read-only here
  *
  * Endpoints (all responses are JSON: { ok: true, ... } or { ok: false, error }):
  *   GET  ?action=ping&token=...
  *   GET  ?action=listAppointments&token=...[&from=YYYY-MM-DD][&to=YYYY-MM-DD]
  *   GET  ?action=listCustomers&token=...
+ *   GET  ?action=listCustomerAnalytics&token=...
  *   POST body (text/plain JSON): { token, action: 'createAppointment', id?, appointment: {...} }
  *   POST body (text/plain JSON): { token, action: 'updateAppointment', id, appointment: {...} }
  *   POST body (text/plain JSON): { token, action: 'deleteAppointment', id }
@@ -33,6 +35,9 @@
 
 const SHEET_APPOINTMENTS = '預約資料';
 const SHEET_CUSTOMERS = '顧客';
+// In the separate ANALYSIS_SPREADSHEET_ID spreadsheet
+const SHEET_ANALYTICS_CUSTOMERS = '客人分析';
+const SHEET_ANALYTICS_FORECAST = '預測';
 
 const COL = {
   id: '預約ID',
@@ -50,7 +55,22 @@ const COL = {
   view: 'View',
   // 不是複雜款 / 半個鐘 / 一個鐘, only used by 整甲 and 整甲 + 眼睫毛
   complexDesign: '複雜款',
+  // 保留 when the customer keeps the deposit for their next booking, else blank
+  depositHandling: '訂金處理',
 };
+
+/**
+ * Photo columns, keyed by the app's kind. Each cell holds the Drive paths of
+ * the booking's photos, one per line (a single path is what AppSheet writes),
+ * relative to the folder holding the spreadsheet: <folder>/<file name>.
+ */
+const PHOTO_COL = { reference: '參考作品', finished: '完成作品' };
+const PHOTO_FOLDER = { reference: '參考作品_images', finished: '完成作品_images' };
+/** Where older paths' files live now, after AppSheet's folder was split up. */
+const LEGACY_PHOTO_FOLDER = { '預約資料_Images': '完成作品_images' };
+
+/** 訂金處理 value for a deposit kept for the next booking (the app's keepDeposit). */
+const KEEP_DEPOSIT = '保留';
 
 /** How many of the latest rows to sample for the sheet's current writing style. */
 const STYLE_SAMPLE_ROWS = 200;
@@ -71,9 +91,17 @@ const CUST_COL = {
   id: '顧客ID',
   name: '顧客姓名',
   phone: '電話',
+  // Filled with the day a customer is added, as AppSheet does
+  joined: '加入日期',
+  // Instagram profile link (or handle), shown as a button in 顧客資料
+  instagram: 'IG',
 };
 
 const DEFAULT_STATUS = '預約';
+const DONE_STATUS = '已完成';
+
+/** How far back completePastBookings looks, so a stopped trigger can catch up. */
+const COMPLETE_LOOKBACK_DAYS = 30;
 
 /** 活動 for notes rather than customer bookings: no customer and a blank 狀態. */
 const SPECIAL_SERVICE = '特別事項';
@@ -107,6 +135,12 @@ function doGet(e) {
         return {
           appointments: listCustomerAppointments_({ id: params.id, name: params.name }),
         };
+      case 'listCustomerAnalytics':
+        return listCustomerAnalytics_();
+      case 'listFinishedPhotoAppointments':
+        return { appointments: listFinishedPhotoAppointments_() };
+      case 'getAppointmentPhoto':
+        return getAppointmentPhoto_(params.path, params.size);
       default:
         throw new Error('Unknown action: ' + params.action);
     }
@@ -135,6 +169,10 @@ function doPost(e) {
         if (deleted) notifyAppointmentChange_('delete', deleted, body.pushToken);
         return {};
       }
+      case 'addAppointmentPhoto':
+        return addAppointmentPhoto_(body.id, body.kind, body.path, body.base64);
+      case 'removeAppointmentPhoto':
+        return removeAppointmentPhoto_(body.id, body.kind, body.path);
       case 'createCustomer':
         return { customer: createCustomer_(body.customer || {}) };
       case 'updateCustomer':
@@ -277,6 +315,11 @@ function toAppointment_(row, customers, tz) {
   });
   const endTime = toHHmm_(row.display[COL.endTime]);
   if (endTime) apt.endTime = endTime;
+  if (cellText_(row, COL.depositHandling) === KEEP_DEPOSIT) apt.keepDeposit = true;
+  const referencePhotos = photoPaths_(cellText_(row, PHOTO_COL.reference));
+  if (referencePhotos.length > 0) apt.referencePhotos = referencePhotos;
+  const finishedPhotos = photoPaths_(cellText_(row, PHOTO_COL.finished));
+  if (finishedPhotos.length > 0) apt.finishedPhotos = finishedPhotos;
 
   return apt;
 }
@@ -288,21 +331,96 @@ function readCustomers_(ss) {
 
   const sheet = ss.getSheetByName(SHEET_CUSTOMERS);
   if (!sheet) return { byId: byId, byName: byName, list: list };
+  const tz = ss.getSpreadsheetTimeZone();
 
   readTable_(sheet).rows.forEach(function (row) {
     const name = cellText_(row, CUST_COL.name);
     if (!name) return;
-    const customer = {
-      id: cellText_(row, CUST_COL.id),
-      name: name,
-      phone: normalizePhone_(cellText_(row, CUST_COL.phone)),
-    };
+    const customer = toCustomer_(row, tz);
     if (customer.id) byId[customer.id] = customer;
     if (!byName[name]) byName[name] = customer;
     list.push(customer);
   });
 
   return { byId: byId, byName: byName, list: list };
+}
+
+/** One 顧客 row as the app's Customer shape; IG and 加入日期 only when filled. */
+function toCustomer_(row, tz) {
+  const customer = {
+    id: cellText_(row, CUST_COL.id),
+    name: cellText_(row, CUST_COL.name),
+    phone: normalizePhone_(cellText_(row, CUST_COL.phone)),
+  };
+  const instagram = cellText_(row, CUST_COL.instagram);
+  if (instagram) customer.instagram = instagram;
+  const joined = cellText_(row, CUST_COL.joined);
+  if (joined) customer.joinedDate = toIsoDate_(row.values[CUST_COL.joined], joined, tz);
+  return customer;
+}
+
+/**
+ * The results the analysis/ project writes each night, for 統計. Read-only:
+ * both tabs are replaced by that job. Dates in them are YYYY-MM-DD text.
+ * Without ANALYSIS_SPREADSHEET_ID (or before the first run) the lists are
+ * empty and the app hides these sections.
+ */
+function listCustomerAnalytics_() {
+  const empty = { updatedAt: null, customers: [], forecast: [] };
+  const id = PropertiesService.getScriptProperties().getProperty('ANALYSIS_SPREADSHEET_ID');
+  if (!id) return empty;
+
+  const ss = SpreadsheetApp.openById(id);
+  const customerSheet = ss.getSheetByName(SHEET_ANALYTICS_CUSTOMERS);
+  const forecastSheet = ss.getSheetByName(SHEET_ANALYTICS_FORECAST);
+  if (!customerSheet || !forecastSheet) return empty;
+
+  const customers = readPlainTable_(customerSheet);
+  const forecast = readPlainTable_(forecastSheet);
+  const first = customers[0] || forecast[0];
+  return {
+    updatedAt: first ? String(first['更新時間']) : null,
+    customers: customers.map(function (row) {
+      return {
+        customerId: String(row['顧客ID']),
+        name: String(row['顧客姓名']),
+        segment: String(row['分群']),
+        pAlive: toNumber_(row['P(alive)']),
+        expectedNextVisit: row['預計下次到訪'] ? String(row['預計下次到訪']) : null,
+        churn: toBoolean_(row['流失']),
+        pReturn60d: toNumber_(row['60日內回來機率']),
+        clv12m: toNumber_(row['12個月CLV']) || 0,
+        lastVisit: String(row['上次到訪']),
+        visits: toNumber_(row['到訪次數']) || 0,
+        hasUpcoming: toBoolean_(row['已有預約']),
+      };
+    }),
+    forecast: forecast.map(function (row) {
+      return {
+        weekStart: String(row['週開始']),
+        bookings: toNumber_(row['預計預約']) || 0,
+        bookingsLow: toNumber_(row['預約下限(80%)']) || 0,
+        bookingsHigh: toNumber_(row['預約上限(80%)']) || 0,
+        revenue: toNumber_(row['預計收入']) || 0,
+        daysOff: toNumber_(row['已知休息日']) || 0,
+      };
+    }),
+  };
+}
+
+/** A tab as objects keyed by header, raw values only (one read, no display strings). */
+function readPlainTable_(sheet) {
+  const values = sheet.getDataRange().getValues();
+  const headers = (values[0] || []).map(function (h) {
+    return String(h).trim();
+  });
+  return values.slice(1).map(function (row) {
+    const out = {};
+    headers.forEach(function (h, c) {
+      out[h] = row[c];
+    });
+    return out;
+  });
 }
 
 /** Read a sheet into header-keyed rows (raw values + display strings). */
@@ -313,7 +431,11 @@ function readTable_(sheet) {
   const headers = (values[0] || []).map(function (h) {
     return String(h).trim();
   });
-  return { headers: headers, rows: toRows_(headers, values.slice(1), display.slice(1)) };
+  return {
+    headers: headers,
+    rows: toRows_(headers, values.slice(1), display.slice(1)),
+    firstRow: 2,
+  };
 }
 
 /**
@@ -377,6 +499,7 @@ function readTableInDateRange_(sheet, from, to, tz) {
   return {
     headers: headers,
     rows: toRows_(headers, block.getValues(), block.getDisplayValues()),
+    firstRow: first + 2,
   };
 }
 
@@ -430,6 +553,7 @@ function parseAppointmentInput_(input) {
           ? customerName
           : null,
     complexDesign: input.complexDesign != null ? String(input.complexDesign).trim() : null,
+    keepDeposit: input.keepDeposit != null ? toBoolean_(input.keepDeposit) : null,
     // FLAG_COL fields that were sent, as TRUE / FALSE
     flags: parseFlags_(input),
     // Matches AppSheet: rows without a duration (e.g. 特別事項) have End Time = start.
@@ -451,14 +575,20 @@ function requireColumn_(headers, name) {
 }
 
 /**
- * Adds the sent 複雜款 and flags to `cells`, erroring if the sheet lacks one's
- * column.
+ * Adds the sent 複雜款, 保留訂金 and flags to `cells`, erroring if the sheet
+ * lacks one's column. `currentHandling` is the row's 訂金處理 on an edit:
+ * turning 保留訂金 off clears only a 保留, never another value typed there.
  */
-function putOptionalCells_(cells, headers, a) {
+function putOptionalCells_(cells, headers, a, currentHandling) {
   if (a.view != null) cells[COL.view] = plainText_(a.view);
   if (a.complexDesign != null) {
     requireColumn_(headers, COL.complexDesign);
     cells[COL.complexDesign] = a.complexDesign;
+  }
+  if (a.keepDeposit != null) {
+    requireColumn_(headers, COL.depositHandling);
+    if (a.keepDeposit) cells[COL.depositHandling] = KEEP_DEPOSIT;
+    else if (!currentHandling || currentHandling === KEEP_DEPOSIT) cells[COL.depositHandling] = '';
   }
   const flags = a.flags;
   Object.keys(flags).forEach(function (key) {
@@ -483,6 +613,7 @@ function appointmentResponse_(id, a, status, customer) {
   if (a.handOrFoot) out.handOrFoot = a.handOrFoot;
   if (a.price != null) out.price = a.price;
   if (a.complexDesign != null) out.complexDesign = a.complexDesign;
+  if (a.keepDeposit) out.keepDeposit = true;
   Object.keys(a.flags).forEach(function (key) {
     out[key] = a.flags[key];
   });
@@ -570,11 +701,15 @@ function updateAppointment_(id, input) {
   const a = parseAppointmentInput_(input);
   const hasStatus = input.status != null;
   const status = hasStatus ? String(input.status).trim() : null;
+  const ss = openSpreadsheet_();
+  // Read before the lock and the row lookup: AppSheet doesn't take the lock,
+  // so rows it deletes meanwhile would shift the row found below
+  const customers = readCustomers_(ss);
+  const customer = customers.byName[a.customerName];
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
-    const ss = openSpreadsheet_();
     const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
     const found = findAppointmentRow_(sheet, id);
     const headers = found.headers;
@@ -582,9 +717,10 @@ function updateAppointment_(id, input) {
 
     const range = sheet.getRange(rowIndex, 1, 1, headers.length);
     const current = toRows_(headers, range.getValues(), range.getDisplayValues())[0];
-
-    const customers = readCustomers_(ss);
-    const customer = customers.byName[a.customerName];
+    // The row moved between the lookup and this read: don't write over another booking
+    if (String(current.values[COL.id]).trim() !== String(id).trim()) {
+      throw new Error('試算表剛被修改，請再試一次');
+    }
     // Keep the row's existing style: a 顧客ID (AppSheet Ref) or a plain name
     const currentCustomer = cellText_(current, COL.customerName);
     const storesId =
@@ -607,7 +743,7 @@ function updateAppointment_(id, input) {
     cells[COL.price] = a.price != null ? a.price : '';
     if (hasStatus) cells[COL.status] = status;
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
-    putOptionalCells_(cells, headers, a);
+    putOptionalCells_(cells, headers, a, cellText_(current, COL.depositHandling));
 
     Object.keys(cells).forEach(function (h) {
       const c = headers.indexOf(h);
@@ -652,6 +788,317 @@ function deleteAppointment_(id) {
     lock.releaseLock();
   }
   return toAppointment_(row, readCustomers_(ss), ss.getSpreadsheetTimeZone());
+}
+
+// ---------------------------------------------------------------------------
+// Photos (參考作品, 完成作品)
+// ---------------------------------------------------------------------------
+
+/** The paths in a photo cell. */
+function photoPaths_(cell) {
+  return String(cell || '')
+    .split(/\r?\n/)
+    .map(function (path) {
+      return path.trim();
+    })
+    .filter(Boolean);
+}
+
+/** Rows this close together are read as one block rather than with a call each. */
+const PHOTO_ROW_BLOCK_GAP = 50;
+
+/**
+ * Every booking with 完成作品, any date. Only that column is scanned first;
+ * full rows are read for blocks around the matches, since photos are spread
+ * over years of history and reading it all takes several seconds.
+ */
+function listFinishedPhotoAppointments_() {
+  const ss = openSpreadsheet_();
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  const headers = readHeaders_(sheet);
+  const col = headers.indexOf(PHOTO_COL.finished);
+  const lastRow = sheet.getLastRow();
+  if (col === -1 || lastRow < 2) return [];
+
+  const blocks = [];
+  sheet
+    .getRange(2, col + 1, lastRow - 1, 1)
+    .getValues()
+    .forEach(function (cell, i) {
+      if (!String(cell[0]).trim()) return;
+      const row = i + 2;
+      const block = blocks[blocks.length - 1];
+      if (block && row - block.last <= PHOTO_ROW_BLOCK_GAP) block.last = row;
+      else blocks.push({ first: row, last: row });
+    });
+  if (blocks.length === 0) return [];
+
+  const tz = ss.getSpreadsheetTimeZone();
+  const customers = readCustomers_(ss);
+  const out = [];
+  blocks.forEach(function (block) {
+    const range = sheet.getRange(block.first, 1, block.last - block.first + 1, headers.length);
+    toRows_(headers, range.getValues(), range.getDisplayValues()).forEach(function (row) {
+      if (cellText_(row, COL.id) && cellText_(row, PHOTO_COL.finished)) {
+        out.push(toAppointment_(row, customers, tz));
+      }
+    });
+  });
+  return out;
+}
+
+/**
+ * A photo folder beside the spreadsheet, found by name so that switching to
+ * the real sheet needs no new IDs. Its id is cached: each Drive lookup is slow.
+ */
+function photoFolder_(ss, name, createIfMissing) {
+  const cache = CacheService.getScriptCache();
+  const key = 'photo-folder:' + ss.getId() + ':' + name;
+  const cached = cache.get(key);
+  if (cached) {
+    try {
+      const folder = DriveApp.getFolderById(cached);
+      if (!folder.isTrashed()) return folder;
+    } catch (err) {
+      // Deleted since: look it up again
+    }
+  }
+  const parents = DriveApp.getFileById(ss.getId()).getParents();
+  if (!parents.hasNext()) throw new Error('找不到試算表所在的資料夾');
+  const parent = parents.next();
+  const found = parent.getFoldersByName(name);
+  let folder = null;
+  while (found.hasNext() && !folder) {
+    const candidate = found.next();
+    if (!candidate.isTrashed()) folder = candidate;
+  }
+  if (!folder) {
+    if (!createIfMissing) throw new Error('找不到資料夾：' + name);
+    folder = parent.createFolder(name);
+  }
+  cache.put(key, folder.getId(), 21600);
+  return folder;
+}
+
+/** The untrashed file called `name` in `folder`, or null. */
+function photoFileIn_(folder, name) {
+  const files = folder.getFilesByName(name);
+  while (files.hasNext()) {
+    const file = files.next();
+    if (!file.isTrashed()) return file;
+  }
+  return null;
+}
+
+/**
+ * The file a sheet path points at, or null. Only the photo folders can be
+ * reached, so a path can't read anything else in the deployer's Drive.
+ */
+function photoFileAt_(ss, path) {
+  const match = String(path || '').match(/^([^\/]+)\/([^\/]+)$/);
+  if (!match) throw new Error('相片路徑不正確');
+  const folderName = LEGACY_PHOTO_FOLDER[match[1]] || match[1];
+  const allowed = Object.keys(PHOTO_FOLDER).some(function (kind) {
+    return PHOTO_FOLDER[kind] === folderName;
+  });
+  if (!allowed) throw new Error('相片路徑不正確');
+  return photoFileIn_(photoFolder_(ss, folderName, false), match[2]);
+}
+
+/** Long side of a thumbnail, sharp in a three-column grid on a phone. */
+const THUMB_PIXELS = 720;
+
+/**
+ * Drive's preview at THUMB_PIXELS. file.getThumbnail() has no size option and
+ * is too small for the 作品 grid, so this asks Drive's thumbnail address, and
+ * returns null if that doesn't give an image.
+ */
+function sizedThumbnail_(file) {
+  try {
+    const res = UrlFetchApp.fetch(
+      'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w' + THUMB_PIXELS,
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }
+    );
+    const isImage = /^image\//.test(String(res.getHeaders()['Content-Type'] || ''));
+    return res.getResponseCode() === 200 && isImage ? res.getBlob() : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * A photo's bytes as base64. `size` is 'thumb' for a preview from Drive, or
+ * the full file when there's no preview yet (a file just uploaded) or asked.
+ */
+function getAppointmentPhoto_(path, size) {
+  const file = photoFileAt_(openSpreadsheet_(), path);
+  if (!file) throw new Error('找不到相片');
+  let blob = null;
+  if (size === 'thumb') {
+    try {
+      blob = sizedThumbnail_(file) || file.getThumbnail();
+    } catch (err) {
+      // No preview yet: send the file
+    }
+  }
+  return { base64: Utilities.base64Encode((blob || file.getBlob()).getBytes()) };
+}
+
+function photoKindOrThrow_(kind) {
+  if (!Object.prototype.hasOwnProperty.call(PHOTO_COL, kind)) {
+    throw new Error('Unknown photo kind: ' + kind);
+  }
+  return PHOTO_COL[kind];
+}
+
+/**
+ * Save a photo to Drive and add its path to the booking. The app picks the
+ * path, so a repeat (see the outbox) finds the file and the cell entry already
+ * there. A booking deleted before its upload ran is reported as `missing`.
+ * The file is written outside the lock, as Drive is slow and bookings can wait.
+ */
+function addAppointmentPhoto_(id, kind, path, base64) {
+  id = String(id || '').trim();
+  const column = photoKindOrThrow_(kind);
+  const pattern = new RegExp(
+    '^' + PHOTO_FOLDER[kind] + '/([A-Za-z0-9]{22}\\.' + column + '\\.\\d{6}\\.jpg)$'
+  );
+  const match = String(path || '').match(pattern);
+  if (!match) throw new Error('相片路徑不正確');
+  if (!base64) throw new Error('沒有相片資料');
+
+  const ss = openSpreadsheet_();
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  const headers = readHeaders_(sheet);
+  requireColumn_(headers, column);
+  if (findAppointmentRowIndex_(sheet, headers, id) === -1) return { missing: true };
+
+  const folder = photoFolder_(ss, PHOTO_FOLDER[kind], true);
+  if (!photoFileIn_(folder, match[1])) {
+    folder.createFile(
+      Utilities.newBlob(Utilities.base64Decode(base64), 'image/jpeg', match[1])
+    );
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    // Rows may have moved while the file was written
+    const rowIndex = findAppointmentRowIndex_(sheet, headers, id);
+    if (rowIndex === -1) return { missing: true };
+    const cell = sheet.getRange(rowIndex, headers.indexOf(column) + 1);
+    const paths = photoPaths_(cell.getDisplayValue());
+    if (paths.indexOf(path) === -1) {
+      cell.setValue(paths.concat(path).join('\n'));
+      SpreadsheetApp.flush();
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return {};
+}
+
+/**
+ * Take a photo's path off the booking and move its file to Drive's trash,
+ * where it can still be restored for 30 days. Repeating it is harmless.
+ */
+function removeAppointmentPhoto_(id, kind, path) {
+  id = String(id || '').trim();
+  const column = photoKindOrThrow_(kind);
+  const ss = openSpreadsheet_();
+  const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+  // Checked before anything changes, and limits the trash to the photo folders
+  const file = photoFileAt_(ss, path);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const headers = readHeaders_(sheet);
+    const rowIndex = findAppointmentRowIndex_(sheet, headers, id);
+    const col = headers.indexOf(column);
+    if (rowIndex !== -1 && col !== -1) {
+      const cell = sheet.getRange(rowIndex, col + 1);
+      const paths = photoPaths_(cell.getDisplayValue());
+      if (paths.indexOf(path) !== -1) {
+        cell.setValue(
+          paths
+            .filter(function (p) {
+              return p !== path;
+            })
+            .join('\n')
+        );
+        SpreadsheetApp.flush();
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  if (file) file.setTrashed(true);
+  return {};
+}
+
+/** Run once from the editor to approve Drive access and check the folders. */
+function debugPhotoFolders() {
+  const ss = openSpreadsheet_();
+  Object.keys(PHOTO_FOLDER).forEach(function (kind) {
+    const folder = photoFolder_(ss, PHOTO_FOLDER[kind], false);
+    Logger.log(PHOTO_FOLDER[kind] + ': ' + folder.getUrl());
+  });
+}
+
+/**
+ * Run by an hourly time-driven trigger (see README): mark bookings whose End
+ * Time has passed as 已完成. Only an exact 預約 changes, so No show and 特別事項
+ * are left alone. Nothing is pushed, since no one needs telling. If the script
+ * is busy, the next run catches up.
+ */
+function completePastBookings() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return;
+  try {
+    const ss = openSpreadsheet_();
+    const tz = ss.getSpreadsheetTimeZone();
+    const sheet = getSheet_(ss, SHEET_APPOINTMENTS);
+    const now = new Date();
+    const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+    const nowTime = Utilities.formatDate(now, tz, 'HH:mm');
+    const from = Utilities.formatDate(
+      new Date(now.getTime() - COMPLETE_LOOKBACK_DAYS * 864e5),
+      tz,
+      'yyyy-MM-dd'
+    );
+
+    const table = readTableInDateRange_(sheet, from, today, tz);
+    requireColumn_(table.headers, COL.status);
+    const statusCol = table.headers.indexOf(COL.status);
+    let changed = 0;
+    table.rows.forEach(function (row, i) {
+      if (cellText_(row, COL.status) !== DEFAULT_STATUS) return;
+      const date = toIsoDate_(row.values[COL.date], row.display[COL.date], tz);
+      if (!date || date < from) return;
+      const time = toHHmm_(row.display[COL.time]);
+      const endTime = toHHmm_(row.display[COL.endTime]);
+      if (!hasEnded_(date, time, endTime, today, nowTime)) return;
+      sheet.getRange(table.firstRow + i, statusCol + 1).setValue(DONE_STATUS);
+      changed++;
+    });
+    if (changed) SpreadsheetApp.flush();
+    Logger.log('Marked ' + changed + ' bookings ' + DONE_STATUS);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Whether a booking is over. On its own day that needs a readable End Time
+ * (or 時間), and one earlier than 時間 means it runs past midnight.
+ */
+function hasEnded_(date, time, endTime, today, nowTime) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) return false;
+  if (date < today) return true;
+  const end = endTime || time;
+  if (!/^\d{2}:\d{2}$/.test(end) || end < time) return false;
+  return end <= nowTime;
 }
 
 /**
@@ -713,11 +1160,7 @@ function createCustomer_(input) {
       if (cellText_(existing, CUST_COL.phone).replace(/[^\d]/g, '') !== phone) {
         throw new Error('已有同名顧客：' + name);
       }
-      return {
-        id: cellText_(existing, CUST_COL.id),
-        name: name,
-        phone: normalizePhone_(cellText_(existing, CUST_COL.phone)),
-      };
+      return toCustomer_(existing, ss.getSpreadsheetTimeZone());
     }
     const id = table.headers.indexOf(CUST_COL.id) === -1 ? '' : newCustomerId_(ids);
 
@@ -725,6 +1168,10 @@ function createCustomer_(input) {
     cells[CUST_COL.id] = id;
     cells[CUST_COL.name] = plainText_(name);
     cells[CUST_COL.phone] = phone;
+    // A date cell with no time part, so it shows as 2026/10/30 like the rest
+    const today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+    const [y, m, d] = today.split('-').map(Number);
+    cells[CUST_COL.joined] = new Date(y, m - 1, d);
     // Leave any other columns blank, as createAppointment_ does
     sheet.appendRow(
       table.headers.map(function (h) {
@@ -733,7 +1180,9 @@ function createCustomer_(input) {
     );
     SpreadsheetApp.flush();
 
-    return { id: id, name: name, phone: normalizePhone_(phone) };
+    const created = { id: id, name: name, phone: normalizePhone_(phone) };
+    if (table.headers.indexOf(CUST_COL.joined) !== -1) created.joinedDate = today;
+    return created;
   } finally {
     lock.releaseLock();
   }
@@ -801,7 +1250,10 @@ function updateCustomer_(key, input) {
     if (name !== found.name) replaceCustomerRefs_(ss, found.name, name);
     SpreadsheetApp.flush();
 
-    return { id: found.id, name: name, phone: normalizePhone_(phone) };
+    // IG and 加入日期 aren't edited here, so they're returned as the row holds them
+    const row = toRows_(found.headers, [found.display], [found.display])[0];
+    const kept = toCustomer_(row, ss.getSpreadsheetTimeZone());
+    return Object.assign(kept, { name: name, phone: normalizePhone_(phone) });
   } finally {
     lock.releaseLock();
   }
@@ -849,7 +1301,14 @@ function findCustomerRow_(sheet, key, optional) {
       const rowId = idCol === -1 ? '' : String(rows[i][idCol]).trim();
       const rowName = String(rows[i][nameCol]).trim();
       if (id ? rowId === id : rowName === name) {
-        return { rowIndex: i + 2, headers: headers, nameCol: nameCol, id: rowId, name: rowName };
+        return {
+          rowIndex: i + 2,
+          headers: headers,
+          nameCol: nameCol,
+          id: rowId,
+          name: rowName,
+          display: rows[i],
+        };
       }
     }
   }

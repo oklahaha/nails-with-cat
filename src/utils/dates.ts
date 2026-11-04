@@ -99,6 +99,12 @@ export function minutesToTime(minutes: number): string {
   return `${h}:${m}`;
 }
 
+/** Duration in minutes → hours, e.g. 150 → "2.5 小時"; under an hour stays in minutes. */
+export function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes} 分鐘`;
+  return `${Math.round((minutes / 60) * 100) / 100} 小時`;
+}
+
 /** e.g. 2026年10月21日（三） */
 export function formatShortDate(iso: string): string {
   const date = parseIsoDate(iso);

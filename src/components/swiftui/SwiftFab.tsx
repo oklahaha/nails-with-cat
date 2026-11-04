@@ -1,18 +1,18 @@
 /**
- * Floating add button rendered as a SwiftUI Host overlay (matchContents).
- * The native tab bar floats over the screen, so the bottom safe area
- * (which includes the bar) keeps the button above it.
+ * Floating add button. Put it last in a ZStack with bottomTrailing alignment:
+ * the bottom safe area, which includes the floating tab bar, keeps it above
+ * the bar. It stays put when the keyboard opens.
  */
-import { Button, Host } from '@expo/ui/swift-ui';
+import { Button } from '@expo/ui/swift-ui';
 import {
   buttonBorderShape,
   controlSize,
+  ignoreSafeArea,
   labelStyle,
+  padding,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, spacing } from '@/constants/theme';
 
@@ -26,41 +26,26 @@ type Props = {
 
 export function SwiftFab({ date, onPress, label = '新增預約' }: Props) {
   return (
-    <SafeAreaView edges={['bottom']} style={styles.wrap}>
-      <View style={styles.inner}>
-        <Host matchContents colorScheme="dark" seedColor={colors.accent}>
-          <Button
-            label={label}
-            systemImage="plus"
-            onPress={
-              onPress ??
-              (() =>
-                router.push({
-                  pathname: '/add-appointment',
-                  params: date ? { date } : {},
-                }))
-            }
-            modifiers={[
-              glassProminentButton(),
-              controlSize('large'),
-              labelStyle('iconOnly'),
-              buttonBorderShape('circle'),
-              tint(colors.accent),
-            ]}
-          />
-        </Host>
-      </View>
-    </SafeAreaView>
+    <Button
+      label={label}
+      systemImage="plus"
+      onPress={
+        onPress ??
+        (() =>
+          router.push({
+            pathname: '/add-appointment',
+            params: date ? { date } : {},
+          }))
+      }
+      modifiers={[
+        glassProminentButton(),
+        controlSize('large'),
+        labelStyle('iconOnly'),
+        buttonBorderShape('circle'),
+        tint(colors.accent),
+        padding({ all: spacing.md }),
+        ignoreSafeArea({ regions: 'keyboard' }),
+      ]}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-  },
-  inner: {
-    padding: spacing.md,
-  },
-});

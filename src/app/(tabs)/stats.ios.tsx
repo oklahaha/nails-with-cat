@@ -1,30 +1,15 @@
 /**
- * 統計 — SwiftUI Form dashboard with Swift Charts (`Chart`).
- * Calculations still from utils/stats.ts.
+ * 統計 — SwiftUI Form dashboard with Swift Charts (`Chart`), split by a
+ * segmented control into 總覽, 顧客 and (with fresh analysis results) 預測.
+ * Calculations still from utils/stats.ts and utils/customerAnalytics.ts.
  */
+import { Form, NavigationStack, Picker, Section, Text } from '@expo/ui/swift-ui';
 import {
-  Button,
-  Chart,
-  Form,
-  HStack,
-  LabeledContent,
-  NavigationStack,
-  Section,
-  Spacer,
-  Text,
-  VStack,
-} from '@expo/ui/swift-ui';
-import {
-  buttonStyle,
-  contentShape,
-  font,
-  foregroundStyle,
-  frame,
-  labelStyle,
+  listRowBackground,
   navigationTitle,
+  pickerStyle,
   refreshable,
-  shapes,
-  tint,
+  tag,
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -32,32 +17,38 @@ import { useMemo, useState } from 'react';
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
-import { glassButton } from '@/components/swiftui/glass';
-import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
-import { serviceColor } from '@/constants/services';
-import { colors } from '@/constants/theme';
+import { CustomersTab } from '@/components/swiftui/stats/CustomersTab';
+import { ForecastTab } from '@/components/swiftui/stats/ForecastTab';
+import { OverviewTab } from '@/components/swiftui/stats/OverviewTab';
 import { useAppointments } from '@/hooks/useAppointments';
+import { useCustomerAnalytics } from '@/hooks/useCustomerAnalytics';
 import { useCustomers } from '@/hooks/useCustomers';
-import { addMonths, todayIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
 import {
+  atRiskCustomers,
+  dueSoonCustomers,
+  hasFreshAnalytics,
+  recentWeeklyBookings,
+  segmentSummary,
+  visitDistribution,
+} from '@/utils/customerAnalytics';
+import { addMonths, todayIsoDate } from '@/utils/dates';
+import {
+  busyHeatmap,
   customerStats,
-  formatMoney,
   lapsedCustomers,
   monthStats,
   recentMonths,
   serviceBreakdown,
   topCustomers,
-  weekdayCounts,
-  type CustomerStats,
+  topCustomersShare,
 } from '@/utils/stats';
-import { openWhatsApp } from '@/utils/whatsapp';
 
 const MONTH_COUNT = 12;
 const LAPSED_MIN_VISITS = 2;
 const LAPSED_MIN_DAYS = 42;
-const LIST_LIMIT = 8;
-/** The accent at ~35% over the dark row background, for the months that aren't selected. */
-const ACCENT_FADED = '#674642';
+const TOP_LIMIT = 8;
+
+type StatsTab = 'overview' | 'customers' | 'forecast';
 
 export default function StatsScreen() {
   const today = todayIsoDate();
@@ -66,9 +57,10 @@ export default function StatsScreen() {
     from: addMonths(today, 1 - MONTH_COUNT),
   });
   const { customers } = useCustomers();
+  const { analytics, reload: reloadAnalytics } = useCustomerAnalytics();
   const [picked, setSelected] = useState(months[months.length - 1]);
   const selected = months.includes(picked) ? picked : months[months.length - 1];
-  const [showAllLapsed, setShowAllLapsed] = useState(false);
+  const [pickedTab, setTab] = useState<StatsTab>('overview');
   const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
 
   const monthly = useMemo(
@@ -79,9 +71,10 @@ export default function StatsScreen() {
     () => serviceBreakdown(appointments, selected),
     [appointments, selected]
   );
-  const weekdays = useMemo(() => weekdayCounts(appointments, today), [appointments, today]);
+  const heatmap = useMemo(() => busyHeatmap(appointments, today), [appointments, today]);
   const perCustomer = useMemo(() => customerStats(appointments, today), [appointments, today]);
-  const top = useMemo(() => topCustomers(perCustomer, LIST_LIMIT), [perCustomer]);
+  const top = useMemo(() => topCustomers(perCustomer, TOP_LIMIT), [perCustomer]);
+  const topShare = useMemo(() => topCustomersShare(perCustomer, TOP_LIMIT), [perCustomer]);
   const lapsed = useMemo(
     () =>
       lapsedCustomers(
@@ -90,6 +83,23 @@ export default function StatsScreen() {
         today
       ),
     [perCustomer, today]
+  );
+  // Null when the nightly results are missing or stale: 久未回來 shows instead
+  const insights = useMemo(() => {
+    if (!hasFreshAnalytics(analytics, today)) return null;
+    return {
+      updatedAt: analytics.updatedAt,
+      atRisk: atRiskCustomers(analytics, customers, appointments),
+      dueSoon: dueSoonCustomers(analytics, customers, appointments, today),
+      segments: segmentSummary(analytics),
+      visitCounts: visitDistribution(analytics),
+      totalClv: analytics.customers.reduce((sum, c) => sum + c.clv12m, 0),
+      forecast: analytics.forecast,
+    };
+  }, [analytics, customers, appointments, today]);
+  const recentAverage = useMemo(
+    () => recentWeeklyBookings(appointments, today),
+    [appointments, today]
   );
 
   if (loading) {
@@ -107,10 +117,9 @@ export default function StatsScreen() {
     );
   }
 
-  const index = months.indexOf(selected);
-  const current = monthly[index];
-  const previous = index > 0 && index < months.length - 1 ? monthly[index - 1] : undefined;
-  const isThisMonth = index === months.length - 1;
+  const hasForecast = (insights?.forecast.length ?? 0) > 0;
+  // Falls back if the results went stale while 預測 was showing
+  const tab = pickedTab === 'forecast' && !hasForecast ? 'overview' : pickedTab;
 
   const openCustomer = (name: string) => {
     const customer = customers.find((c) => c.name === name);
@@ -128,268 +137,54 @@ export default function StatsScreen() {
             navigationTitle('統計'),
             ...hideTabBarOnScroll,
             refreshable(async () => {
-              await reload(true);
+              await Promise.all([reload(true), reloadAnalytics()]);
             }),
           ]}
         >
-
-          <Section title="每月收入" footer={<Text>過去 12 個月 · 用上方 ‹ › 切換月份</Text>}>
-            <HStack>
-              <Button
-                label="上個月"
-                systemImage="chevron.left"
-                onPress={() => index > 0 && setSelected(months[index - 1])}
-                modifiers={[glassButton(), labelStyle('iconOnly')]}
-              />
-              <Spacer />
-              <Text modifiers={[font({ size: 17, weight: 'semibold' })]}>
-                {formatMonth(selected)}
-              </Text>
-              <Spacer />
-              <Button
-                label="下個月"
-                systemImage="chevron.right"
-                onPress={() => !isThisMonth && setSelected(months[index + 1])}
-                modifiers={[glassButton(), labelStyle('iconOnly')]}
-              />
-            </HStack>
+          <Section modifiers={[listRowBackground('clear')]}>
+            <Picker
+              label="檢視"
+              selection={tab}
+              onSelectionChange={(value) => setTab(value as StatsTab)}
+              modifiers={[pickerStyle('segmented')]}
+            >
+              <Text modifiers={[tag('overview')]}>總覽</Text>
+              <Text modifiers={[tag('customers')]}>顧客</Text>
+              {hasForecast ? <Text modifiers={[tag('forecast')]}>預測</Text> : null}
+            </Picker>
           </Section>
 
-          <Section>
-            <Chart
-              type="bar"
-              showGrid
-              data={monthly.map((m) => ({
-                x: `${Number(m.month.slice(5))}月`,
-                y: m.revenue,
-                color: m.month === selected ? colors.accent : ACCENT_FADED,
-              }))}
-              barStyle={{ cornerRadius: 3 }}
-              modifiers={[frame({ height: 180 })]}
+          {tab === 'overview' ? (
+            <OverviewTab
+              months={months}
+              monthly={monthly}
+              selected={selected}
+              onSelect={setSelected}
+              services={services}
+              heatmap={heatmap}
             />
-          </Section>
-
-          <Section title="本月概覽">
-            <LabeledContent label="收入">
-              <VStack alignment="trailing" spacing={2}>
-                <Text modifiers={[font({ weight: 'bold' })]}>{formatMoney(current.revenue)}</Text>
-                {changeLabel(current.revenue, previous?.revenue)}
-              </VStack>
-            </LabeledContent>
-            <LabeledContent label="預約">
-              <Text modifiers={[font({ weight: 'bold' })]}>{current.bookings}</Text>
-            </LabeledContent>
-            <LabeledContent label="顧客人數">
-              <Text modifiers={[font({ weight: 'bold' })]}>{current.customers}</Text>
-            </LabeledContent>
-            <LabeledContent label="平均消費">
-              <Text modifiers={[font({ weight: 'bold' })]}>
-                {current.averageSpend != null ? formatMoney(current.averageSpend) : '—'}
-              </Text>
-            </LabeledContent>
-            {isThisMonth && current.upcomingRevenue > 0 ? (
-              <Text
-                modifiers={[
-                  font({ size: 12 }),
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                另有 {formatMoney(current.upcomingRevenue)} 已預約
-              </Text>
-            ) : null}
-          </Section>
-
-          <Section title="服務分佈" footer={<Text>{formatMonth(selected)}</Text>}>
-            {services.length === 0 ? (
-              <Text
-                modifiers={[
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                這個月未有預約
-              </Text>
-            ) : (
-              <>
-                {/* Donut in the calendar's service colours; the rows below act as its legend */}
-                <Chart
-                  type="pie"
-                  data={services.map((s) => ({
-                    x: s.service,
-                    y: s.bookings,
-                    color: serviceColor(s.service),
-                  }))}
-                  pieStyle={{ innerRadius: 0.6, angularInset: 2, cornerRadius: 4, opacity: 1 }}
-                  modifiers={[frame({ height: 180 })]}
-                />
-                {services.map((s) => (
-                  <HStack key={s.service} spacing={8}>
-                    <Text modifiers={[foregroundStyle(serviceColor(s.service))]}>●</Text>
-                    <Text>{s.service}</Text>
-                    <Spacer />
-                    <Text
-                      modifiers={[
-                        foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                      ]}
-                    >
-                      {s.bookings} 次{s.revenue > 0 ? ` · ${formatMoney(s.revenue)}` : ''}
-                    </Text>
-                  </HStack>
-                ))}
-              </>
-            )}
-          </Section>
-
-          <Section title="最繁忙日子" footer={<Text>過去 12 個月的來店次數</Text>}>
-            <Chart
-              type="bar"
-              showGrid
-              data={weekdays.map((count, i) => ({
-                x: WEEKDAY_LABELS[i],
-                y: count,
-                color: count === Math.max(...weekdays) ? colors.accent : ACCENT_FADED,
-              }))}
-              barStyle={{ cornerRadius: 3 }}
-              modifiers={[frame({ height: 140 })]}
+          ) : null}
+          {tab === 'customers' ? (
+            <CustomersTab
+              insights={insights}
+              today={today}
+              top={top}
+              topShare={topShare}
+              lapsed={lapsed}
+              lapsedRule={`來過 ${LAPSED_MIN_VISITS} 次或以上、超過 ${LAPSED_MIN_DAYS / 7} 星期未來，亦未有預約`}
+              onOpenCustomer={openCustomer}
             />
-          </Section>
-
-          <Section title="熟客排行" footer={<Text>過去 12 個月的消費</Text>}>
-            {top.length === 0 ? (
-              <Text
-                modifiers={[
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                未有記錄
-              </Text>
-            ) : (
-              top.map((c, i) => (
-                <CustomerStatRow
-                  key={c.name}
-                  customer={c}
-                  rank={i + 1}
-                  detail={`${c.visits} 次 · 最近 ${formatDay(c.lastVisit)}`}
-                  value={formatMoney(c.spend)}
-                  onPress={() => openCustomer(c.name)}
-                />
-              ))
-            )}
-          </Section>
-
-          <Section
-            title="久未回來"
-            footer={
-              <Text>
-                來過 {LAPSED_MIN_VISITS} 次或以上、超過 {LAPSED_MIN_DAYS / 7} 星期未來，亦未有預約
-              </Text>
-            }
-          >
-            {lapsed.length === 0 ? (
-              <Text
-                modifiers={[
-                  foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-                ]}
-              >
-                熟客最近都有回來
-              </Text>
-            ) : (
-              <>
-                {(showAllLapsed ? lapsed : lapsed.slice(0, LIST_LIMIT)).map((c) => (
-                  <CustomerStatRow
-                    key={c.name}
-                    customer={c}
-                    detail={`上次 ${formatDay(c.lastVisit)} · ${c.lastService} · 共 ${c.visits} 次`}
-                    value={`${c.daysSince} 日`}
-                    onPress={() => openCustomer(c.name)}
-                    showWhatsApp
-                  />
-                ))}
-                {!showAllLapsed && lapsed.length > LIST_LIMIT ? (
-                  <Button
-                    label={`顯示全部 ${lapsed.length} 位`}
-                    onPress={() => setShowAllLapsed(true)}
-                    modifiers={[buttonStyle('plain'), tint(colors.accent)]}
-                  />
-                ) : null}
-              </>
-            )}
-          </Section>
+          ) : null}
+          {tab === 'forecast' && insights ? (
+            <ForecastTab
+              forecast={insights.forecast}
+              today={today}
+              recentAverage={recentAverage}
+              updatedAt={insights.updatedAt}
+            />
+          ) : null}
         </Form>
       </NavigationStack>
     </SwiftHost>
-  );
-}
-
-function changeLabel(value: number, previous: number | undefined) {
-  if (previous === undefined || previous === 0) return null;
-  const pct = Math.round(((value - previous) / previous) * 100);
-  const color = pct > 0 ? colors.success : pct < 0 ? colors.danger : colors.textSecondary;
-  return (
-    <Text modifiers={[font({ size: 12 }), foregroundStyle(color)]}>
-      {pct > 0 ? '▲' : pct < 0 ? '▼' : '–'} {Math.abs(pct)}% 對上月
-    </Text>
-  );
-}
-
-function formatMonth(month: string): string {
-  return `${month.slice(0, 4)}年${Number(month.slice(5))}月`;
-}
-
-function formatDay(iso: string): string {
-  const [, m, d] = iso.split('-').map(Number);
-  return m && d ? `${m}月${d}日` : iso;
-}
-
-function CustomerStatRow({
-  customer,
-  rank,
-  detail,
-  value,
-  onPress,
-  showWhatsApp,
-}: {
-  customer: CustomerStats;
-  rank?: number;
-  detail: string;
-  value: string;
-  onPress: () => void;
-  showWhatsApp?: boolean;
-}) {
-  return (
-    <HStack spacing={8}>
-      <Button onPress={onPress} modifiers={[buttonStyle('plain')]}>
-        <HStack spacing={8} modifiers={[contentShape(shapes.rectangle())]}>
-          {rank != null ? (
-            <Text
-              modifiers={[
-                font({ size: 13 }),
-                foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-              ]}
-            >
-              {rank}
-            </Text>
-          ) : null}
-          <VStack spacing={2} alignment="leading">
-            <Text modifiers={[font({ weight: 'semibold' })]}>{customer.name}</Text>
-            <Text
-              modifiers={[
-                font({ size: 12 }),
-                foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
-              ]}
-            >
-              {detail}
-            </Text>
-          </VStack>
-          <Spacer />
-          <Text modifiers={[font({ weight: 'semibold' })]}>{value}</Text>
-        </HStack>
-      </Button>
-      {showWhatsApp && customer.phone ? (
-        <WhatsAppButton
-          label={`用 WhatsApp 聯絡 ${customer.name}`}
-          onPress={() => void openWhatsApp(customer.phone!)}
-        />
-      ) : null}
-    </HStack>
   );
 }

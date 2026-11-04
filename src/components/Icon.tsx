@@ -21,6 +21,7 @@ const ICONS = {
   edit: { ios: 'pencil', android: 'edit', web: 'edit' },
   trash: { ios: 'trash', android: 'delete', web: 'delete' },
   chart: { ios: 'chart.bar', android: 'bar_chart', web: 'bar_chart' },
+  gallery: { ios: 'photo.on.rectangle', android: 'photo_library', web: 'photo_library' },
 } as const;
 
 export type IconName = keyof typeof ICONS;

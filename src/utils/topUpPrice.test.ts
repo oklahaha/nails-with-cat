@@ -35,6 +35,11 @@ describe('topUpPrice', () => {
     expect(topUpPrice(nails, history, '陳小姐', date)).toBe(0);
   });
 
+  it('skips a set the customer didn\'t come to', () => {
+    const history = [set('眼睫毛', '2026-11-08'), set('眼睫毛', '2026-11-18', { status: 'No show' })];
+    expect(topUpPrice(lashes, history, '陳小姐', date)).toBe(214);
+  });
+
   it('charges the full price with no set in the history', () => {
     expect(topUpPrice(lashes, [], '陳小姐', date)).toBe(428);
     expect(topUpPrice(nails, [], '陳小姐', date)).toBe(30);

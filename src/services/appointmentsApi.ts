@@ -10,6 +10,7 @@
  * SPREADSHEET_ID property, not by the app.
  */
 
+import { mockCustomerAnalytics } from '@/data/mockCustomerAnalytics';
 import { MOCK_APPOINTMENTS } from '@/data/mockAppointments';
 import type {
   Appointment,
@@ -17,6 +18,10 @@ import type {
   UpdateAppointmentInput,
 } from '@/types/appointment';
 import type { Customer, CustomerInput, CustomerKey } from '@/types/customer';
+import type { CustomerAnalytics } from '@/types/customerAnalytics';
+import type { PhotoKind, PhotoSize } from '@/utils/appointmentPhotos';
+import { todayIsoDate } from '@/utils/dates';
+import { sheetPhone } from '@/utils/phone';
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
 const APPS_SCRIPT_TOKEN = process.env.EXPO_PUBLIC_APPS_SCRIPT_TOKEN ?? '';
@@ -135,6 +140,22 @@ export async function listCustomerAppointments(key: CustomerKey): Promise<Appoin
   return data.appointments;
 }
 
+/** Fetch every booking with 完成作品, any date, for the 作品 tab. */
+export async function listFinishedPhotoAppointments(): Promise<Appointment[]> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return MOCK_APPOINTMENTS.filter((apt) => (apt.finishedPhotos?.length ?? 0) > 0);
+  }
+
+  const params = new URLSearchParams({
+    action: 'listFinishedPhotoAppointments',
+    token: APPS_SCRIPT_TOKEN,
+  });
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const data = await parseResponse<{ appointments: Appointment[] }>(res);
+  return data.appointments;
+}
+
 /**
  * Create a new appointment — appends a row to 預約資料.
  */
@@ -158,6 +179,7 @@ export async function createAppointment(
       handOrFoot: input.handOrFoot,
       price: input.price,
       deposit: input.deposit,
+      keepDeposit: input.keepDeposit,
       complexDesign: input.complexDesign,
       removal: input.removal,
       extension: input.extension,
@@ -207,6 +229,7 @@ export async function updateAppointment(
       handOrFoot: input.handOrFoot,
       price: input.price,
       deposit: input.deposit,
+      keepDeposit: input.keepDeposit,
       complexDesign: input.complexDesign,
       removal: input.removal,
       extension: input.extension,
@@ -259,6 +282,80 @@ export async function deleteAppointment(id: string): Promise<void> {
 }
 
 /**
+ * Save a photo to Drive and add its path to the booking's 參考作品 / 完成作品.
+ * The path is chosen in the app, so sending it twice is harmless. Doesn't call
+ * notifyChanged: nothing a photo changes reaches the widget or the reminders.
+ */
+export async function addAppointmentPhoto(
+  id: string,
+  kind: PhotoKind,
+  path: string,
+  base64: string
+): Promise<void> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return;
+  }
+
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'addAppointmentPhoto',
+      id,
+      kind,
+      path,
+      base64,
+    }),
+  });
+  await parseResponse<object>(res);
+}
+
+/** Take a photo off a booking and move its file to Drive's trash. */
+export async function removeAppointmentPhoto(
+  id: string,
+  kind: PhotoKind,
+  path: string
+): Promise<void> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return;
+  }
+
+  const res = await request(APPS_SCRIPT_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      token: APPS_SCRIPT_TOKEN,
+      action: 'removeAppointmentPhoto',
+      id,
+      kind,
+      path,
+    }),
+  });
+  await parseResponse<object>(res);
+}
+
+/** A photo's bytes as base64, as Drive's small preview or the full file. */
+export async function getAppointmentPhoto(path: string, size: PhotoSize): Promise<string> {
+  if (isUsingMockApi) {
+    await delay(300);
+    throw new Error('示範資料沒有相片');
+  }
+
+  const params = new URLSearchParams({
+    action: 'getAppointmentPhoto',
+    token: APPS_SCRIPT_TOKEN,
+    path,
+    size,
+  });
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  const data = await parseResponse<{ base64: string }>(res);
+  return data.base64;
+}
+
+/**
  * Fetch all customers from the 顧客 sheet.
  */
 export async function listCustomers(): Promise<Customer[]> {
@@ -271,6 +368,8 @@ export async function listCustomers(): Promise<Customer[]> {
         id: `CUST-MOCK-${byName.size + 1}`,
         name: apt.customerName,
         phone: apt.phone ?? '',
+        joinedDate: '2025-03-01',
+        ...(byName.size === 0 ? { instagram: 'https://www.instagram.com/instagram/' } : {}),
       });
     }
     return [...byName.values()];
@@ -286,17 +385,35 @@ export async function listCustomers(): Promise<Customer[]> {
 }
 
 /**
+ * Fetch the nightly analysis results for 統計 (see analysis/ in the repo).
+ * Empty until the script's ANALYSIS_SPREADSHEET_ID property is set.
+ */
+export async function listCustomerAnalytics(): Promise<CustomerAnalytics> {
+  if (isUsingMockApi) {
+    await delay(300);
+    return mockCustomerAnalytics();
+  }
+
+  const params = new URLSearchParams({
+    action: 'listCustomerAnalytics',
+    token: APPS_SCRIPT_TOKEN,
+  });
+  const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+  return parseResponse<CustomerAnalytics>(res);
+}
+
+/**
  * Add a customer to 顧客. The script picks the 顧客ID.
  */
 export async function createCustomer(input: CustomerInput): Promise<Customer> {
   if (isUsingMockApi) {
     await delay(300);
     // Not persisted; the list is rebuilt from MOCK_APPOINTMENTS
-    const digits = input.phone.replace(/[^\d]/g, '');
     const created: Customer = {
       id: `CUST-MOCK-${Date.now()}`,
       name: input.name.trim(),
-      phone: digits.length === 8 ? `852${digits}` : digits,
+      phone: sheetPhone(input.phone),
+      joinedDate: todayIsoDate(),
     };
     console.log('[appointmentsApi] mock createCustomer:', created);
     return created;
@@ -326,11 +443,10 @@ export async function updateCustomer(
   if (isUsingMockApi) {
     await delay(300);
     // Not persisted; the list is rebuilt from MOCK_APPOINTMENTS
-    const digits = input.phone.replace(/[^\d]/g, '');
     const updated: Customer = {
       id: key.id ?? '',
       name: input.name.trim(),
-      phone: digits.length === 8 ? `852${digits}` : digits,
+      phone: sheetPhone(input.phone),
     };
     console.log('[appointmentsApi] mock updateCustomer:', updated);
     return updated;

@@ -2,13 +2,15 @@
  * Appointment details — opened by tapping a booking in the timetable or the
  * 預約資料 list. Shows the booking's fields in the same order and with the
  * same labels as the add-appointment form, with 修改 (opens the form in edit
- * mode) and 刪除.
+ * mode) and 刪除. Bookings with a paid 訂金 have 保留訂金, which marks the
+ * deposit as kept for the customer's next booking.
  */
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BookingPhotos } from '@/components/form/PhotoStrip';
 import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
 import {
@@ -22,8 +24,17 @@ import {
 import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
 import { removeAppointment } from '@/hooks/appointmentWrites';
 import { findCachedAppointment } from '@/hooks/useAppointments';
+import { useKeptDepositHint } from '@/hooks/useKeptDepositHint';
 import { showAlert } from '@/utils/alert';
+import {
+  askKeepDeposit,
+  canKeepDeposit,
+  hasCustomerActions,
+  openAppointmentCustomer,
+} from '@/utils/appointmentActions';
+import { showsFinishedPhotos, showsReferencePhotos } from '@/utils/appointmentPhotos';
 import { appointmentTitle } from '@/utils/appointmentTitle';
+import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 import { formatPhone } from '@/utils/phone';
 
@@ -37,7 +48,10 @@ export default function AppointmentDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   // Snapshot at open, so a background reload doesn't change it under the user
-  const [appointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
+  const [appointment, setAppointment] = useState(() =>
+    id ? findCachedAppointment(id) : undefined
+  );
+  const keptDepositHint = useKeptDepositHint(appointment);
 
   // e.g. the web page was reloaded, so the appointment list isn't loaded
   if (!appointment) {
@@ -56,13 +70,14 @@ export default function AppointmentDetailsScreen() {
   const phone = appointment.phone?.trim();
   const hasEnd = Boolean(appointment.endTime && appointment.endTime !== appointment.time);
   const timeRange = `${appointment.time}${hasEnd ? ` – ${appointment.endTime}` : ''}${
-    appointment.durationMinutes ? `（${appointment.durationMinutes} 分鐘）` : ''
+    appointment.durationMinutes ? `（${formatDuration(appointment.durationMinutes)}）` : ''
   }`;
   const showNailExtras = showsNailExtras(appointment.service, appointment.handOrFoot ?? '');
   const extras = NAIL_EXTRAS.filter(({ key }) => appointment[key]).map(({ label }) => label);
   // The form's sections, in its order but with 狀態 last; rows the form hides
   // for this service are left out
-  const rows: { label: string; value?: string }[] = isSpecial
+  // onPress: the 顧客 row opens 顧客資料
+  const rows: { label: string; value?: string; onPress?: () => void; selectable?: boolean }[] = isSpecial
     ? [
         { label: '備注', value: appointment.notes },
         { label: '日期', value: formatDateHeader(appointment.date) },
@@ -70,8 +85,14 @@ export default function AppointmentDetailsScreen() {
         { label: '完結時間', value: hasEnd ? appointment.endTime : undefined },
       ]
     : [
-        { label: '顧客', value: appointment.customerName },
-        ...(phone ? [{ label: '電話', value: formatPhone(phone) }] : []),
+        {
+          label: '顧客',
+          value: appointment.customerName,
+          onPress: hasCustomerActions(appointment)
+            ? () => openAppointmentCustomer(appointment)
+            : undefined,
+        },
+        ...(phone ? [{ label: '電話', value: formatPhone(phone), selectable: true }] : []),
         { label: '日期', value: formatDateHeader(appointment.date) },
         { label: '開始時間', value: timeRange },
         ...(usesHandOrFoot(appointment.service)
@@ -86,6 +107,7 @@ export default function AppointmentDetailsScreen() {
         ...(usesDeposit(appointment.service)
           ? [{ label: '訂金', value: appointment.deposit ? '已付' : '未付' }]
           : []),
+        ...(appointment.keepDeposit ? [{ label: '保留訂金', value: '是（下次預約用）' }] : []),
         { label: '收費', value: appointment.price != null ? `$${appointment.price}` : undefined },
         { label: '備注', value: appointment.notes },
         { label: '狀態', value: appointment.status },
@@ -117,16 +139,52 @@ export default function AppointmentDetailsScreen() {
             <View style={[styles.serviceDot, { backgroundColor: color }]} />
             <Text style={styles.serviceText}>{appointment.service}</Text>
           </View>
+          {keptDepositHint ? <Text style={styles.keptHint}>{keptDepositHint}</Text> : null}
         </View>
 
         <View style={styles.card}>
-          {rows.map((row, i) => (
-            <View key={row.label} style={[styles.row, i > 0 && styles.rowDivider]}>
-              <Text style={styles.rowLabel}>{row.label}</Text>
-              <Text style={styles.rowValue}>{row.value || '—'}</Text>
-            </View>
-          ))}
+          {rows.map((row, i) =>
+            row.onPress ? (
+              <Pressable
+                key={row.label}
+                onPress={row.onPress}
+                style={({ pressed }) => [styles.row, i > 0 && styles.rowDivider, pressed && pressedStyle]}
+                accessibilityRole="button"
+                accessibilityLabel={`查看 ${row.value} 的顧客資料`}
+              >
+                <Text style={styles.rowLabel}>{row.label}</Text>
+                <Text style={[styles.rowValue, styles.rowLink]}>{row.value}</Text>
+                <Icon name="chevronRight" color={colors.textSecondary} size={18} />
+              </Pressable>
+            ) : (
+              <View key={row.label} style={[styles.row, i > 0 && styles.rowDivider]}>
+                <Text style={styles.rowLabel}>{row.label}</Text>
+                <Text selectable={row.selectable} style={styles.rowValue}>
+                  {row.value || '—'}
+                </Text>
+              </View>
+            )
+          )}
         </View>
+
+        {showsReferencePhotos(appointment) ? (
+          <BookingPhotos appointment={appointment} kind="reference" />
+        ) : null}
+        {showsFinishedPhotos(appointment) ? (
+          <BookingPhotos appointment={appointment} kind="finished" />
+        ) : null}
+
+        {canKeepDeposit(appointment) ? (
+          <Pressable
+            onPress={() => askKeepDeposit(appointment, setAppointment)}
+            style={({ pressed }) => [styles.keepDepositBtn, pressed && pressedStyle]}
+            accessibilityRole="button"
+          >
+            <Text style={styles.keepDepositText}>
+              {appointment.keepDeposit ? '取消保留訂金' : '保留訂金'}
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
@@ -179,6 +237,11 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radius.pill,
   },
+  keptHint: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+  },
   serviceDot: {
     width: 8,
     height: 8,
@@ -213,6 +276,24 @@ const styles = StyleSheet.create({
     ...type.time,
     flex: 1,
     lineHeight: 21,
+  },
+  rowLink: {
+    color: colors.accent,
+  },
+  keepDepositBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.md - 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentMuted,
+  },
+  keepDepositText: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '700',
   },
   footer: {
     flexDirection: 'row',

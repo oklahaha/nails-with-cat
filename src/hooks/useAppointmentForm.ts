@@ -25,12 +25,16 @@ import {
   type HandOrFoot,
   type NailExtra,
 } from '@/constants/services';
-import { saveAppointment } from '@/hooks/appointmentWrites';
-import { useAppointments } from '@/hooks/useAppointments';
+import { addPhotos, saveAppointment } from '@/hooks/appointmentWrites';
+import { useDraftPhotos } from '@/hooks/useAddPhotos';
+import { hapticSuccess } from '@/utils/haptics';
+import { useAppointments, useCustomerAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
+import { offerWhatsAppConfirmation } from '@/hooks/whatsAppConfirmation';
 import type { Appointment, ServiceType, UpdateAppointmentInput } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
-import { addDays, minutesToTime, timeToMinutes } from '@/utils/dates';
+import { addDays, formatShortDate, minutesToTime, timeToMinutes } from '@/utils/dates';
+import { previousKeptDeposit } from '@/utils/keptDeposit';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 
@@ -85,6 +89,9 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const [priceEdited, setPriceEdited] = useState(false);
   const [status, setStatus] = useState(editing?.status ?? initial.status);
   const [errors, setErrors] = useState<FormErrors>({});
+
+  // 參考作品 picked for a new booking; existing bookings add them in their details
+  const referenceDrafts = useDraftPhotos('reference');
 
   const { customers } = useCustomers();
   const dayBookings = useAppointments({ from: date, to: date }, { enabled: date !== '' });
@@ -169,6 +176,20 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const clashes =
     validTime && !(isSpecial && endBeforeStart) ? findOverlaps(otherBookings, time, duration) : [];
 
+  // Reminds staff when the customer's previous booking kept its deposit
+  const customerHistory = useCustomerAppointments(
+    knownCustomer && !isSpecial
+      ? { id: knownCustomer.id || undefined, name: knownCustomer.name }
+      : undefined
+  );
+  const keptBefore =
+    knownCustomer && !isSpecial
+      ? previousKeptDeposit(customerHistory.appointments, date, time, editing?.id)
+      : undefined;
+  const keptDepositHint = keptBefore
+    ? `上次預約（${formatShortDate(keptBefore.date)}）保留了訂金`
+    : undefined;
+
   const suggestions = useMemo(() => {
     const q = customerName.trim().toLowerCase();
     if (!q) return [];
@@ -250,7 +271,14 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     setErrors(found);
     if (Object.keys(found).length > 0 || !service) return;
     const chosen = service;
-    const save = () => onSaved(saveAppointment(toInput(text, chosen), editing));
+    const save = () => {
+      const saved = saveAppointment(toInput(text, chosen), editing);
+      if (!editing && !isSpecial) addPhotos(saved, 'reference', referenceDrafts.take());
+      hapticSuccess();
+      // Once the form has closed, ask about a WhatsApp confirmation
+      if (!editing) offerWhatsAppConfirmation(saved);
+      onSaved(saved);
+    };
 
     // Overlaps are sometimes intended, so they only need confirming
     const overlaps = findOverlaps(otherBookings, time, duration);
@@ -286,6 +314,8 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     setHandOrFoot,
     deposit,
     setDeposit,
+    referenceDrafts,
+    keptDepositHint,
     complexDesign,
     setComplexDesign,
     nailExtras,

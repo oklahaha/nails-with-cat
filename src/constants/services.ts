@@ -217,15 +217,6 @@ export const NO_NAIL_EXTRAS = {
   extension: false,
 } as const;
 
-/** e.g. 複雜款（半個鐘）、延長, or '' when nothing is added. */
-export function describeNailExtras(apt: Partial<NailExtras> & { complexDesign?: string }): string {
-  const complex = toComplexDesign(apt.complexDesign);
-  return [
-    ...(complex === COMPLEX_DESIGN_OPTIONS[0] ? [] : [`複雜款（${complex}）`]),
-    ...NAIL_EXTRAS.filter(({ key }) => apt[key]).map(({ label }) => label),
-  ].join('、');
-}
-
 /** Like defaultDurationFor: a 整甲 for 腳 has its own price, and add-ons add theirs. */
 export function defaultPriceFor(service: ServiceType, choices?: ServiceChoices): number | undefined {
   const found = SERVICES.find((s) => s.name === service);

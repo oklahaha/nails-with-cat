@@ -32,4 +32,12 @@ describe('reuseUnchanged', () => {
     const next = [{ id: '1', name: 'a' }];
     expect(reuseUnchanged(null, next, keyOf)).toBe(next);
   });
+
+  it('treats arrays with the same values as unchanged', () => {
+    const prev = [{ id: '1', photos: ['a', 'b'] }];
+    const next = [{ id: '1', photos: ['a', 'b'] }];
+    expect(reuseUnchanged(prev, next, (item) => item.id)).toBe(prev);
+    const changed = [{ id: '1', photos: ['a'] }];
+    expect(reuseUnchanged(prev, changed, (item) => item.id)[0]).toBe(changed[0]);
+  });
 });

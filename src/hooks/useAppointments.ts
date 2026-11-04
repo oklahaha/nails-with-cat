@@ -4,19 +4,29 @@ import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 're
 import {
   listAppointments,
   listCustomerAppointments,
+  listFinishedPhotoAppointments,
   type ListAppointmentsOptions,
 } from '@/services/appointmentsApi';
 import type { Appointment } from '@/types/appointment';
 import type { CustomerKey } from '@/types/customer';
 import { readStored, removeStored, writeStored } from '@/utils/persistentStorage';
-import { reuseUnchanged } from '@/utils/reuseUnchanged';
+import {
+  applyPhotoOps,
+  livePhotoOps,
+  type PhotoKind,
+  withPhotosOf,
+  type PhotoOp,
+} from '@/utils/appointmentPhotos';
+import { reuseUnchanged, shallowEqual } from '@/utils/reuseUnchanged';
 import { parseRanges, serializeRanges } from '@/utils/storedAppointments';
 
 const EMPTY: Appointment[] = [];
 
-const STORAGE_KEY = 'appointments-cache-v2';
-/** v1 saved each range's bookings in full; drop what's left of it. */
+const STORAGE_KEY = 'appointments-cache-v4';
+/** v1 saved each range's bookings in full, v2 predates keepDeposit, v3 the photos; drop them. */
 removeStored('appointments-cache-v1');
+removeStored('appointments-cache-v2');
+removeStored('appointments-cache-v3');
 /** Most recently loaded ranges kept on the device, so storage doesn't grow. */
 const MAX_STORED = 24;
 
@@ -46,10 +56,9 @@ function subscribeCache(listener: () => void): () => void {
  * write, since a covering range may change what it shows.
  */
 function useCacheSnapshot(key: string): Appointment[] | number {
-  return useSyncExternalStore(
-    subscribeCache,
-    useCallback(() => cache.get(key) ?? cacheVersion, [key])
-  );
+  const snapshot = useCallback(() => cache.get(key) ?? cacheVersion, [key]);
+  // The same on the server: web renders routes there first
+  return useSyncExternalStore(subscribeCache, snapshot, snapshot);
 }
 
 /** Every cache write goes through here, so it's saved on the device too. */
@@ -74,6 +83,14 @@ function rangeKey({ from, to }: ListAppointmentsOptions): string {
   return `${from ?? ''}|${to ?? ''}`;
 }
 
+/** The bookings with 完成作品, whatever their date: edited in the cache like a customer's history. */
+const FINISHED_PHOTOS_KEY = 'photos:finished';
+
+/** Lists kept by something other than a date range, so a booking's date doesn't decide what's in them. */
+function isDateRangeKey(key: string): boolean {
+  return !key.startsWith('customer:') && key !== FINISHED_PHOTOS_KEY;
+}
+
 function customerKey({ id, name }: CustomerKey): string {
   return `customer:${id || ''}:${name}`;
 }
@@ -92,15 +109,64 @@ function fetchCached(key: string, load: () => Promise<Appointment[]>): Promise<A
     const startedAt = Date.now();
     request = load()
       .then((data) => {
-        const withLocal = applyLocalWrites(key, data, startedAt);
+        // A reload that started earlier but answered later mustn't bring back
+        // the old copies of rows a later-started one already returned
+        const current = withRows(key, data, (id) => {
+          const known = newest.get(id);
+          return known && known.at > startedAt ? known.apt : undefined;
+        });
+        const withLocal = applyLocalWrites(key, current, startedAt);
         const merged = reuseUnchanged(cache.get(key), withLocal, (apt) => apt.id);
         setCache(key, merged);
+        spreadFresh(key, merged, startedAt);
         return merged;
       })
       .finally(() => inflight.delete(key));
     inflight.set(key, request);
   }
   return request;
+}
+
+/** Per booking, its copy from the latest-started reload that returned it, and when that started. */
+const newest = new Map<string, { at: number; apt: Appointment }>();
+
+/**
+ * `list` with each row that `latestOf` has another copy of swapped for that
+ * copy, or dropped when the copy's date has left `key`'s range.
+ */
+function withRows(
+  key: string,
+  list: Appointment[],
+  latestOf: (id: string) => Appointment | undefined
+): Appointment[] {
+  let changed = false;
+  const next = list.flatMap((apt) => {
+    const latest = latestOf(apt.id);
+    if (!latest || latest === apt || shallowEqual(latest, apt)) return [apt];
+    changed = true;
+    return rangeCovers(key, latest.date) === false ? [] : [latest];
+  });
+  return changed ? next : list;
+}
+
+/**
+ * Copy the rows a reload of `fromKey` just returned into every other cached
+ * list holding them. Without this a list not reloaded (the timetable's month
+ * while the push sync reloads only today onwards) keeps an old copy, and No
+ * show or 保留訂金, which send every column, would write the old values back
+ * over the other phone's edit.
+ */
+function spreadFresh(fromKey: string, fresh: Appointment[], startedAt: number): void {
+  for (const apt of fresh) {
+    const known = newest.get(apt.id);
+    if (!known || known.at <= startedAt) newest.set(apt.id, { at: startedAt, apt });
+  }
+  const byId = new Map(fresh.map((apt) => [apt.id, apt]));
+  for (const [key, list] of cache) {
+    if (key === fromKey) continue;
+    const next = withRows(key, list, (id) => byId.get(id));
+    if (next !== list) setCache(key, next);
+  }
 }
 
 /** Warm the cache for a range the user is likely to open next. */
@@ -121,18 +187,6 @@ export function findCachedAppointment(id: string): Appointment | undefined {
 }
 
 /**
- * Put a just-saved appointment into every cached range that covers its date
- * (and out of those that no longer do), so screens show it at once instead
- * of after the next Apps Script reload. Customer histories only get edits.
- */
-export function upsertCachedAppointment(saved: Appointment): void {
-  for (const [key, list] of cache) {
-    const next = withAppointment(key, list, saved.id, saved);
-    if (next !== list) setCache(key, next);
-  }
-}
-
-/**
  * `list` with `id` replaced by `apt`, or dropped when `apt` is null or out of
  * range. `apt` may carry a new id (a new booking's real 預約ID), which
  * replaces any row already holding it, so it's never listed twice.
@@ -150,7 +204,7 @@ function withAppointment(
   const rest = list.filter((a) => !matches(a));
   if (!apt || covers === false) return rest;
   if (index === -1) return [...rest, apt];
-  rest.splice(Math.min(index, rest.length), 0, apt);
+  rest.splice(Math.min(index, rest.length), 0, withPhotosOf(list[index], apt));
   return rest;
 }
 
@@ -172,7 +226,95 @@ function applyLocalWrites(key: string, list: Appointment[], startedAt: number): 
       next = withAppointment(key, next, id, write.apt);
     }
   }
-  return next;
+  return withPhotoOps(next, startedAt);
+}
+
+/**
+ * Photos being added or removed, or done since a reload may have started.
+ * They're applied over every list, so neither a reload's older response nor a
+ * booking edit saved just before can bring back the photos as they were.
+ */
+let photoOps: PhotoOp[] = [];
+
+function withPhotoOps(list: Appointment[], startedAt?: number): Appointment[] {
+  photoOps = livePhotoOps(photoOps, Date.now());
+  if (photoOps.length === 0) return list;
+  let changed = false;
+  const next = list.map((apt) => {
+    const shown = applyPhotoOps(apt, photoOps, startedAt);
+    if (shown !== apt) changed = true;
+    return shown;
+  });
+  return changed ? next : list;
+}
+
+/** Show the photo changes in every cached list, and tell screens about pending ones. */
+function refreshPhotos(id: string, change: (apt: Appointment) => Appointment): void {
+  for (const [key, list] of cache) {
+    if (!list.some((apt) => apt.id === id)) continue;
+    setCache(key, list.map((apt) => (apt.id === id ? change(apt) : apt)));
+  }
+  cacheVersion++;
+  for (const listener of cacheListeners) listener();
+}
+
+/** Show a photo added or removed at once, while it's being sent. */
+export function setPendingPhoto(
+  appointmentId: string,
+  kind: PhotoKind,
+  path: string,
+  type: PhotoOp['type']
+): void {
+  const op: PhotoOp = { appointmentId, kind, path, type, pending: true, at: Date.now() };
+  photoOps = [...photoOps.filter((o) => o.path !== path), op];
+  refreshPhotos(appointmentId, (apt) => applyPhotoOps(apt, [op]));
+  // A booking's first 完成作品 joins the 作品 tab's list without waiting for a reload
+  const gallery = cache.get(FINISHED_PHOTOS_KEY);
+  const apt = findCachedAppointment(appointmentId);
+  if (kind === 'finished' && type === 'add' && gallery && apt) {
+    if (!gallery.some((a) => a.id === appointmentId)) setCache(FINISHED_PHOTOS_KEY, [...gallery, apt]);
+  }
+}
+
+/** The photo write is done: keep it over reloads that started before now. */
+export function settlePhoto(path: string, type: PhotoOp['type']): void {
+  // A photo removed while still uploading has its add replaced by the remove
+  const op = photoOps.find((o) => o.path === path && o.type === type);
+  if (!op) return;
+  photoOps = photoOps.map((o) => (o === op ? { ...o, pending: false, at: Date.now() } : o));
+  refreshPhotos(op.appointmentId, (apt) => apt);
+}
+
+/** The photo write failed: undo it in every list. */
+export function undoPhoto(path: string, type: PhotoOp['type']): void {
+  const op = photoOps.find((o) => o.path === path && o.type === type);
+  if (!op) return;
+  photoOps = photoOps.filter((o) => o !== op);
+  const opposite: PhotoOp = { ...op, type: op.type === 'add' ? 'remove' : 'add' };
+  refreshPhotos(op.appointmentId, (apt) => applyPhotoOps(apt, [opposite]));
+}
+
+/** The photos still being sent, joined so the result is stable between changes. */
+function pendingPhotoKey(): string {
+  return photoOps
+    .filter((op) => op.pending && op.type === 'add')
+    .map((op) => op.path)
+    .join('\n');
+}
+
+/** Paths of the photos still uploading, to mark them on screen. */
+export function usePendingPhotos(): ReadonlySet<string> {
+  const key = useSyncExternalStore(subscribeCache, pendingPhotoKey, pendingPhotoKey);
+  return useMemo(() => new Set(key ? key.split('\n') : []), [key]);
+}
+
+/**
+ * The cached booking as it is now, for what can change while its details are
+ * open (the photos); those screens otherwise keep the snapshot they opened with.
+ */
+export function useLiveAppointment(id: string | undefined): Appointment | undefined {
+  const snapshot = () => (id ? findCachedAppointment(id) : undefined);
+  return useSyncExternalStore(subscribeCache, snapshot, snapshot);
 }
 
 /**
@@ -194,15 +336,16 @@ export function settleAppointment(id: string, apt: Appointment | null): void {
 }
 
 function applyToCache(id: string, apt: Appointment | null): void {
+  const shown = apt && applyPhotoOps(apt, photoOps);
   for (const [key, list] of cache) {
-    const next = withAppointment(key, list, id, apt);
+    const next = withAppointment(key, list, id, shown);
     if (next !== list) setCache(key, next);
   }
 }
 
 /** Whether a date-range cache key covers `date`; undefined for customer histories. */
 function rangeCovers(key: string, date: string): boolean | undefined {
-  if (key.startsWith('customer:')) return undefined;
+  if (!isDateRangeKey(key)) return undefined;
   const [from, to] = key.split('|');
   return (!from || date >= from) && (!to || date <= to);
 }
@@ -214,7 +357,7 @@ function rangeCovers(key: string, date: string): boolean | undefined {
  */
 function fromCoveringRange(from: string | undefined, to: string | undefined) {
   for (const [key, list] of cache) {
-    if (key.startsWith('customer:')) continue;
+    if (!isDateRangeKey(key)) continue;
     const [f, t] = key.split('|');
     if ((!f || (from != null && from >= f)) && (!t || (to != null && to <= t))) {
       return list.filter((apt) => (!from || apt.date >= from) && (!to || apt.date <= to));
@@ -238,15 +381,6 @@ export function renameCachedCustomer(from: string, to: string, phone?: string): 
           : apt
       )
     );
-  }
-}
-
-/** Drop a deleted appointment from every cached range, so it disappears at once. */
-export function removeCachedAppointment(id: string): void {
-  for (const [key, list] of cache) {
-    if (list.some((apt) => apt.id === id)) {
-      setCache(key, list.filter((apt) => apt.id !== id));
-    }
   }
 }
 
@@ -318,7 +452,7 @@ export function useAppointments(
   // Re-render when a save or delete elsewhere changes this range's cache
   const snapshot = useCacheSnapshot(key);
   // The cache is never older than `result` (fetches fill it first), and it
-  // also reflects local edits such as removeCachedAppointment, so prefer it.
+  // also reflects local edits such as a pending delete, so prefer it.
   // After a range change, this shows that range's cache until its own result
   // lands, or else what a wider cached range holds for it.
   const covering = useMemo(
@@ -338,6 +472,58 @@ export function useAppointments(
     error,
     reload: load,
   };
+}
+
+/**
+ * What the cache holds for a range (or a wider cached range), without loading
+ * it: for pages drawn beside the one on screen (the iOS timetable pager),
+ * whose ranges the screen prefetches.
+ */
+export function useCachedAppointments({ from, to }: ListAppointmentsOptions): Appointment[] {
+  const key = rangeKey({ from, to });
+  const snapshot = useCacheSnapshot(key);
+  return useMemo(
+    () => cache.get(key) ?? fromCoveringRange(from, to) ?? EMPTY,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot tracks the cache
+    [key, from, to, snapshot]
+  );
+}
+
+/**
+ * Every booking with 完成作品, for the 作品 tab. Cached like date ranges, so
+ * the details screen can open any of them, and reloaded on focus.
+ */
+export function useFinishedPhotoAppointments() {
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      await fetchCached(FINISHED_PHOTOS_KEY, listFinishedPhotoAppointments);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '載入失敗');
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  const current = useCacheSnapshot(FINISHED_PHOTOS_KEY);
+  const appointments = typeof current === 'number' ? undefined : current;
+  return {
+    appointments: appointments ?? EMPTY,
+    loading: appointments === undefined && error === null,
+    error,
+    reload: load,
+  };
+}
+
+/** What the cache holds for the 作品 tab, without loading it: for its viewer. */
+export function useCachedFinishedPhotoAppointments(): Appointment[] {
+  const current = useCacheSnapshot(FINISHED_PHOTOS_KEY);
+  return typeof current === 'number' ? EMPTY : current;
 }
 
 /**

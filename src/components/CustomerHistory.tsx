@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { serviceColor } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
-import type { Appointment } from '@/types/appointment';
+import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { openAppointmentDetails } from '@/utils/appointmentActions';
 import { formatShortDate, todayIsoDate } from '@/utils/dates';
 
@@ -20,18 +20,20 @@ type Props = {
 
 /**
  * A customer's booking history for 顧客資料: visit count, last and next
- * visit, then upcoming and past bookings. Rows open the appointment details.
+ * visit, then the bookings that kept their deposit (保留訂金記錄), upcoming
+ * and past bookings. Rows open the appointment details.
  */
 export function CustomerHistory({ appointments, loading, error, onRetry }: Props) {
   const [showAll, setShowAll] = useState(false);
 
   const today = todayIsoDate();
-  // Today's booking counts as upcoming until it's marked 已完成
+  // Today's booking counts as upcoming until it's marked 已完成 or No show
   const isUpcoming = (apt: Appointment) =>
-    apt.date > today || (apt.date === today && apt.status !== '已完成');
+    apt.date > today || (apt.date === today && apt.status !== '已完成' && apt.status !== NO_SHOW);
   const upcoming = appointments.filter(isUpcoming).reverse();
   const past = appointments.filter((apt) => !isUpcoming(apt));
   const shownPast = showAll ? past : past.slice(0, PAST_PREVIEW);
+  const keptDeposits = appointments.filter((apt) => apt.keepDeposit);
 
   return (
     <View style={styles.section}>
@@ -59,6 +61,17 @@ export function CustomerHistory({ appointments, loading, error, onRetry }: Props
             <DateStat label="最近來店" date={past[0]?.date} />
             <DateStat label="下次預約" date={upcoming[0]?.date} />
           </View>
+
+          {keptDeposits.length > 0 ? (
+            <>
+              <Text style={styles.groupLabel}>保留訂金記錄</Text>
+              <View style={styles.list}>
+                {keptDeposits.map((apt, i) => (
+                  <HistoryRow key={apt.id} appointment={apt} divider={i > 0} />
+                ))}
+              </View>
+            </>
+          ) : null}
 
           {upcoming.length > 0 ? (
             <>
@@ -119,6 +132,8 @@ function HistoryRow({ appointment, divider }: { appointment: Appointment; divide
     appointment.service,
     appointment.service.includes('甲') ? appointment.handOrFoot : null,
     appointment.price ? `$${appointment.price}` : null,
+    appointment.status === NO_SHOW ? NO_SHOW : null,
+    appointment.keepDeposit ? '保留訂金' : null,
   ].filter(Boolean);
 
   return (
