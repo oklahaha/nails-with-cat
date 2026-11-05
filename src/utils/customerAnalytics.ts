@@ -35,6 +35,11 @@ const SEGMENT_DESCRIPTIONS: Record<string, string> = {
   一次客: '只來過一次，已有一段時間',
 };
 
+/** What a segment means, in a line (empty for unknown names). */
+export function segmentDescription(segment: string): string {
+  return SEGMENT_DESCRIPTIONS[segment] ?? '';
+}
+
 /** True when there are results recent enough to show. */
 export function hasFreshAnalytics(
   analytics: CustomerAnalytics | null,

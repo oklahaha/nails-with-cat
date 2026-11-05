@@ -414,6 +414,7 @@ export async function createCustomer(input: CustomerInput): Promise<Customer> {
       name: input.name.trim(),
       phone: sheetPhone(input.phone),
       joinedDate: todayIsoDate(),
+      ...(input.source ? { source: input.source } : {}),
     };
     console.log('[appointmentsApi] mock createCustomer:', created);
     return created;
@@ -447,6 +448,7 @@ export async function updateCustomer(
       id: key.id ?? '',
       name: input.name.trim(),
       phone: sheetPhone(input.phone),
+      ...(input.source ? { source: input.source } : {}),
     };
     console.log('[appointmentsApi] mock updateCustomer:', updated);
     return updated;

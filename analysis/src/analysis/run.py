@@ -3,9 +3,9 @@
 Fetches the source sheet (read-only), cleans it, prints the data-quality
 report and saves the cleaned frames to data/processed/ for the notebooks
 (Phase 1), scores every customer for return, churn and CLV (Phase 2), and
-adds segments and the weekly forecast (Phase 3), then writes the 客人分析
-and 預測 tabs of the separate results spreadsheet (Phase 4; skip with
---no-write). Add --refresh to fetch the latest data first, as a scheduled
+adds segments and the weekly forecast (Phase 3) and the summary numbers for
+the app's 洞察 view (Phase 5), then writes the 客人分析, 預測 and 分析摘要 tabs
+of the separate results spreadsheet (Phase 4; skip with --no-write). Add --refresh to fetch the latest data first, as a scheduled
 run should.
 """
 
@@ -21,12 +21,17 @@ from analysis.forecast import final_forecast
 from analysis.results_sheet import (
     CUSTOMERS_TAB,
     FORECAST_TAB,
+    SUMMARY_TAB,
     customer_table,
     forecast_table,
+    summary_table,
     run_timestamp,
     write_results,
 )
+from analysis.features import visit_days
+from analysis.returns import landmark_frame
 from analysis.scores import customer_scores
+from analysis.summary import summary_rows
 from analysis.config import load_settings
 from analysis.pipeline import load_frames
 
@@ -57,16 +62,25 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Saved cleaned frames to {out} (OBSERVATION_END = {frames.observation_end.date()})")
 
     # Phase 2: per-customer return / churn / CLV from the final models
-    scores = customer_scores(frames)
+    # The landmark frame (every customer's state every 14 days) is the slow part; build it once
+    landmarks = landmark_frame(visit_days(frames.visits), frames.observation_end)
+    scores = customer_scores(frames, landmarks)
     scores.reset_index().to_parquet(out / "customer_scores.parquet", index=False)
-    print(f"Scored {len(scores)} customers: {int(scores['churn_flag'].sum())} flagged as churned, "
-          f"12-month CLV total HK${scores['clv_12m'].sum():,.0f}")
+    active = scores[scores["days_since_last_visit"] <= 365]
+    print(f"Scored {len(scores)} customers: {int(scores['churn_flag'].sum())} flagged as churned "
+          f"({int(active['churn_flag'].sum())} of the {len(active)} seen in the last year), "
+          f"12-month CLV total HK${scores['clv_12m'].sum():,.0f} (MBG/CNBD-{scores.attrs.get('cnbd_k', '?')})")
     print(scores["segment"].value_counts().to_string(), end="\n\n")
 
     # Phase 3: weekly forecast of fulfilled bookings and revenue
     forecast = final_forecast(frames.visits, frames.appointments, frames.observation_end)
     forecast.reset_index().to_parquet(out / "forecast.parquet", index=False)
     print("== Forecast (next 12 weeks) ==", forecast.round(1).to_string(), sep="\n")
+
+    # Phase 5: chart-ready summary numbers for the app's 洞察 view
+    summary = summary_rows(frames, landmarks)
+    summary.to_parquet(out / "summary.parquet", index=False)
+    print(f"== Summary ({len(summary)} rows) ==", summary.round(3).to_string(index=False), sep="\n")
 
     # Phase 4: the results spreadsheet (never the source sheet)
     if args.no_write:
@@ -78,9 +92,10 @@ def main(argv: list[str] | None = None) -> None:
     write_results(settings, {
         CUSTOMERS_TAB: customer_table(scores, run_at),
         FORECAST_TAB: forecast_table(forecast, run_at),
+        SUMMARY_TAB: summary_table(summary, run_at),
     })
-    print(f"Wrote {CUSTOMERS_TAB} ({len(scores)} customers) and {FORECAST_TAB} ({len(forecast)} weeks) "
-          f"to the results spreadsheet at {run_at}")
+    print(f"Wrote {CUSTOMERS_TAB} ({len(scores)} customers), {FORECAST_TAB} ({len(forecast)} weeks) and "
+          f"{SUMMARY_TAB} ({len(summary)} rows) to the results spreadsheet at {run_at}")
 
 
 if __name__ == "__main__":

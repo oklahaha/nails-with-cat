@@ -1,18 +1,21 @@
 /**
  * Customer details — SwiftUI List laid out like iOS Contacts: avatar, name and
- * 新增預約 at the top, then contact info, visit summary, the bookings that
- * kept their deposit (保留訂金記錄) and the booking history (rows led by the
- * date). 修改 edits in place; update/delete +
- * history still use Apps Script API.
+ * 新增預約 at the top, then contact info (with 來源), what the nightly
+ * analysis says about them (分析: segment, chance of returning, expected next
+ * visit, value), visit summary, the bookings that kept their deposit
+ * (保留訂金記錄) and the booking history (rows led by the date). 修改 edits
+ * in place; update/delete + history still use Apps Script API.
  */
 import {
   Button,
   Form,
+  Gauge,
   HStack,
   LabeledContent,
   List,
   ProgressView,
   Section,
+  Spacer,
   Text,
   TextField,
   VStack,
@@ -25,6 +28,7 @@ import {
   font,
   foregroundStyle,
   frame,
+  gaugeStyle,
   listRowBackground,
   listStyle,
   multilineTextAlignment,
@@ -38,18 +42,26 @@ import { useMemo, useState } from 'react';
 import { AppointmentRow } from '@/components/swiftui/AppointmentRow';
 import { DeleteConfirmButton } from '@/components/swiftui/DeleteConfirmButton';
 import { InstagramButton } from '@/components/swiftui/InstagramButton';
+import { SourcePicker } from '@/components/swiftui/SourcePicker';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { glassButton, glassProminentButton } from '@/components/swiftui/glass';
 import { colors } from '@/constants/theme';
 import { useCustomerAppointments } from '@/hooks/useAppointments';
+import { useCustomerAnalytics } from '@/hooks/useCustomerAnalytics';
 import { removeCustomer, saveCustomer } from '@/hooks/customerWrites';
 import { findCachedCustomer } from '@/hooks/useCustomers';
 import { NO_SHOW } from '@/types/appointment';
 import type { Customer } from '@/types/customer';
+import type { CustomerInsight } from '@/types/customerAnalytics';
+import { insightFor } from '@/utils/analysisSummary';
+import { formatPercent, hasFreshAnalytics, segmentDescription } from '@/utils/customerAnalytics';
 import { formatShortDate, todayIsoDate } from '@/utils/dates';
 import { instagramHandle, openInstagram } from '@/utils/instagram';
 import { formatPhone, localPhone } from '@/utils/phone';
+import { formatMoney } from '@/utils/stats';
+
+const SECONDARY = foregroundStyle({ type: 'hierarchical', style: 'secondary' });
 
 function close() {
   if (router.canGoBack()) router.back();
@@ -71,13 +83,18 @@ export default function CustomerDetailsScreen() {
   const [nameDraft, setNameDraft] = useState(editFirst?.name ?? '');
   const phoneText = useNativeState(editFirst ? localPhone(editFirst.phone) : '');
   const [nameError, setNameError] = useState<string | null>(null);
+  const [source, setSource] = useState(editFirst?.source ?? '');
   const [showAllPast, setShowAllPast] = useState(false);
+
+  const { analytics } = useCustomerAnalytics();
 
   const history = useCustomerAppointments(
     customer ? { id: customer.id || undefined, name: customer.name } : undefined
   );
 
   const today = todayIsoDate();
+  const insight =
+    customer && hasFreshAnalytics(analytics, today) ? insightFor(analytics, customer) : undefined;
   const historyAppointments = history.appointments;
   const { upcoming, past } = useMemo(() => {
     const upcomingList: typeof historyAppointments = [];
@@ -114,6 +131,7 @@ export default function CustomerDetailsScreen() {
     nameText.set(customer.name);
     setNameDraft(customer.name);
     phoneText.set(localPhone(customer.phone));
+    setSource(customer.source ?? '');
     setNameError(null);
     setEditing(true);
   };
@@ -124,7 +142,17 @@ export default function CustomerDetailsScreen() {
       return;
     }
     // Shows at once and is sent in the background; a failure is reported then
-    setCustomer(saveCustomer({ name: nameText.get().trim(), phone: phoneText.get() }, customer));
+    setCustomer(
+      saveCustomer(
+        // 來源 only when changed, so an edit never touches a column the sheet may not have yet
+        {
+          name: nameText.get().trim(),
+          phone: phoneText.get(),
+          ...(source !== (customer.source ?? '') ? { source } : {}),
+        },
+        customer
+      )
+    );
     setEditing(false);
   };
 
@@ -172,6 +200,7 @@ export default function CustomerDetailsScreen() {
               </Text>
             ) : null}
             <TextField placeholder="電話" text={phoneText} />
+            <SourcePicker value={source} onChange={setSource} />
           </Section>
           <Section>
             <DeleteConfirmButton
@@ -239,6 +268,11 @@ export default function CustomerDetailsScreen() {
                 <Text>{formatShortDate(customer.joinedDate)}</Text>
               </LabeledContent>
             ) : null}
+            {customer.source ? (
+              <LabeledContent label="來源">
+                <Text>{customer.source}</Text>
+              </LabeledContent>
+            ) : null}
             {customer.id ? (
               <LabeledContent label="顧客ID">
                 <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>
@@ -247,6 +281,15 @@ export default function CustomerDetailsScreen() {
               </LabeledContent>
             ) : null}
           </Section>
+
+          {insight ? (
+            <AnalysisSection
+              insight={insight}
+              updatedAt={analytics?.updatedAt ?? null}
+              // A booking or visit since the run: the churn call is out of date
+              bookedSince={upcoming.length > 0 || (past[0]?.date ?? '') > insight.lastVisit}
+            />
+          ) : null}
 
           <Section title="預約記錄">
             {history.loading ? (
@@ -314,5 +357,63 @@ export default function CustomerDetailsScreen() {
         </List>
       )}
     </SwiftModal>
+  );
+}
+
+/** What last night's analysis says about this customer. */
+function AnalysisSection({
+  insight,
+  updatedAt,
+  bookedSince,
+}: {
+  insight: CustomerInsight;
+  updatedAt: string | null;
+  bookedSince: boolean;
+}) {
+  const churn = insight.churn && !insight.hasUpcoming && !bookedSince;
+  const description = segmentDescription(insight.segment);
+  return (
+    <Section
+      title="分析"
+      footer={<Text>每晚按來店記錄估計，之後的預約未計在內 · 更新於 {updatedAt}</Text>}
+    >
+      <LabeledContent label="分群">
+        <VStack spacing={2} alignment="trailing">
+          <Text>{insight.segment}</Text>
+          {description ? <Text modifiers={[font({ size: 12 }), SECONDARY]}>{description}</Text> : null}
+        </VStack>
+      </LabeledContent>
+      {insight.pReturn60d != null ? (
+        <VStack spacing={4} alignment="leading">
+          <HStack>
+            <Text>60 日內回來機率</Text>
+            <Spacer />
+            <Text modifiers={[font({ weight: 'semibold' })]}>{formatPercent(insight.pReturn60d)}</Text>
+          </HStack>
+          <Gauge
+            value={insight.pReturn60d}
+            modifiers={[
+              gaugeStyle('linearCapacity'),
+              tint(churn ? colors.danger : colors.accent),
+            ]}
+          />
+          {insight.hasUpcoming || bookedSince ? (
+            <Text modifiers={[font({ size: 12 }), SECONDARY]}>已有預約或已再來店</Text>
+          ) : churn ? (
+            <Text modifiers={[font({ size: 12 }), foregroundStyle(colors.danger)]}>
+              可能流失：不太可能自己回來，可以考慮問候
+            </Text>
+          ) : null}
+        </VStack>
+      ) : null}
+      <LabeledContent label="預計下次到訪">
+        <Text>
+          {insight.expectedNextVisit ? formatShortDate(insight.expectedNextVisit) : '一年內未必回來'}
+        </Text>
+      </LabeledContent>
+      <LabeledContent label="未來 12 個月預計消費">
+        <Text>{formatMoney(insight.clv12m)}</Text>
+      </LabeledContent>
+    </Section>
   );
 }

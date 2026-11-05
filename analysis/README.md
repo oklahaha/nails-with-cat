@@ -10,6 +10,7 @@ A separate Python project that analyses the booking data in the Google Sheet the
 | 2 | Cohort retention, survival analysis of visit gaps, BG/NBD + Gamma-Gamma CLV | done |
 | 3 | Segmentation, weekly demand forecast | done |
 | 4 | Results written to a separate spreadsheet, shown on 統計 | done |
+| 5 | Inference, model fixes and extra analyses (notebooks/04): landmark churn model, MBG/CNBD-k, first-visit, capacity, pricing, sequences | done |
 
 ## Layout
 
@@ -21,17 +22,26 @@ analysis/
                      features.py service categories, visit days, inter-visit gaps, durations
                      quality.py  data-quality tables
                      retention.py cohort tables, second-visit rates
-                     survival.py  Kaplan-Meier, Cox PH, conditional return probabilities
+                     survival.py  Kaplan-Meier, Cox PH (explanatory), mixture cure model
+                     returns.py   landmark logistic models: P(return within h days), churn flag, next visit
                      clv.py       RFM summary, BG/NBD / MBG/NBD, Gamma-Gamma, CLV
+                     cnbd.py      MBG/CNBD-k (regular, Erlang-k gaps): P(alive), simulated visits, CLV
                      segments.py  behaviour features, k-means segments, RFM baseline
                      forecast.py  weekly series, baselines, SARIMAX, rolling-origin back-tests
+                     inference.py Wilson intervals, chi-square / Fisher, spend tests, KM medians, Gini
+                     first_visit.py what makes new customers return: logistic, tree, random forest
+                     capacity.py  booked hours per day, overlapping bookings, ceiling check
+                     pricing.py   the app's list price per booking, price realisation, OLS
+                     sequences.py service transitions (Markov), add-on association rules (Apriori)
                      scores.py    the final per-customer table (return, churn, P(alive), CLV, segment)
+                     summary.py   the 分析摘要 rows for the app's 洞察 view
                      results_sheet.py writes 客人分析 / 預測 to the results spreadsheet
                      pipeline.py load → clean → split, used by run.py and the notebooks
                      run.py      the one command to run everything
-  notebooks/         (gitignored) 01_eda.ipynb, 02_retention_survival_clv.ipynb, 03_segmentation_forecast.ipynb
+  notebooks/         (gitignored) 01_eda.ipynb, 02_retention_survival_clv.ipynb, 03_segmentation_forecast.ipynb,
+                     04_inference_and_model_fixes.ipynb
   deploy/            systemd timer for the nightly run
-  tests/             pytest for the cleaning and feature code
+  tests/             pytest for the cleaning, feature and model code
   data/              (gitignored) raw cache and cleaned frames
   secrets/           (gitignored) put the service-account key here
 ```
@@ -51,6 +61,8 @@ uv run pytest    # the cleaning and feature tests
 on Python 3.12 with current pandas / NumPy / SciPy (checked when setting this up). Only its
 bundled example datasets fail to import (they need `pkg_resources`), and we don't use them.
 `pymc-marketing` would be the fallback, at the cost of a much heavier install (PyMC, PyTensor).
+The final CLV model, MBG/CNBD-k, has no Python package (R's BTYDplus is the reference), so
+`cnbd.py` implements it; with k = 1 it reproduces lifetimes' MBG/NBD (tests/test_cnbd.py).
 
 ### 2. Service account (once)
 
@@ -86,7 +98,7 @@ uv run python -m analysis.run --refresh   # everything: fetch, clean, model, wri
 uv run python -m analysis.run             # same, from the cached copy in data/raw/
 uv run python -m analysis.run --no-write  # don't touch the results spreadsheet
 uv run python -m analysis.run --observation-end 2026-09-30   # censor at another date
-uv run jupyter lab notebooks/             # then open 01_eda.ipynb, 02_…, 03_…
+uv run jupyter lab notebooks/             # then open 01_eda.ipynb, 02_…, 03_…, 04_…
 ```
 
 `run.py` prints the data-quality report, saves the cleaned frames, `customer_scores.parquet`
@@ -102,6 +114,16 @@ Dates are `YYYY-MM-DD` text, so readers don't depend on the spreadsheet's locale
 * **客人分析**: one row per customer with a visit, highest CLV first: 顧客ID, 顧客姓名, 分群
   (segment), P(alive), 預計下次到訪 (blank = not expected within a year), 流失 (churn flag),
   60日內回來機率, 12個月CLV (HK$), 上次到訪, 到訪次數, 已有預約, 更新時間.
+  60日內回來機率, 流失 and 預計下次到訪 come from the landmark logistic models (`returns.py`:
+  flag when P < 0.5 and nothing is booked; the date is where P(return within h) reaches 0.5).
+  P(alive) and 12個月CLV come from MBG/CNBD-k (`cnbd.py`) × each customer's own mean spend.
+  notebooks/04 has the back-tests behind both choices.
+* **分析摘要**: small chart-ready numbers for the app's 統計 → 洞察 view (iOS), one per row:
+  項目, 分類, 子分類, 數值, 下限, 上限 (95% interval where there is one), 人數, 更新時間. Items are
+  visit rhythm and never-return share per service, new-customer return rate per first service
+  and per 來源, revenue concentration, next-service mix, monthly workload, and an out-of-sample
+  check of the return model (`summary.py`). The long format lets the app add charts without the
+  sheet's layout changing.
 * **預測**: the next 12 weeks, Monday to Sunday: 預計預約 and 預計收入 with 80% bands,
   已知休息日 (days off already noted in the sheet), 更新時間. These are *fulfilled* bookings:
   full weeks hide turned-away demand.
@@ -111,8 +133,28 @@ service account is only a Viewer on the source sheet, so the bookings can't be c
 
 ### Running on a schedule
 
-`deploy/` holds a systemd user timer that runs the job at 03:00 Hong Kong time, and catches up
-if the server was off then. Install it once:
+**Everything runs nightly, with no hand steps.** This server's crontab (server time is Hong Kong)
+runs the full job and then re-runs every notebook:
+
+```cron
+0 3 * * * cd $HOME/nails-with-cat/analysis && $HOME/.local/bin/uv run python -m analysis.run --refresh >> data/cron.log 2>&1; $HOME/.local/bin/uv run python -m analysis.notebooks >> data/notebooks.log 2>&1
+```
+
+* `analysis.run --refresh`: fetches the sheet, refits every model, and writes 客人分析, 預測 and
+  分析摘要, which holds every analysis from the notebooks as numbers plus plain-language
+  findings (`summary.py`). A failing summary section is logged and skipped, so it can't stop the
+  rest from reaching the app. Takes about 2 minutes.
+* `analysis.notebooks` (after `;`, so it runs even if the first part fails): re-executes
+  notebooks 01–04 in place from the cache, so their tables and charts are always current, and
+  stamps each with its run time. A failing notebook is reported in `data/notebooks.log` and the
+  others still run.
+
+The app reads the results through Apps Script each time 統計 opens (at most every 6 hours) or
+on pull-to-refresh. New insights reach it without any change: add a section to `summary.py` that
+writes numbers and a `finding` sentence, and 洞察 lists the sentence the next morning.
+
+Alternatively, `deploy/` holds a systemd user timer for the main job (not installed on this
+server; cron is used instead). It catches up if the server was off at 03:00. To install it:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -143,7 +185,8 @@ text cells before ever un-ignoring them. `.easignore` keeps all of `analysis/` o
   `dateTimeRenderOption=SERIAL_NUMBER`: dates arrive as days since 1899-12-30, times and
   durations as fractions of a day. No display strings are parsed. Cells that really hold text
   (a date typed as `5/11/2022`) are read day-first, as `Code.gs` does, and counted.
-* Columns are found by header name, as in `Code.gs`.
+* Columns are found by header name, as in `Code.gs`. 顧客's 來源 (how the customer found the
+  studio, recorded by the app) is optional: blank for everyone until the column exists.
 * Cleaning rules (customer linking, what counts as a visit, OBSERVATION_END, the Duration
   problem on AppSheet rows) are documented in `clean.py` and checked with counts in section 1
   of `01_eda.ipynb`.

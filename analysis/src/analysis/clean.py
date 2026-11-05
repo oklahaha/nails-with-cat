@@ -71,6 +71,9 @@ CUSTOMER_COLUMNS = {
     "電話": "phone",
     "IG": "instagram",
     "加入日期": "joined_raw",
+    # How the customer found the studio, picked in the app when they're added;
+    # optional (older sheets don't have the column)
+    "來源": "source",
 }
 REQUIRED_CUSTOMER_COLUMNS = ["顧客ID", "顧客姓名"]
 
@@ -205,6 +208,7 @@ def clean_customers(rows: list[list[Any]]) -> pd.DataFrame:
             "phone": raw["phone"].map(cell_text),
             "instagram": raw["instagram"].map(cell_text),
             "joined_date": raw["joined_raw"].map(serial_to_date),
+            "source": raw["source"].map(cell_text),
         }
     )
     # Rows with neither an ID nor a name are blank rows left in the sheet

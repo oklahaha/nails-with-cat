@@ -5,6 +5,7 @@ source sheet:
 
 * 客人分析: one row per customer (from scores.customer_scores)
 * 預測: the next weeks' forecast (from forecast.final_forecast)
+* 分析摘要: chart-ready summary numbers (from summary.summary_rows), one per row
 
 Dates are written as YYYY-MM-DD text and values with RAW input, so what an
 Apps Script reader gets doesn't depend on the spreadsheet's locale.
@@ -26,6 +27,7 @@ from analysis.sheets import _sheets_service
 WRITE_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 CUSTOMERS_TAB = "客人分析"
 FORECAST_TAB = "預測"
+SUMMARY_TAB = "分析摘要"
 STUDIO_TZ = ZoneInfo("Asia/Hong_Kong")
 
 # Sheet header → scores column. 顧客ID first, as the app would key on it.
@@ -53,6 +55,17 @@ FORECAST_COLUMNS = {
     "收入下限(80%)": "revenue_low",
     "收入上限(80%)": "revenue_high",
     "已知休息日": "planned_days_off",
+}
+
+SUMMARY_COLUMNS = {
+    "項目": "item",
+    "分類": "group",
+    "子分類": "subgroup",
+    "數值": "value",
+    "下限": "low",
+    "上限": "high",
+    "人數": "n",
+    "說明": "text",
 }
 
 RUN_AT_HEADER = "更新時間"
@@ -100,6 +113,15 @@ def forecast_table(forecast: pd.DataFrame, run_at: str) -> list[list[Any]]:
     rows = [[*FORECAST_COLUMNS, RUN_AT_HEADER]]
     for _, r in data.iterrows():
         rows.append([cell(r[col], DECIMALS.get(col)) for col in FORECAST_COLUMNS.values()] + [run_at])
+    return rows
+
+
+def summary_table(summary: pd.DataFrame, run_at: str) -> list[list[Any]]:
+    """Header + one row per summary number, each with the run time. Values to 4 decimals."""
+    rows = [[*SUMMARY_COLUMNS, RUN_AT_HEADER]]
+    for _, r in summary.iterrows():
+        rows.append([cell(r.get(col, ""), 4 if col in ("value", "low", "high") else None)
+                     for col in SUMMARY_COLUMNS.values()] + [run_at])
     return rows
 
 

@@ -99,6 +99,11 @@ export function saveCustomer(input: CustomerInput, before?: Customer): Customer 
     name: input.name.trim(),
     phone: sheetPhone(input.phone),
   };
+  // undefined keeps the current 來源; '' clears it
+  if (input.source !== undefined) {
+    if (input.source) local.source = input.source;
+    else delete local.source;
+  }
   const payload = { input, local, before };
   showSave(payload);
   sendSave(payload);

@@ -15,18 +15,20 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
 from analysis import clv as C
+from analysis import cnbd
 from analysis.features import BOTH, LASHES, NAILS
 
 # One-visit customers seen this recently are "new", older ones "one-and-done"
 NEW_CUSTOMER_DAYS = 60
 
 
-def customer_features(days: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:
+def customer_features(days: pd.DataFrame, cutoff: pd.Timestamp, model: cnbd.CNBDFit | None = None) -> pd.DataFrame:
     """Per customer, from visit days on or before `cutoff`:
 
     recency_days, visits, tenure_days, avg_spend (known 收費 only), the share
     of visits with nails / lashes / top-ups only, avg_gap_days (NaN with one
-    visit), and MBG/NBD P(alive) and 12-month CLV fitted at the cut-off.
+    visit), and MBG/CNBD-k P(alive) and 12-month CLV fitted at the cut-off
+    (the same model as scores.py; pass `model` when it's already fitted at this cut-off).
     """
     cutoff = pd.Timestamp(cutoff)
     d = days[days["date"] <= cutoff]
@@ -44,15 +46,24 @@ def customer_features(days: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:
         # Mean gap = span / (visits − 1), the same as averaging the gaps
         "avg_gap_days": ((last - first).dt.days / (visits - 1)).where(visits > 1),
     })
-    summary = C.rfm_summary(d, cutoff)
-    bg = C.fit_bgnbd(summary, modified=True)
-    f["p_alive"] = C.probability_alive(bg, summary)
-    f["clv_12m"] = C.clv(bg, C.own_mean_spend(summary), summary, months=12)
+    summary = cnbd.cnbd_summary(d, cutoff)
+    if model is None:
+        model, _ = cnbd.fit(summary)
+    f["p_alive"] = cnbd.probability_alive(model, summary)
+    f["clv_12m"] = cnbd.clv(model, C.own_mean_spend(summary), summary, months=12)
     return f
 
 
 # Columns clustered, and which get a log first (long right tails would
-# otherwise let a few extreme customers decide the clusters)
+# otherwise let a few extreme customers decide the clusters).
+#
+# p_alive and clv_12m correlate about −0.9 with recency_days, so recency counts
+# more than once. Checked in notebooks/04: dropping them gave segments that
+# separated customers' next 6 months less well at every cut-off tried (η²
+# 0.36 vs 0.45 at 3 months back, and lower at 6, 9 and 12) and were less
+# stable under bootstrap resampling (mean ARI 0.74 vs 0.82). They aren't plain
+# copies of recency: they combine recency and frequency non-linearly, which
+# is what "still active" depends on. So they stay, deliberately.
 CLUSTER_FEATURES = ["recency_days", "visits", "tenure_days", "avg_spend", "share_nails", "share_lashes",
                     "share_top_up", "avg_gap_days", "p_alive", "clv_12m"]
 LOG_FEATURES = ["recency_days", "visits", "tenure_days", "avg_spend", "avg_gap_days", "clv_12m"]

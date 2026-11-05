@@ -1,6 +1,6 @@
 /** 統計 → 預測: the coming weeks' bookings and revenue, with how unsure they are. */
 import { Chart, HStack, LabeledContent, Section, Text, VStack } from '@expo/ui/swift-ui';
-import { font, frame, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
+import { accessibilityLabel, font, frame, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
 
 import { colors, tint } from '@/constants/theme';
 import type { ForecastWeek } from '@/types/customerAnalytics';
@@ -71,7 +71,14 @@ export function ForecastTab({ forecast, today, recentAverage, updatedAt }: Props
           }))}
           referenceLines={recentAverage > 0 ? [{ x: 'recent', y: recentAverage }] : []}
           ruleStyle={{ color: colors.textSecondary, lineWidth: 1, dashArray: [4, 4] }}
-          modifiers={[frame({ height: 200 })]}
+          modifiers={[
+            frame({ height: 200 }),
+            accessibilityLabel(
+              `未來 12 週預計預約：${forecast
+                .map((w) => `${formatDay(w.weekStart)} 那週約 ${Math.round(w.bookings)} 個`)
+                .join('，')}`
+            ),
+          ]}
         />
       </Section>
 

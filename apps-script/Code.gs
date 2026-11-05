@@ -38,6 +38,7 @@ const SHEET_CUSTOMERS = '顧客';
 // In the separate ANALYSIS_SPREADSHEET_ID spreadsheet
 const SHEET_ANALYTICS_CUSTOMERS = '客人分析';
 const SHEET_ANALYTICS_FORECAST = '預測';
+const SHEET_ANALYTICS_SUMMARY = '分析摘要';
 
 const COL = {
   id: '預約ID',
@@ -95,6 +96,10 @@ const CUST_COL = {
   joined: '加入日期',
   // Instagram profile link (or handle), shown as a button in 顧客資料
   instagram: 'IG',
+  // How the customer found the studio (朋友介紹, Instagram, …), picked in the
+  // app. Added at the end of 顧客 by the first save that sends one
+  // (ensureSourceColumn_), so AppSheet's columns are untouched.
+  source: '來源',
 };
 
 const DEFAULT_STATUS = '預約';
@@ -356,7 +361,35 @@ function toCustomer_(row, tz) {
   if (instagram) customer.instagram = instagram;
   const joined = cellText_(row, CUST_COL.joined);
   if (joined) customer.joinedDate = toIsoDate_(row.values[CUST_COL.joined], joined, tz);
+  const source = cellText_(row, CUST_COL.source);
+  if (source) customer.source = source;
   return customer;
+}
+
+/**
+ * 來源 as the app sent it: undefined when not sent (leave the cell alone),
+ * else trimmed text. `needsColumn` is true when a value was sent and 顧客 has
+ * no 來源 column yet; callers then add it (ensureSourceColumn_).
+ */
+function customerSource_(input, headers) {
+  if (input.source === undefined || input.source === null) return { source: undefined, needsColumn: false };
+  const source = String(input.source).trim();
+  return { source: source, needsColumn: Boolean(source) && headers.indexOf(CUST_COL.source) === -1 };
+}
+
+/**
+ * Add the 來源 header in the first empty column at the end of 顧客, so the
+ * first customer saved with a source sets the column up by itself. Existing
+ * columns don't move, so AppSheet keeps working. Returns the new headers.
+ */
+function ensureSourceColumn_(sheet, headers) {
+  if (headers.indexOf(CUST_COL.source) !== -1) return headers;
+  const col = Math.max(sheet.getLastColumn(), headers.length) + 1;
+  sheet.getRange(1, col).setValue(CUST_COL.source);
+  const next = headers.slice();
+  while (next.length < col - 1) next.push('');
+  next.push(CUST_COL.source);
+  return next;
 }
 
 /**
@@ -366,7 +399,7 @@ function toCustomer_(row, tz) {
  * empty and the app hides these sections.
  */
 function listCustomerAnalytics_() {
-  const empty = { updatedAt: null, customers: [], forecast: [] };
+  const empty = { updatedAt: null, customers: [], forecast: [], summary: [] };
   const id = PropertiesService.getScriptProperties().getProperty('ANALYSIS_SPREADSHEET_ID');
   if (!id) return empty;
 
@@ -377,6 +410,9 @@ function listCustomerAnalytics_() {
 
   const customers = readPlainTable_(customerSheet);
   const forecast = readPlainTable_(forecastSheet);
+  // 分析摘要 came later: an older run without it just has no 洞察 view
+  const summarySheet = ss.getSheetByName(SHEET_ANALYTICS_SUMMARY);
+  const summary = summarySheet ? readPlainTable_(summarySheet) : [];
   const first = customers[0] || forecast[0];
   return {
     updatedAt: first ? String(first['更新時間']) : null,
@@ -403,6 +439,19 @@ function listCustomerAnalytics_() {
         bookingsHigh: toNumber_(row['預約上限(80%)']) || 0,
         revenue: toNumber_(row['預計收入']) || 0,
         daysOff: toNumber_(row['已知休息日']) || 0,
+      };
+    }),
+    summary: summary.map(function (row) {
+      return {
+        item: String(row['項目']),
+        group: String(row['分類']),
+        subgroup: String(row['子分類'] || ''),
+        value: toNumber_(row['數值']),
+        low: toNumber_(row['下限']),
+        high: toNumber_(row['上限']),
+        n: toNumber_(row['人數']),
+        // A finding's sentence (項目 finding); '' for numbers
+        text: String(row['說明'] || ''),
       };
     }),
   };
@@ -1163,6 +1212,9 @@ function createCustomer_(input) {
       return toCustomer_(existing, ss.getSpreadsheetTimeZone());
     }
     const id = table.headers.indexOf(CUST_COL.id) === -1 ? '' : newCustomerId_(ids);
+    const sent = customerSource_(input, table.headers);
+    const source = sent.source;
+    if (sent.needsColumn) table.headers = ensureSourceColumn_(sheet, table.headers);
 
     const cells = {};
     cells[CUST_COL.id] = id;
@@ -1172,6 +1224,7 @@ function createCustomer_(input) {
     const today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd');
     const [y, m, d] = today.split('-').map(Number);
     cells[CUST_COL.joined] = new Date(y, m - 1, d);
+    if (source) cells[CUST_COL.source] = plainText_(source);
     // Leave any other columns blank, as createAppointment_ does
     sheet.appendRow(
       table.headers.map(function (h) {
@@ -1182,6 +1235,7 @@ function createCustomer_(input) {
 
     const created = { id: id, name: name, phone: normalizePhone_(phone) };
     if (table.headers.indexOf(CUST_COL.joined) !== -1) created.joinedDate = today;
+    if (source) created.source = source;
     return created;
   } finally {
     lock.releaseLock();
@@ -1247,13 +1301,24 @@ function updateCustomer_(key, input) {
     sheet.getRange(found.rowIndex, found.nameCol + 1).setValue(plainText_(name));
     const phoneCol = found.headers.indexOf(CUST_COL.phone);
     if (phoneCol !== -1) sheet.getRange(found.rowIndex, phoneCol + 1).setValue(phone);
+    const sent = customerSource_(input, found.headers);
+    const source = sent.source;
+    const headers = sent.needsColumn ? ensureSourceColumn_(sheet, found.headers) : found.headers;
+    if (source !== undefined && headers.indexOf(CUST_COL.source) !== -1) {
+      sheet.getRange(found.rowIndex, headers.indexOf(CUST_COL.source) + 1).setValue(plainText_(source));
+    }
     if (name !== found.name) replaceCustomerRefs_(ss, found.name, name);
     SpreadsheetApp.flush();
 
     // IG and 加入日期 aren't edited here, so they're returned as the row holds them
     const row = toRows_(found.headers, [found.display], [found.display])[0];
     const kept = toCustomer_(row, ss.getSpreadsheetTimeZone());
-    return Object.assign(kept, { name: name, phone: normalizePhone_(phone) });
+    const saved = Object.assign(kept, { name: name, phone: normalizePhone_(phone) });
+    if (source !== undefined) {
+      if (source) saved.source = source;
+      else delete saved.source;
+    }
+    return saved;
   } finally {
     lock.releaseLock();
   }

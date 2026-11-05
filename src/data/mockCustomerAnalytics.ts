@@ -1,6 +1,6 @@
 /** Made-up analysis results for UI development, dated relative to today so they stay fresh. */
-import type { CustomerAnalytics, CustomerInsight } from '@/types/customerAnalytics';
-import { addDays, startOfWeek, todayIsoDate } from '@/utils/dates';
+import type { AnalyticsSummaryRow, CustomerAnalytics, CustomerInsight } from '@/types/customerAnalytics';
+import { addDays, addMonths, startOfWeek, todayIsoDate } from '@/utils/dates';
 
 export function mockCustomerAnalytics(): CustomerAnalytics {
   const today = todayIsoDate();
@@ -63,5 +63,51 @@ export function mockCustomerAnalytics(): CustomerAnalytics {
       revenue: 3700,
       daysOff: i === 1 ? 1 : 0,
     })),
+    summary: mockSummary(today),
   };
+}
+
+/** 分析摘要 rows shaped like a real run's (analysis/src/analysis/summary.py). */
+function mockSummary(today: string): AnalyticsSummaryRow[] {
+  const row = (item: string, group: string, value: number, extra: Partial<AnalyticsSummaryRow> = {}) => ({
+    item,
+    group,
+    subgroup: '',
+    value,
+    low: null,
+    high: null,
+    n: 100,
+    ...extra,
+  });
+  const months = Array.from({ length: 12 }, (_, i) => addMonths(today, i - 11).slice(0, 7));
+  return [
+    row('gap_median', '整甲', 36, { low: 35, high: 37, n: 2737 }),
+    row('gap_median', '眼睫毛', 29, { low: 27, high: 32, n: 518 }),
+    row('gap_median', '整甲 + 眼睫毛', 31, { low: 28, high: 33, n: 340 }),
+    row('never_return', '整甲', 0.14, { low: 0.13, high: 0.16 }),
+    row('never_return', '眼睫毛', 0.16, { low: 0.13, high: 0.19 }),
+    row('never_return', '整甲 + 眼睫毛', 0.07, { low: 0.04, high: 0.1 }),
+    row('new_return', '全部', 0.41, { low: 0.34, high: 0.48, n: 170 }),
+    row('new_return', '整甲', 0.37, { low: 0.29, high: 0.45, n: 148 }),
+    row('new_return', '眼睫毛', 0.67, { low: 0.44, high: 0.84, n: 18 }),
+    row('revenue_share', '頭 10%', 0.37, { n: 191 }),
+    row('revenue_share', '頭 20%', 0.57, { n: 191 }),
+    row('revenue_share', '頭 50%', 0.88, { n: 191 }),
+    row('next_service', '整甲', 0.87, { subgroup: '整甲', n: 1136 }),
+    row('next_service', '整甲', 0.05, { subgroup: '整甲 + 眼睫毛', n: 1136 }),
+    row('next_service', '整甲', 0.08, { subgroup: '拆甲', n: 1136 }),
+    row('next_service', '眼睫毛', 0.41, { subgroup: '補眼睫毛', n: 124 }),
+    row('next_service', '眼睫毛', 0.33, { subgroup: '眼睫毛', n: 124 }),
+    row('next_service', '眼睫毛', 0.16, { subgroup: '整甲', n: 124 }),
+    row('next_service', '眼睫毛', 0.1, { subgroup: '整甲 + 眼睫毛', n: 124 }),
+    ...months.flatMap((m, i) => [
+      row('workload', m, 6.5 + (i % 4) * 0.5, { n: 25 }),
+      row('two_at_once', m, 0.1 + (i % 3) * 0.08, { n: 25 }),
+    ]),
+    row('model_check', '預計會回來', 0.81, { n: 391 }),
+    row('model_check', '預計不會回來', 0.09, { n: 851 }),
+    row('model_check', 'AUC', 0.94, { n: 1242 }),
+    row('finding', '回訪節奏', 1, { text: '眼睫毛顧客平均約 29 日回來，比整甲（約 36 日）快。' }),
+    row('finding', '收入', 2, { text: '消費最多的 20% 顧客帶來 57% 收入。' }),
+  ];
 }

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from analysis.config import Settings
-from analysis.results_sheet import check_target, customer_table, forecast_table, run_timestamp
+from analysis.results_sheet import check_target, customer_table, forecast_table, run_timestamp, summary_table
 
 
 def _settings(source, target):
@@ -49,3 +49,15 @@ def test_forecast_table_weeks_run_monday_to_sunday():
     rows = forecast_table(fc, "2026-10-30 17:05")
     assert rows[1][:3] == ["2026-11-02", "2026-11-08", 15.2]
     assert rows[1][5] == 3754 and rows[1][8] == 1 and rows[1][-1] == "2026-10-30 17:05"
+
+
+def test_summary_table_is_long_format_with_blank_missing_values():
+    summary = pd.DataFrame([
+        {"item": "gap_median", "group": "整甲", "subgroup": "", "value": 36.0, "low": 35.0, "high": 37.0, "n": 2737.0},
+        {"item": "next_service", "group": "整甲", "subgroup": "補甲", "value": 0.019234, "low": np.nan,
+         "high": np.nan, "n": 1136.0},
+    ])
+    rows = summary_table(summary, "2026-11-05 03:00")
+    assert rows[0] == ["項目", "分類", "子分類", "數值", "下限", "上限", "人數", "說明", "更新時間"]
+    assert rows[1] == ["gap_median", "整甲", "", 36.0, 35.0, 37.0, 2737.0, "", "2026-11-05 03:00"]
+    assert rows[2][3] == 0.0192 and rows[2][4] == "" and rows[2][5] == ""

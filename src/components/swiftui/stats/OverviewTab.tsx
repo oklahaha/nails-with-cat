@@ -10,6 +10,7 @@ import {
   ZStack,
 } from '@expo/ui/swift-ui';
 import {
+  accessibilityLabel,
   disabled,
   font,
   foregroundStyle,
@@ -117,7 +118,12 @@ export function OverviewTab({ months, monthly, selected, onSelect, services, hea
           referenceLines={average > 0 ? [{ x: 'average', y: average }] : []}
           ruleStyle={{ color: colors.textSecondary, lineWidth: 1, dashArray: [4, 4] }}
           barStyle={{ cornerRadius: 3 }}
-          modifiers={[frame({ height: 180 })]}
+          modifiers={[
+            frame({ height: 180 }),
+            accessibilityLabel(
+              `每月收入：${monthly.map((m) => `${label(m)} ${formatMoney(m.revenue)}`).join('，')}`
+            ),
+          ]}
         />
       </Section>
 
@@ -149,7 +155,12 @@ export function OverviewTab({ months, monthly, selected, onSelect, services, hea
                   color: serviceColor(s.service),
                 }))}
                 pieStyle={{ innerRadius: 0.6, angularInset: 2, cornerRadius: 4, opacity: 1 }}
-                modifiers={[frame({ height: 180 })]}
+                modifiers={[
+                  frame({ height: 180 }),
+                  accessibilityLabel(
+                    `服務分佈：${services.map((s) => `${s.service} ${s.bookings} 次`).join('，')}`
+                  ),
+                ]}
               />
               <VStack spacing={0}>
                 <Text modifiers={[font({ size: 24, weight: 'bold' }), monospacedDigit()]}>
@@ -198,7 +209,10 @@ function TrendChart({ title, data }: { title: string; data: { x: string; y: numb
         showGrid
         data={data}
         lineStyle={{ color: colors.accent, width: 2, pointStyle: 'circle', pointSize: LINE_POINT_SIZE }}
-        modifiers={[frame({ height: 110 })]}
+        modifiers={[
+          frame({ height: 110 }),
+          accessibilityLabel(`${title}：${data.map((d) => `${d.x} ${Math.round(d.y)}`).join('，')}`),
+        ]}
       />
     </VStack>
   );

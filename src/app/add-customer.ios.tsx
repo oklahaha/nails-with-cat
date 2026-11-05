@@ -17,6 +17,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
+import { SourcePicker } from '@/components/swiftui/SourcePicker';
 import { SwiftModal } from '@/components/swiftui/SwiftModal';
 import { colors } from '@/constants/theme';
 import { saveCustomer } from '@/hooks/customerWrites';
@@ -35,6 +36,7 @@ export default function AddCustomerScreen() {
   const nameText = useNativeState(params.name ?? '');
   const phoneText = useNativeState(params.phone ?? '');
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
+  const [source, setSource] = useState('');
 
   const validate = (): Partial<Record<Field, string>> => {
     const next: Partial<Record<Field, string>> = {};
@@ -53,7 +55,11 @@ export default function AddCustomerScreen() {
     if (Object.keys(found).length > 0) return;
 
     // Shows in the list at once and is sent in the background; a failure is reported then
-    const created = saveCustomer({ name: nameText.get().trim(), phone: phoneText.get() });
+    const created = saveCustomer({
+      name: nameText.get().trim(),
+      phone: phoneText.get(),
+      ...(source ? { source } : {}),
+    });
     showAlert('新增預約？', `要為 ${created.name} 新增預約嗎？`, [
       { text: '稍後', style: 'cancel', onPress: close },
       {
@@ -111,6 +117,9 @@ export default function AddCustomerScreen() {
               香港號碼會自動加上 852，方便 WhatsApp。
             </Text>
           )}
+        </Section>
+        <Section footer={<Text>顧客怎樣知道這裡，用來分析哪個來源的新客較常回頭（可選填）</Text>}>
+          <SourcePicker value={source} onChange={setSource} />
         </Section>
       </Form>
     </SwiftModal>

@@ -55,6 +55,12 @@ The allowlist is checked in the app, so it stops anyone who installs the app. It
 
 Without the property the action returns empty lists, and the app keeps showing 久未回來.
 
+The results spreadsheet has three tabs, all rewritten each night: 客人分析, 預測 and 分析摘要 (the numbers behind 統計 → 洞察 on iOS). A deployment older than 分析摘要 still works; the app just shows no 洞察 view until the new `Code.gs` is deployed. 分析摘要 is one long table (項目, 分類, 子分類, 數值, 下限, 上限, 人數, 說明), so new analyses add rows, not columns: once this version is deployed, the script needn't change for them.
+
+## Customer source (來源)
+
+New customers can record how they found the studio (朋友介紹, Instagram, 小紅書, …), which the analysis uses to compare how often each source's new customers come back. It lives in a **來源** column at the end of the **顧客** tab, which the script adds by itself the first time a customer is saved with a source (`ensureSourceColumn_`): nothing to set up beyond deploying this `Code.gs`. Existing columns don't move, so AppSheet keeps working and ignores the new column until its structure is regenerated.
+
 ## Marking finished bookings 已完成
 
 `completePastBookings` changes 狀態 from `預約` to `已完成` once a booking's End Time has passed, looking back 30 days. It leaves `No show` and 特別事項 alone, and sends no push. A wrongly marked booking can still be changed in the app. To turn it on:

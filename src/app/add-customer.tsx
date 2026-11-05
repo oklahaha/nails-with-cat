@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
+import { SourceChips } from '@/components/SourceChips';
 import { saveCustomer } from '@/hooks/customerWrites';
 import { findCachedCustomer } from '@/hooks/useCustomers';
 import { showAlert } from '@/utils/alert';
@@ -35,6 +36,7 @@ export default function AddCustomerScreen() {
   const params = useLocalSearchParams<{ name?: string; phone?: string }>();
   const [name, setName] = useState(params.name ?? '');
   const [phone, setPhone] = useState(params.phone ?? '');
+  const [source, setSource] = useState('');
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
 
   const validate = (): Partial<Record<Field, string>> => {
@@ -53,7 +55,7 @@ export default function AddCustomerScreen() {
     if (Object.keys(found).length > 0) return;
 
     // Shows in the list at once and is sent in the background; a failure is reported then
-    const created = saveCustomer({ name: name.trim(), phone: phone });
+    const created = saveCustomer({ name: name.trim(), phone, ...(source ? { source } : {}) });
     showAlert('新增預約？', `要為 ${created.name} 新增預約嗎？`, [
       { text: '稍後', style: 'cancel', onPress: close },
       {
@@ -123,6 +125,10 @@ export default function AddCustomerScreen() {
         ) : (
           <Text style={styles.hint}>香港號碼不用加 852，WhatsApp 會自動加上。</Text>
         )}
+
+        <Text style={[styles.label, styles.labelSpaced]}>來源（可選填）</Text>
+        <SourceChips value={source} onChange={setSource} />
+        <Text style={styles.hint}>顧客怎樣知道這裡，用來分析哪個來源的新客較常回頭。</Text>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>

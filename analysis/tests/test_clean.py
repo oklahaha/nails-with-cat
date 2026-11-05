@@ -200,3 +200,10 @@ def test_default_observation_end_is_the_last_booking_before_today(customer_rows)
     assert default_observation_end(appts, today=date(2023, 1, 10)) == pd.Timestamp("2023-01-09")
     with pytest.raises(ValueError):
         default_observation_end(appts, today=date(2022, 12, 1))
+
+
+def test_customer_source_is_optional(customer_rows):
+    # No 來源 column: blank for everyone
+    assert set(clean_customers(customer_rows)["source"]) == {""}
+    rows = [customer_rows[0] + ["來源"], ["c1", "Amy", "", "", "", "Instagram"], ["c2", "Betty"]]
+    assert clean_customers(rows)["source"].tolist() == ["Instagram", ""]

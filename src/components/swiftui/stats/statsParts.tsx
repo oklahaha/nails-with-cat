@@ -1,5 +1,5 @@
 /** Small pieces shared by the 統計 tabs on iOS. */
-import { Button, HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import { Button, Gauge, HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import {
   animation,
   Animation,
@@ -9,13 +9,17 @@ import {
   font,
   foregroundStyle,
   frame,
+  gaugeStyle,
   lineLimit,
   monospacedDigit,
   shapes,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 
 import { WhatsAppButton } from '@/components/swiftui/WhatsAppButton';
+import { colors } from '@/constants/theme';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { formatPercent } from '@/utils/customerAnalytics';
 import type { CustomerStats } from '@/utils/stats';
 import { openWhatsApp } from '@/utils/whatsapp';
 
@@ -97,5 +101,22 @@ export function CustomerStatRow({
         />
       ) : null}
     </HStack>
+  );
+}
+
+/** A label and a share (0–1) with a capacity bar under it. */
+export function ShareBar({ label, share, detail }: { label: string; share: number; detail?: string }) {
+  return (
+    <VStack spacing={4} alignment="leading">
+      <HStack>
+        <Text modifiers={[font({ size: 13 }), SECONDARY]}>{label}</Text>
+        <Spacer />
+        <Text modifiers={[font({ size: 13, weight: 'semibold' }), monospacedDigit()]}>
+          {formatPercent(share)}
+        </Text>
+      </HStack>
+      <Gauge value={share} modifiers={[gaugeStyle('linearCapacity'), tint(colors.accent)]} />
+      {detail ? <Text modifiers={[font({ size: 12 }), SECONDARY]}>{detail}</Text> : null}
+    </VStack>
   );
 }

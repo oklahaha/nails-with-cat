@@ -9,7 +9,7 @@ import { Platform, TurboModuleRegistry } from 'react-native';
 
 import { showAlert } from '@/utils/alert';
 
-import { isAllowedEmail, notAllowedMessage } from './allowedEmails';
+import { ALLOWED_EMAILS, isAllowedEmail, notAllowedMessage } from './allowedEmails';
 import { signIn } from './session';
 
 const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
@@ -26,7 +26,12 @@ const Google: typeof GoogleSignInType | null = TurboModuleRegistry.get('RNGoogle
  * form is also the URL scheme in app.config.ts); Android finds its client by
  * package name and signing key, and only needs one registered.
  */
-export const GOOGLE_SIGN_IN_CONFIGURED = Boolean(Google && (Platform.OS !== 'ios' || IOS_CLIENT_ID));
+// Expo Go has no Google native module, so dev bundles there skip sign-in
+// and use the first allowed account (never in release builds)
+const SKIP_SIGN_IN = __DEV__ && !Google;
+
+export const GOOGLE_SIGN_IN_CONFIGURED =
+  SKIP_SIGN_IN || Boolean(Google && (Platform.OS !== 'ios' || IOS_CLIENT_ID));
 
 Google?.GoogleSignin.configure({ iosClientId: IOS_CLIENT_ID });
 
@@ -35,6 +40,10 @@ export function useGoogleSignIn() {
   const [busy, setBusy] = useState(false);
 
   const start = async () => {
+    if (SKIP_SIGN_IN) {
+      signIn({ email: ALLOWED_EMAILS[0] });
+      return;
+    }
     if (!Google || busy) return;
     const { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } = Google;
     setBusy(true);

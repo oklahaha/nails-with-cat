@@ -21,6 +21,7 @@ import { CustomerHistory } from '@/components/CustomerHistory';
 import { Icon } from '@/components/Icon';
 import { StateView } from '@/components/StateView';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
+import { SourceChips } from '@/components/SourceChips';
 import { useCustomerAppointments } from '@/hooks/useAppointments';
 import { removeCustomer, saveCustomer } from '@/hooks/customerWrites';
 import { findCachedCustomer } from '@/hooks/useCustomers';
@@ -45,6 +46,7 @@ export default function CustomerDetailsScreen() {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [source, setSource] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const history = useCustomerAppointments(
     customer ? { id: customer.id || undefined, name: customer.name } : undefined
@@ -65,6 +67,7 @@ export default function CustomerDetailsScreen() {
   const startEditing = () => {
     setName(customer.name);
     setPhone(localPhone(customer.phone));
+    setSource(customer.source ?? '');
     setNameError(null);
     setEditing(true);
   };
@@ -75,7 +78,9 @@ export default function CustomerDetailsScreen() {
       return;
     }
     // Shows at once and is sent in the background; a failure is reported then
-    setCustomer(saveCustomer({ name: name.trim(), phone }, customer));
+    // 來源 only when changed, so an edit never touches a column the sheet may not have yet
+    const sourceChange = source !== (customer.source ?? '') ? { source } : {};
+    setCustomer(saveCustomer({ name: name.trim(), phone, ...sourceChange }, customer));
     setEditing(false);
   };
 
@@ -144,6 +149,9 @@ export default function CustomerDetailsScreen() {
               placeholderTextColor={colors.textTertiary}
               keyboardType="phone-pad"
             />
+
+            <Text style={[styles.label, styles.labelSpaced]}>來源</Text>
+            <SourceChips value={source} onChange={setSource} />
           </>
         ) : (
           <>
@@ -176,6 +184,12 @@ export default function CustomerDetailsScreen() {
                 <View style={[styles.row, styles.rowDivider]}>
                   <Text style={styles.rowLabel}>加入日期</Text>
                   <Text style={styles.rowValue}>{formatShortDate(customer.joinedDate)}</Text>
+                </View>
+              ) : null}
+              {customer.source ? (
+                <View style={[styles.row, styles.rowDivider]}>
+                  <Text style={styles.rowLabel}>來源</Text>
+                  <Text style={styles.rowValue}>{customer.source}</Text>
                 </View>
               ) : null}
               {customer.id ? (

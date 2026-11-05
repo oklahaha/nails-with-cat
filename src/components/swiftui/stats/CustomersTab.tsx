@@ -25,7 +25,7 @@ import {
 } from '@/utils/customerAnalytics';
 import { daysBetween, formatMoney, type CustomerStats } from '@/utils/stats';
 
-import { CustomerStatRow, EmptyRow, formatDay, SECONDARY, Stat } from './statsParts';
+import { CustomerStatRow, EmptyRow, formatDay, SECONDARY, ShareBar, Stat } from './statsParts';
 
 const LIST_LIMIT = 8;
 
@@ -40,6 +40,10 @@ export type CustomerInsights = {
 
 type Props = {
   insights: CustomerInsights | null;
+  /** 更新時間 of results too old to show, so the tab can say why the lists are missing */
+  staleSince: string | null;
+  /** New customers in the last 12 months per 來源 */
+  sources: { sources: { source: string; customers: number }[]; unknown: number };
   today: string;
   top: CustomerStats[];
   /** The share of 12 months' spend held by `top`. */
@@ -51,6 +55,8 @@ type Props = {
 
 export function CustomersTab({
   insights,
+  staleSince,
+  sources,
   today,
   top,
   topShare,
@@ -58,7 +64,10 @@ export function CustomersTab({
   lapsedRule,
   onOpenCustomer,
 }: Props) {
-  const [showAll, setShowAll] = useState(false);
+  // One per list, so expanding one doesn't expand the other
+  const [showAllAtRisk, setShowAllAtRisk] = useState(false);
+  const [showAllDueSoon, setShowAllDueSoon] = useState(false);
+  const [showAllLapsed, setShowAllLapsed] = useState(false);
   const oneVisit = insights?.visitCounts[0]?.customers ?? 0;
   const allCustomers = insights?.visitCounts.reduce((sum, b) => sum + b.customers, 0) ?? 0;
 
@@ -84,16 +93,25 @@ export function CustomersTab({
     </Section>
   );
 
+  const sourceSection = <SourceSection sources={sources} />;
+
   if (!insights) {
     return (
       <>
+        {staleSince ? (
+          <Section>
+            <Text modifiers={[font({ size: 13 }), SECONDARY]}>
+              分析結果超過一星期未更新（上次 {staleSince}），暫時顯示久未回來的熟客。分析每晚 3 時自動執行。
+            </Text>
+          </Section>
+        ) : null}
         {topSection}
         <Section title="久未回來" footer={<Text>{lapsedRule}</Text>}>
           {lapsed.length === 0 ? (
             <EmptyRow>熟客最近都有回來</EmptyRow>
           ) : (
             <>
-              {(showAll ? lapsed : lapsed.slice(0, LIST_LIMIT)).map((c) => (
+              {(showAllLapsed ? lapsed : lapsed.slice(0, LIST_LIMIT)).map((c) => (
                 <CustomerStatRow
                   key={c.name}
                   customer={c}
@@ -103,12 +121,13 @@ export function CustomersTab({
                   showWhatsApp
                 />
               ))}
-              {!showAll && lapsed.length > LIST_LIMIT ? (
-                <ShowAllButton count={lapsed.length} onPress={() => setShowAll(true)} />
+              {!showAllLapsed && lapsed.length > LIST_LIMIT ? (
+                <ShowAllButton count={lapsed.length} onPress={() => setShowAllLapsed(true)} />
               ) : null}
             </>
           )}
         </Section>
+        {sourceSection}
       </>
     );
   }
@@ -131,7 +150,7 @@ export function CustomersTab({
           <EmptyRow>熟客最近都有回來</EmptyRow>
         ) : (
           <>
-            {(showAll ? insights.atRisk : insights.atRisk.slice(0, LIST_LIMIT)).map((c) => (
+            {(showAllAtRisk ? insights.atRisk : insights.atRisk.slice(0, LIST_LIMIT)).map((c) => (
               <CustomerStatRow
                 key={c.customerId}
                 customer={c}
@@ -141,8 +160,8 @@ export function CustomersTab({
                 showWhatsApp
               />
             ))}
-            {!showAll && insights.atRisk.length > LIST_LIMIT ? (
-              <ShowAllButton count={insights.atRisk.length} onPress={() => setShowAll(true)} />
+            {!showAllAtRisk && insights.atRisk.length > LIST_LIMIT ? (
+              <ShowAllButton count={insights.atRisk.length} onPress={() => setShowAllAtRisk(true)} />
             ) : null}
           </>
         )}
@@ -152,16 +171,21 @@ export function CustomersTab({
         {insights.dueSoon.length === 0 ? (
           <EmptyRow>暫時未有</EmptyRow>
         ) : (
-          insights.dueSoon.slice(0, LIST_LIMIT).map((c) => (
-            <CustomerStatRow
-              key={c.customerId}
-              customer={c}
-              detail={`上次 ${formatDay(c.lastVisit)} · 共 ${c.visits} 次`}
-              value={formatDay(c.expectedNextVisit ?? '')}
-              onPress={() => onOpenCustomer(c.name)}
-              showWhatsApp
-            />
-          ))
+          <>
+            {(showAllDueSoon ? insights.dueSoon : insights.dueSoon.slice(0, LIST_LIMIT)).map((c) => (
+              <CustomerStatRow
+                key={c.customerId}
+                customer={c}
+                detail={`上次 ${formatDay(c.lastVisit)} · 共 ${c.visits} 次 · 回來機率 ${formatPercent(c.pReturn60d)}`}
+                value={formatDay(c.expectedNextVisit ?? '')}
+                onPress={() => onOpenCustomer(c.name)}
+                showWhatsApp
+              />
+            ))}
+            {!showAllDueSoon && insights.dueSoon.length > LIST_LIMIT ? (
+              <ShowAllButton count={insights.dueSoon.length} onPress={() => setShowAllDueSoon(true)} />
+            ) : null}
+          </>
         )}
       </Section>
 
@@ -211,27 +235,52 @@ export function CustomersTab({
             color: colors.accent,
           }))}
           barStyle={{ cornerRadius: 3 }}
-          modifiers={[frame({ height: 150 })]}
+          modifiers={[
+            frame({ height: 150 }),
+            accessibilityLabel(
+              `來店次數：${insights.visitCounts.map((b) => `${b.label} ${b.customers} 位`).join('，')}`
+            ),
+          ]}
         />
       </Section>
 
       {topSection}
+      {sourceSection}
     </>
   );
 }
 
-function ShareBar({ label, share }: { label: string; share: number }) {
+/** 新客來源: where the last 12 months' new customers came from (顧客's 來源). */
+function SourceSection({ sources }: Pick<Props, 'sources'>) {
+  const known = sources.sources.reduce((sum, s) => sum + s.customers, 0);
   return (
-    <VStack spacing={4} alignment="leading">
-      <HStack>
-        <Text modifiers={[font({ size: 13 }), SECONDARY]}>{label}</Text>
-        <Spacer />
-        <Text modifiers={[font({ size: 13, weight: 'semibold' }), monospacedDigit()]}>
-          {formatPercent(share)}
+    <Section
+      title="新客來源"
+      footer={
+        <Text>
+          過去 12 個月新加入的顧客
+          {sources.unknown > 0 ? ` · ${sources.unknown} 位未記錄來源` : ''}
+          。新增顧客時揀選「來源」，分析便可比較哪個來源的新客較常回頭
         </Text>
-      </HStack>
-      <Gauge value={share} modifiers={[gaugeStyle('linearCapacity'), tint(colors.accent)]} />
-    </VStack>
+      }
+    >
+      {known === 0 ? (
+        <EmptyRow>未有記錄</EmptyRow>
+      ) : (
+        <Chart
+          type="bar"
+          showGrid
+          data={sources.sources.map((s) => ({ x: s.source, y: s.customers, color: colors.accent }))}
+          barStyle={{ cornerRadius: 3 }}
+          modifiers={[
+            frame({ height: 150 }),
+            accessibilityLabel(
+              `新客來源：${sources.sources.map((s) => `${s.source} ${s.customers} 位`).join('，')}`
+            ),
+          ]}
+        />
+      )}
+    </Section>
   );
 }
 

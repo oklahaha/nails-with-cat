@@ -1,7 +1,8 @@
 /**
  * 統計 — SwiftUI Form dashboard with Swift Charts (`Chart`), split by a
- * segmented control into 總覽, 顧客 and (with fresh analysis results) 預測.
- * Calculations still from utils/stats.ts and utils/customerAnalytics.ts.
+ * segmented control into 總覽, 顧客 and, with fresh analysis results, 預測
+ * and 洞察. Calculations from utils/stats.ts, utils/customerAnalytics.ts and
+ * utils/analysisSummary.ts.
  */
 import { Form, NavigationStack, Picker, Section, Text } from '@expo/ui/swift-ui';
 import {
@@ -19,10 +20,23 @@ import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarO
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { CustomersTab } from '@/components/swiftui/stats/CustomersTab';
 import { ForecastTab } from '@/components/swiftui/stats/ForecastTab';
+import { InsightsTab } from '@/components/swiftui/stats/InsightsTab';
 import { OverviewTab } from '@/components/swiftui/stats/OverviewTab';
 import { useAppointments } from '@/hooks/useAppointments';
 import { useCustomerAnalytics } from '@/hooks/useCustomerAnalytics';
 import { useCustomers } from '@/hooks/useCustomers';
+import {
+  expectedReturns,
+  findings,
+  hasSummary,
+  modelCheck,
+  newCustomerReturn,
+  newCustomerSources,
+  nextServices,
+  revenueShares,
+  visitRhythm,
+  workload,
+} from '@/utils/analysisSummary';
 import {
   atRiskCustomers,
   dueSoonCustomers,
@@ -48,7 +62,7 @@ const LAPSED_MIN_VISITS = 2;
 const LAPSED_MIN_DAYS = 42;
 const TOP_LIMIT = 8;
 
-type StatsTab = 'overview' | 'customers' | 'forecast';
+type StatsTab = 'overview' | 'customers' | 'forecast' | 'insights';
 
 export default function StatsScreen() {
   const today = todayIsoDate();
@@ -97,6 +111,25 @@ export default function StatsScreen() {
       forecast: analytics.forecast,
     };
   }, [analytics, customers, appointments, today]);
+  // 洞察: the 分析摘要 numbers, from the same fresh run (older runs have none)
+  const summary = useMemo(() => {
+    if (!hasFreshAnalytics(analytics, today) || !hasSummary(analytics)) return null;
+    return {
+      updatedAt: analytics.updatedAt,
+      findings: findings(analytics),
+      expectedReturns: expectedReturns(analytics),
+      rhythm: visitRhythm(analytics),
+      newCustomers: newCustomerReturn(analytics),
+      revenueShares: revenueShares(analytics),
+      nextServices: nextServices(analytics),
+      workload: workload(analytics),
+      modelCheck: modelCheck(analytics),
+    };
+  }, [analytics, today]);
+  const sources = useMemo(() => newCustomerSources(customers, today), [customers, today]);
+  // Results that exist but are too old to show: say so instead of hiding them silently
+  const staleSince =
+    analytics?.updatedAt && analytics.customers.length > 0 && !insights ? analytics.updatedAt : null;
   const recentAverage = useMemo(
     () => recentWeeklyBookings(appointments, today),
     [appointments, today]
@@ -118,8 +151,11 @@ export default function StatsScreen() {
   }
 
   const hasForecast = (insights?.forecast.length ?? 0) > 0;
-  // Falls back if the results went stale while 預測 was showing
-  const tab = pickedTab === 'forecast' && !hasForecast ? 'overview' : pickedTab;
+  // Falls back if the results went stale while 預測 or 洞察 was showing
+  const tab =
+    (pickedTab === 'forecast' && !hasForecast) || (pickedTab === 'insights' && !summary)
+      ? 'overview'
+      : pickedTab;
 
   const openCustomer = (name: string) => {
     const customer = customers.find((c) => c.name === name);
@@ -151,6 +187,7 @@ export default function StatsScreen() {
               <Text modifiers={[tag('overview')]}>總覽</Text>
               <Text modifiers={[tag('customers')]}>顧客</Text>
               {hasForecast ? <Text modifiers={[tag('forecast')]}>預測</Text> : null}
+              {summary ? <Text modifiers={[tag('insights')]}>洞察</Text> : null}
             </Picker>
           </Section>
 
@@ -172,6 +209,8 @@ export default function StatsScreen() {
               topShare={topShare}
               lapsed={lapsed}
               lapsedRule={`來過 ${LAPSED_MIN_VISITS} 次或以上、超過 ${LAPSED_MIN_DAYS / 7} 星期未來，亦未有預約`}
+              staleSince={staleSince}
+              sources={sources}
               onOpenCustomer={openCustomer}
             />
           ) : null}
@@ -183,6 +222,7 @@ export default function StatsScreen() {
               updatedAt={insights.updatedAt}
             />
           ) : null}
+          {tab === 'insights' && summary ? <InsightsTab insights={summary} /> : null}
         </Form>
       </NavigationStack>
     </SwiftHost>

@@ -1,4 +1,4 @@
-/** One row from the 顧客 sheet (顧客ID, 顧客姓名, 電話, IG, 加入日期). */
+/** One row from the 顧客 sheet (顧客ID, 顧客姓名, 電話, IG, 加入日期, 來源). */
 export type Customer = {
   /** 顧客ID */
   id: string;
@@ -10,6 +10,8 @@ export type Customer = {
   instagram?: string;
   /** 加入日期 as YYYY-MM-DD; absent if blank */
   joinedDate?: string;
+  /** 來源: how they found the studio (CUSTOMER_SOURCES); absent if not recorded */
+  source?: string;
 };
 
 /** Which 顧客 row to change: by 顧客ID, or by name for rows without one. */
@@ -20,4 +22,6 @@ export type CustomerInput = {
   name: string;
   /** Digits as typed; 8-digit numbers are read back with the 852 prefix. */
   phone: string;
+  /** 來源; '' clears it, undefined leaves the sheet's value alone. */
+  source?: string;
 };

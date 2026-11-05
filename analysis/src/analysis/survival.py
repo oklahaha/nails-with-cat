@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from lifelines import CoxPHFitter, KaplanMeierFitter
+from lifelines import CoxPHFitter, KaplanMeierFitter, MixtureCureFitter, WeibullFitter
 from lifelines.utils import concordance_index
 
 from analysis.features import BOTH, LASHES, NAILS, inter_visit_gaps
@@ -171,3 +171,62 @@ def returned_within(days: pd.DataFrame, cutoff: pd.Timestamp, horizon: int) -> p
     cutoff = pd.Timestamp(cutoff)
     window = days[(days["date"] > cutoff) & (days["date"] <= cutoff + pd.to_timedelta(horizon, unit="D"))]
     return pd.Series(True, index=pd.Index(window["customer_id"].unique(), name="customer_id"))
+
+
+def fit_cure(gaps: pd.DataFrame, by: str = "category") -> pd.DataFrame:
+    """Mixture cure model per group: a share who never return, Weibull timing for the rest.
+
+    The Kaplan-Meier curves level off well above 0: some gaps never end,
+    because those customers have left. A mixture cure model says so
+    explicitly, S(t) = π + (1 − π)·S_u(t), with π the cured ("never coming
+    back") fraction and S_u a Weibull for those who will return. It splits
+    "whether" from "when", which the Cox model mixes into one hazard.
+    Returns π, the median gap of returners and the AIC against a plain Weibull.
+    """
+    rows = {}
+    for group, g in gaps.groupby(by):
+        durations = g["gap_days"].clip(lower=0.5)
+        cure = MixtureCureFitter(base_fitter=WeibullFitter()).fit(durations, g["event"])
+        plain = WeibullFitter().fit(durations, g["event"])
+        lam, rho = cure.summary.loc["lambda_", "coef"], cure.summary.loc["rho_", "coef"]
+        lo, hi = cure.summary.loc["cured_fraction_", ["coef lower 95%", "coef upper 95%"]]
+        rows[group] = {"gaps": len(g), "cured_fraction": cure.cured_fraction_, "cured_ci_low": lo, "cured_ci_high": hi,
+                       "median_days_if_returning": lam * np.log(2) ** (1 / rho),
+                       "aic_cure": cure.AIC_, "aic_weibull": plain.AIC_}
+    return pd.DataFrame(rows).T
+
+
+# The stratified Cox model's scoring, kept to compare with the landmark models
+# that replaced it for the churn flag (returns.py, notebooks/04)
+COX_COVARIATES = [c for c in COVARIATES if c not in ("lashes", "both")]
+COX_STRATA = ["category"]
+MAX_EXPECTED_DAYS = 365
+
+
+def fit_cox_at(days: pd.DataFrame, cutoff: pd.Timestamp):
+    """The stratified Cox model on gaps as of `cutoff`, and its spend fill value."""
+    train = add_covariates(gaps_until(days, cutoff))
+    spend_fill = float((train["avg_spend_100"] * 100)[train["spend_unknown"] == 0].median())
+    cph = fit_cox(model_frame(train, COX_COVARIATES, COX_STRATA), strata=COX_STRATA)
+    return cph, spend_fill
+
+
+def cox_return_scores(days: pd.DataFrame, cutoff: pd.Timestamp, horizon: int = 60) -> pd.DataFrame:
+    """Per customer at `cutoff`, by the Cox model: P(return within horizon) and expected next visit.
+
+    Customers whose last visit was 'other' (粉嫩術 / blank 活動) have no
+    stratum in the model and get NaN.
+    """
+    cph, spend_fill = fit_cox_at(days, cutoff)
+    current = current_gaps(days, cutoff, spend_fill)
+    scorable = current[current["category"].isin(MODEL_CATEGORIES)].reset_index(drop=True)
+    sf = survival_grid(cph, scorable[COX_COVARIATES + COX_STRATA])
+    sf.columns = range(len(scorable))
+    scorable[f"p_return_{horizon}d"] = conditional_return(sf, scorable["gap_days"], horizon)
+    remaining = conditional_median_remaining(sf, scorable["gap_days"])
+    remaining = remaining.where(remaining <= MAX_EXPECTED_DAYS)
+    scorable["expected_next_visit"] = pd.Timestamp(cutoff) + pd.to_timedelta(remaining, unit="D")
+    out = current[["customer_id", "start_date", "gap_days", "category", "visit_number"]].merge(
+        scorable[["customer_id", f"p_return_{horizon}d", "expected_next_visit"]], on="customer_id", how="left")
+    return out.rename(columns={"start_date": "last_visit", "gap_days": "days_since_last_visit",
+                               "category": "last_category", "visit_number": "visits"}).set_index("customer_id")
