@@ -76,13 +76,14 @@ export function buildTodayWidgetTimeline(
         props: {
           dateLabel: dayLabel(day),
           todayCount: dayBookings.length,
-          next: next
-            ? {
-                ...toWidgetAppointment(next),
-                dayLabel:
-                  next.date === day ? '' : next.date === addDays(day, 1) ? '明天' : dayLabel(next.date),
-              }
-            : null,
+          // Left out rather than null (see TodayWidgetProps)
+          ...(next && {
+            next: {
+              ...toWidgetAppointment(next),
+              dayLabel:
+                next.date === day ? '' : next.date === addDays(day, 1) ? '明天' : dayLabel(next.date),
+            },
+          }),
           laterToday: laterToday
             .filter((apt) => apt.date === day)
             .slice(0, 2)

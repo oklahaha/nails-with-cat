@@ -45,13 +45,15 @@ export type TodayWidgetProps = {
   /** e.g. 10月26日（一）; empty until the app has synced once */
   dateLabel: string;
   todayCount: number;
-  /** The first booking after this entry's time, today or a later day */
-  next:
-    | (TodayWidgetAppointment & {
-        /** Empty when it's today, else 明天 or e.g. 10月28日（三） */
-        dayLabel: string;
-      })
-    | null;
+  /**
+   * The first booking after this entry's time, today or a later day. Left
+   * out, never null, when there's none: the props are saved to UserDefaults,
+   * which throws on null and stops the app at startup.
+   */
+  next?: TodayWidgetAppointment & {
+    /** Empty when it's today, else 明天 or e.g. 10月28日（三） */
+    dayLabel: string;
+  };
   /** Bookings later today after `next`, for the medium size (at most 2) */
   laterToday: TodayWidgetAppointment[];
 };
@@ -190,7 +192,6 @@ const TodayWidgetView = (props: TodayWidgetProps, environment: WidgetEnvironment
 const TodayWidget = createWidget<TodayWidgetProps>('TodayWidget', TodayWidgetView, {
   dateLabel: '',
   todayCount: 0,
-  next: null,
   laterToday: [],
 });
 
