@@ -22,6 +22,7 @@ import {
   addAppointmentPhoto,
   createAppointment,
   deleteAppointment,
+  isRetryable,
   removeAppointmentPhoto,
   updateAppointment,
 } from '@/services/appointmentsApi';
@@ -68,13 +69,19 @@ function settleCreate(id: string, real: string | null): void {
 /** Its create already reported the failure, so what waited for it needn't. */
 const CREATE_FAILED = new Error('此預約未能新增');
 
-/** The 預約ID to send for `id`, which may be a booking still being created. */
-async function sheetId(id: string): Promise<string> {
+/**
+ * The 預約ID to send for `id`, which may be a booking still being created.
+ * If its create failed, `strict` throws CREATE_FAILED (for photos queued
+ * behind it, so they don't each report it); otherwise `id` is sent, since a
+ * create can fail after writing the row (a reload then shows the booking).
+ */
+async function sheetId(id: string, strict = false): Promise<string> {
   const created = creates.get(id);
   if (!created) return realIds.get(id) ?? id;
   const real = await created.realId;
-  if (real == null) throw CREATE_FAILED;
-  return real;
+  if (real != null) return real;
+  if (strict) throw CREATE_FAILED;
+  return id;
 }
 
 function reportFailure(action: string, apt: Appointment, e: unknown): void {
@@ -134,7 +141,12 @@ const sendSave = defineWrite<SavePayload>('saveAppointment', {
       return;
     }
     try {
-      const saved = await createAppointment(input, id);
+      // A first try can fail after the row was written (e.g. timed out); a resend
+      // with the same 預約ID then answers with that row instead of adding another
+      const saved = await createAppointment(input, id).catch((e: unknown) => {
+        if (!isRetryable(e)) throw e;
+        return createAppointment(input, id);
+      });
       if (saved.id !== id) realIds.set(id, saved.id);
       settleCreate(id, saved.id);
       settleAppointment(id, { ...local, ...saved, phone: saved.phone || local.phone });
@@ -169,7 +181,7 @@ const sendPhotoAdd = defineWrite<PhotoPayload>('addAppointmentPhoto', {
   restore: ({ apt, kind, path }) => setPendingPhoto(apt.id, kind, path, 'add'),
   run: async ({ apt, kind, path }) => {
     try {
-      const realId = await sheetId(apt.id);
+      const realId = await sheetId(apt.id, true);
       await addAppointmentPhoto(realId, kind, path, await readPendingPhoto(path));
       markPhotoUploaded(path);
       settlePhoto(path, 'add');
@@ -185,7 +197,7 @@ const sendPhotoRemove = defineWrite<PhotoPayload>('removeAppointmentPhoto', {
   restore: ({ apt, kind, path }) => setPendingPhoto(apt.id, kind, path, 'remove'),
   run: async ({ apt, kind, path }) => {
     try {
-      await removeAppointmentPhoto(await sheetId(apt.id), kind, path);
+      await removeAppointmentPhoto(await sheetId(apt.id, true), kind, path);
       discardPhoto(path);
       settlePhoto(path, 'remove');
     } catch (e) {

@@ -503,6 +503,18 @@ export async function deleteCustomer(key: CustomerKey): Promise<void> {
  */
 const REQUEST_TIMEOUT_MS = 60_000;
 
+/** No answer from Apps Script (offline, timed out): the write may or may not have happened. */
+class ConnectionError extends Error {}
+
+/**
+ * Worth sending again: no answer came back, or the script gave up waiting for
+ * its lock while the other phone was saving.
+ */
+export function isRetryable(e: unknown): boolean {
+  // shortcut: matches Apps Script's English "Lock timeout" message; update if the script's locale changes it
+  return e instanceof ConnectionError || (e instanceof Error && /lock/i.test(e.message));
+}
+
 /** fetch, giving up after REQUEST_TIMEOUT_MS. */
 async function request(url: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -510,8 +522,8 @@ async function request(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (e) {
-    if (controller.signal.aborted) throw new Error('連線逾時，請檢查網絡後再試');
-    throw e;
+    if (controller.signal.aborted) throw new ConnectionError('連線逾時，請檢查網絡後再試');
+    throw new ConnectionError(e instanceof Error ? e.message : '連線失敗');
   } finally {
     clearTimeout(timer);
   }
