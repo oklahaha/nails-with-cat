@@ -7,8 +7,6 @@ export const CUSTOMER_SOURCES = [
   '朋友介紹',
   'Instagram',
   '小紅書',
-  'Facebook',
-  'Google',
-  '路過',
-  '其他',
+  "Alice's 朋友",
+  '媽媽朋友',
 ] as const;
