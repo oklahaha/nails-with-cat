@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { makeAppointment } from '@/test/appointment';
 
-import { canSendConfirmation, confirmationMessage } from './whatsapp';
+import { canSendConfirmation, confirmationMessage, reminderMessage } from './whatsapp';
 
 describe('confirmationMessage', () => {
   it('lists the date, time range, service and price', () => {
@@ -34,5 +34,20 @@ describe('canSendConfirmation', () => {
     expect(canSendConfirmation(makeAppointment({ service: '特別事項', phone: '85291234567' }))).toBe(
       false
     );
+  });
+});
+
+describe('reminderMessage', () => {
+  it('fills the date, weekday, time range, service and duration', () => {
+    const message = reminderMessage(
+      makeAppointment({ endTime: '16:30', handOrFoot: '手', durationMinutes: 150 })
+    );
+    expect(message).toContain('📅 11月2日（一）14:00–16:30\n📝 整甲（手）（約2.5小時）\n');
+    expect(message.startsWith('🐈Nails_with_cats_🐈‍⬛\n\n明天預約提醒⏰\n')).toBe(true);
+  });
+
+  it('drops the end time and duration when missing', () => {
+    const message = reminderMessage(makeAppointment({ service: '眼睫毛' }));
+    expect(message).toContain('📅 11月2日（一）14:00\n📝 眼睫毛\n');
   });
 });

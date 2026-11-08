@@ -1,7 +1,7 @@
 /**
  * The notifications the phone schedules for itself from the upcoming
  * bookings (no server involved): a reminder an hour before each booking,
- * and a summary of the day's bookings each morning. notifications.ts
+ * and a summary of the day's bookings at midnight. notifications.ts
  * replaces every scheduled one with this list on each sync.
  */
 import type { Appointment } from '@/types/appointment';
@@ -12,7 +12,7 @@ import { isCustomerBooking } from '@/utils/stats';
 export const REMINDER_LEAD_MINUTES = 60;
 
 /** When the daily summary goes off (HH:mm). */
-export const SUMMARY_TIME = '09:00';
+export const SUMMARY_TIME = '00:00';
 
 /**
  * iOS keeps at most 64 pending local notifications per app and drops the

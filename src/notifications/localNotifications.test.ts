@@ -4,10 +4,10 @@ import { makeAppointment } from '@/test/appointment';
 
 import { buildLocalNotifications } from './localNotifications';
 
-const now = new Date(2026, 10, 2, 8, 0); // 2 Nov 2026, 08:00 local
+const now = new Date(2026, 10, 1, 23, 45); // 1 Nov 2026, 23:45 local
 
 describe('buildLocalNotifications', () => {
-  it('reminds an hour before each booking and sums up the day at 09:00', () => {
+  it('reminds an hour before each booking and sums up the day at 00:00', () => {
     const list = buildLocalNotifications(
       [
         makeAppointment({ id: 'a', time: '14:00', customerName: '陳小姐' }),
@@ -16,7 +16,7 @@ describe('buildLocalNotifications', () => {
       now
     );
     expect(list.map((n) => [n.at.getHours(), n.at.getMinutes(), n.title])).toEqual([
-      [9, 0, '今日有 2 個預約'],
+      [0, 0, '今日有 2 個預約'],
       [10, 0, '一小時後：李小姐'],
       [13, 0, '一小時後：陳小姐'],
     ]);
@@ -29,8 +29,8 @@ describe('buildLocalNotifications', () => {
       [
         makeAppointment({ id: 'note', service: '特別事項', customerName: '' }),
         makeAppointment({ id: 'blank', customerName: ' ' }),
-        // Its reminder (07:30) has passed; the 09:00 summary hasn't
-        makeAppointment({ id: 'early', time: '08:30' }),
+        // Its reminder (23:30 the night before) has passed; the 00:00 summary hasn't
+        makeAppointment({ id: 'early', time: '00:30' }),
       ],
       now
     );
