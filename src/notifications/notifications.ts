@@ -4,12 +4,15 @@
  *   reminder an hour before each booking and the morning summary. Every
  *   sync (useUpcomingSync) replaces them all.
  * - Push messages from Apps Script when the other user adds, edits or
- *   deletes a booking. This device registers its Expo push token with the
- *   script, and sends it with its own writes so it isn't told about them.
+ *   deletes a booking or customer. This device registers its Expo push
+ *   token with the script, and sends it with its own writes so it isn't
+ *   told about them.
  *   Each change also comes with a silent push that wakes the app in the
  *   background to resync (backgroundSync.ts), so reminders follow bookings
  *   made on the other phone.
- * Tapping a notification about one booking opens its details.
+ * Tapping a reminder opens its booking. Tapping a push about a booking or
+ * customer opens the 預約資料 / 顧客資料 tab, then that booking or customer once
+ * it's reloaded, or just the tab after a delete.
  *
  * Remote push needs an EAS project ID and push credentials (see
  * apps-script/README.md); without the ID only the local notifications work.
@@ -24,9 +27,11 @@ import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
-import { findCachedAppointment } from '@/hooks/useAppointments';
+import { findCachedAppointment, loadAppointments } from '@/hooks/useAppointments';
+import { findCachedCustomer, reloadCustomers } from '@/hooks/useCustomers';
 import { registerPushToken, setSenderPushToken } from '@/services/appointmentsApi';
 import type { Appointment } from '@/types/appointment';
+import { todayIsoDate } from '@/utils/dates';
 
 import {
   buildLocalNotifications,
@@ -156,12 +161,87 @@ function openFromNotification(
   const key = `${response.notification.request.identifier}@${response.notification.date}`;
   if (key === lastOpened) return;
   lastOpened = key;
-  const { appointmentId } = response.notification.request.content
-    .data as AppointmentNotificationData;
-  // The details screen only shows bookings that are already loaded
-  if (appointmentId && findCachedAppointment(appointmentId)) {
-    router.push({ pathname: '/appointment-details', params: { id: appointmentId } });
+  openNotificationData(
+    response.notification.request.content.data as AppointmentNotificationData & PushData
+  );
+}
+
+/** Sent by Apps Script with a booking or customer add / edit, or delete. */
+export type PushData = {
+  appointmentDate?: string;
+  appointmentDeleted?: boolean;
+  customerId?: string;
+  customerName?: string;
+  customerDeleted?: boolean;
+};
+
+/** Bumped on every tap, so a slow reload can't open details for an older one. */
+let latestTap = 0;
+
+/** Open what a tapped notification is about. Exported for tests. */
+export function openNotificationData(data: AppointmentNotificationData & PushData): void {
+  const { appointmentId, appointmentDate, customerName } = data;
+  const tap = ++latestTap;
+  if (data.appointmentDeleted) {
+    showTab('/appointments');
+  } else if (appointmentId && appointmentDate) {
+    const today = todayIsoDate();
+    // Upcoming: the same range the foreground sync is loading, so they share one call
+    const range =
+      appointmentDate >= today ? { from: today } : { from: appointmentDate, to: appointmentDate };
+    void openAfterReload(tap, '/appointments', () => loadAppointments(range), () =>
+      openAppointment(appointmentId)
+    );
+  } else if (appointmentId) {
+    // A reminder (or an old push without the date): only what's cached
+    openAppointment(appointmentId);
+  } else if (data.customerDeleted) {
+    showTab('/customers');
+  } else if (customerName) {
+    void openAfterReload(tap, '/customers', reloadCustomers, () => {
+      const customer = findCachedCustomer({ id: data.customerId, name: customerName });
+      if (customer) {
+        router.push({
+          pathname: '/customer-details',
+          params: customer.id ? { id: customer.id, name: customer.name } : { name: customer.name },
+        });
+      }
+    });
   }
+}
+
+function openAppointment(id: string): void {
+  // The details screen only shows bookings that are already loaded
+  if (findCachedAppointment(id)) {
+    router.push({ pathname: '/appointment-details', params: { id } });
+  }
+}
+
+function showTab(tab: '/appointments' | '/customers'): void {
+  // navigate would close an open modal, e.g. a booking being typed
+  if (!router.canDismiss()) router.navigate(tab);
+}
+
+/**
+ * The tab first, so the tap shows something at once, then the details once
+ * reloaded: something added on the other phone isn't cached here yet, and
+ * something edited is cached with the old details. Skipped if another tap
+ * came in, or the user opened or closed a screen meanwhile.
+ */
+async function openAfterReload(
+  tap: number,
+  tab: '/appointments' | '/customers',
+  reload: () => Promise<unknown>,
+  open: () => void
+): Promise<void> {
+  showTab(tab);
+  const modalOpen = router.canDismiss();
+  try {
+    await reload();
+  } catch {
+    // Offline: open what's cached, if anything
+  }
+  if (tap === latestTap && router.canDismiss() === modalOpen) open();
 }
 
 /**

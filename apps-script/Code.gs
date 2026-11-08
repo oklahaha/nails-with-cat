@@ -27,8 +27,8 @@
  * returns the row already holding it, and deleting a booking or customer
  * that's gone counts as done.
  *
- * Booking writes may carry the sender's `pushToken`: every other registered
- * device then gets a push message about the change (see notifyAppointmentChange_).
+ * Booking and customer writes may carry the sender's `pushToken`: every other
+ * registered device then gets a push message about the change (see sendChangePush_).
  *
  * Columns are looked up by header name (row 1), so column order doesn't matter.
  */
@@ -178,13 +178,22 @@ function doPost(e) {
         return addAppointmentPhoto_(body.id, body.kind, body.path, body.base64);
       case 'removeAppointmentPhoto':
         return removeAppointmentPhoto_(body.id, body.kind, body.path);
-      case 'createCustomer':
-        return { customer: createCustomer_(body.customer || {}) };
-      case 'updateCustomer':
-        return { customer: updateCustomer_(body.key || {}, body.customer || {}) };
-      case 'deleteCustomer':
-        deleteCustomer_(body.key || {});
+      case 'createCustomer': {
+        const result = createCustomer_(body.customer || {});
+        // A repeated create (the app resending after a restart) changed nothing
+        if (result.created) notifyCustomerChange_('create', result.customer, body.pushToken);
+        return { customer: result.customer };
+      }
+      case 'updateCustomer': {
+        const updated = updateCustomer_(body.key || {}, body.customer || {});
+        notifyCustomerChange_('update', updated, body.pushToken);
+        return { customer: updated };
+      }
+      case 'deleteCustomer': {
+        const deletedName = deleteCustomer_(body.key || {});
+        if (deletedName) notifyCustomerChange_('delete', { name: deletedName }, body.pushToken);
         return {};
+      }
       case 'registerPushToken':
         registerPushToken_(body);
         return {};
@@ -1209,7 +1218,7 @@ function createCustomer_(input) {
       if (cellText_(existing, CUST_COL.phone).replace(/[^\d]/g, '') !== phone) {
         throw new Error('已有同名顧客：' + name);
       }
-      return toCustomer_(existing, ss.getSpreadsheetTimeZone());
+      return { customer: toCustomer_(existing, ss.getSpreadsheetTimeZone()), created: false };
     }
     const id = table.headers.indexOf(CUST_COL.id) === -1 ? '' : newCustomerId_(ids);
     const sent = customerSource_(input, table.headers);
@@ -1236,7 +1245,7 @@ function createCustomer_(input) {
     const created = { id: id, name: name, phone: normalizePhone_(phone) };
     if (table.headers.indexOf(CUST_COL.joined) !== -1) created.joinedDate = today;
     if (source) created.source = source;
-    return created;
+    return { customer: created, created: true };
   } finally {
     lock.releaseLock();
   }
@@ -1336,10 +1345,11 @@ function deleteCustomer_(key) {
     const sheet = getSheet_(ss, SHEET_CUSTOMERS);
     const found = findCustomerRow_(sheet, key, true);
     // Already gone, e.g. a delete sent twice: nothing left to do
-    if (!found) return;
+    if (!found) return '';
     if (found.id) replaceCustomerRefs_(ss, found.id, found.name);
     sheet.deleteRow(found.rowIndex);
     SpreadsheetApp.flush();
+    return found.name;
   } finally {
     lock.releaseLock();
   }
@@ -1470,6 +1480,7 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const PUSH_CHANNEL = 'changes';
 
 const CHANGE_TITLES = { create: '新預約', update: '預約已修改', delete: '預約已刪除' };
+const CUSTOMER_CHANGE_TITLES = { create: '新顧客', update: '顧客資料已修改', delete: '顧客已刪除' };
 
 /**
  * Registered devices, kept in a script property rather than the sheet so
@@ -1508,13 +1519,39 @@ function registerPushToken_(input) {
   }
 }
 
-/**
- * Tell every registered device except the sender about a booking change:
- * a visible message, plus a silent one that wakes the app in the background
- * to reschedule its reminders. Never throws, so a push problem can't fail
- * the write that already happened. Edits made in AppSheet send nothing.
- */
 function notifyAppointmentChange_(kind, apt, senderToken) {
+  const name = apt.customerName || apt.notes || apt.service;
+  const what = apt.service && apt.service !== name ? name + ' · ' + apt.service : name;
+  sendChangePush_(
+    CHANGE_TITLES[kind],
+    what + '\n' + dayLabel_(apt.date) + ' ' + apt.time,
+    // Tapping opens the booking (loading its day first), or the list after a delete
+    kind === 'delete'
+      ? { appointmentDeleted: true }
+      : { appointmentId: apt.id, appointmentDate: apt.date },
+    senderToken
+  );
+}
+
+/**
+ * A customer's rename or delete rewrites bookings too, so the silent push
+ * resyncs reminders. Tapping opens the customer, or the list after a delete.
+ */
+function notifyCustomerChange_(kind, customer, senderToken) {
+  const data =
+    kind === 'delete'
+      ? { customerDeleted: true }
+      : { customerId: customer.id || undefined, customerName: customer.name };
+  sendChangePush_(CUSTOMER_CHANGE_TITLES[kind], customer.name, data, senderToken);
+}
+
+/**
+ * Tell every registered device except the sender about a change: a visible
+ * message, plus a silent one that wakes the app in the background to
+ * reschedule its reminders. Never throws, so a push problem can't fail the
+ * write that already happened. Edits made in AppSheet send nothing.
+ */
+function sendChangePush_(title, body, data, senderToken) {
   try {
     const tokens = readPushTokens_();
     const targets = Object.keys(tokens).filter(function (token) {
@@ -1522,15 +1559,12 @@ function notifyAppointmentChange_(kind, apt, senderToken) {
     });
     if (!targets.length) return;
 
-    const name = apt.customerName || apt.notes || apt.service;
-    const what = apt.service && apt.service !== name ? name + ' · ' + apt.service : name;
-    const data = { appointmentId: kind === 'delete' ? undefined : apt.id };
     const messages = [];
     targets.forEach(function (to) {
       messages.push({
         to: to,
-        title: CHANGE_TITLES[kind],
-        body: what + '\n' + dayLabel_(apt.date) + ' ' + apt.time,
+        title: title,
+        body: body,
         data: data,
         sound: 'default',
         channelId: PUSH_CHANNEL,

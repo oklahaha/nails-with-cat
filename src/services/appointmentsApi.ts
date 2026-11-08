@@ -51,7 +51,7 @@ function notifyChanged(): void {
 let senderPushToken: string | undefined;
 
 /**
- * Remember this device's push token. It's sent with each booking write, so
+ * Remember this device's push token. It's sent with each booking and customer write, so
  * Apps Script tells only the other devices about the change.
  */
 export function setSenderPushToken(token: string): void {
@@ -426,6 +426,7 @@ export async function createCustomer(input: CustomerInput): Promise<Customer> {
     body: JSON.stringify({
       token: APPS_SCRIPT_TOKEN,
       action: 'createCustomer',
+      pushToken: senderPushToken,
       customer: input,
     }),
   });
@@ -460,6 +461,7 @@ export async function updateCustomer(
     body: JSON.stringify({
       token: APPS_SCRIPT_TOKEN,
       action: 'updateCustomer',
+      pushToken: senderPushToken,
       key,
       customer: input,
     }),
@@ -485,6 +487,7 @@ export async function deleteCustomer(key: CustomerKey): Promise<void> {
     body: JSON.stringify({
       token: APPS_SCRIPT_TOKEN,
       action: 'deleteCustomer',
+      pushToken: senderPushToken,
       key,
     }),
   });

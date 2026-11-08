@@ -119,7 +119,7 @@ export function findCachedCustomer(key: CustomerKey): Customer | undefined {
 /** The reload running now, so screens focused together (e.g. a form over the list) share one call. */
 let inflight: Promise<void> | null = null;
 
-function reloadCustomers(): Promise<void> {
+export function reloadCustomers(): Promise<void> {
   inflight ??= (async () => {
     const startedAt = Date.now();
     const data = await listCustomers();
