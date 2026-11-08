@@ -1,6 +1,7 @@
 /**
  * 今日預約 home screen widget (iOS): today's booking count and the next
- * upcoming booking, in small and medium sizes.
+ * upcoming booking, in small and medium sizes, plus the lock screen sizes
+ * (circular: the count; rectangular: the next booking; inline: one line).
  *
  * How the widget gets its data:
  * - The widget can't fetch anything itself. The `'widget'` component below is
@@ -18,7 +19,15 @@
  * This file is also the widget's `initialLayout` in app.json, so it must stay
  * self-contained: no imports from the app (types are fine, they're erased).
  */
-import { Capsule, HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import {
+  AccessoryWidgetBackground,
+  Capsule,
+  HStack,
+  Spacer,
+  Text,
+  VStack,
+  ZStack,
+} from '@expo/ui/swift-ui';
 import {
   containerBackground,
   font,
@@ -72,6 +81,53 @@ const TodayWidgetView = (props: TodayWidgetProps, environment: WidgetEnvironment
 
   // Tapping the widget opens the timetable
   const container = [containerBackground(background, 'widget'), widgetURL('nailswithcat:///')];
+
+  // Lock screen sizes: iOS draws these monochrome and hides the background
+  // (still required, or iOS 17+ shows its placeholder), so no colours
+  const family = environment.widgetFamily;
+  if (family === 'accessoryInline') {
+    return (
+      <Text modifiers={container}>
+        {!props.dateLabel
+          ? '今日預約'
+          : next && !next.dayLabel
+            ? `${next.time} ${next.title}`
+            : `今日 ${props.todayCount} 個預約`}
+      </Text>
+    );
+  }
+  if (family === 'accessoryCircular') {
+    return (
+      <ZStack modifiers={container}>
+        <AccessoryWidgetBackground />
+        <VStack spacing={0}>
+          <Text
+            modifiers={[font({ size: 22, weight: 'bold', design: 'rounded' }), monospacedDigit()]}
+          >
+            {props.dateLabel ? String(props.todayCount) : '–'}
+          </Text>
+          <Text modifiers={[font({ size: 10, weight: 'semibold' })]}>預約</Text>
+        </VStack>
+      </ZStack>
+    );
+  }
+  if (family === 'accessoryRectangular') {
+    return (
+      <VStack alignment="leading" spacing={0} modifiers={container}>
+        <Text modifiers={[font({ size: 13, weight: 'semibold' }), lineLimit(1)]}>
+          {props.dateLabel ? `今日 ${props.todayCount} 個預約` : '今日預約'}
+        </Text>
+        <Text modifiers={[font({ size: 15, weight: 'bold' }), lineLimit(1)]}>
+          {!props.dateLabel ? '打開 app 載入' : next ? next.title : '沒有預約'}
+        </Text>
+        {next ? (
+          <Text modifiers={[font({ size: 13 }), monospacedDigit(), lineLimit(1)]}>
+            {next.dayLabel ? `${next.dayLabel} ${next.time}` : `${next.time} ${next.service}`}
+          </Text>
+        ) : null}
+      </VStack>
+    );
+  }
 
   if (!props.dateLabel) {
     return (

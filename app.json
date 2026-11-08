@@ -62,7 +62,10 @@
               "ios": {
                 "supportedFamilies": [
                   "systemSmall",
-                  "systemMedium"
+                  "systemMedium",
+                  "accessoryCircular",
+                  "accessoryRectangular",
+                  "accessoryInline"
                 ],
                 "initialLayout": "./src/widgets/TodayWidget.tsx"
               }
