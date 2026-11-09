@@ -3,7 +3,6 @@ import * as Linking from 'expo-linking';
 import type { Appointment } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { formatDuration, parseIsoDate, WEEKDAY_LABELS } from '@/utils/dates';
-import { formatDateHeader } from '@/utils/groupByDate';
 
 /** The studio's 明天預約提醒 template, sent from the 預約資料 list the day before. */
 export function reminderMessage(appointment: Appointment): string {
@@ -48,18 +47,49 @@ function serviceLabel({ service, handOrFoot }: Appointment): string {
   return service.includes('甲') && handOrFoot ? `${service}（${handOrFoot}）` : service;
 }
 
-/** Text sent to confirm a new booking with the customer. */
+/** The studio's 𝐀𝐩𝐩𝐨𝐢𝐧𝐭𝐦𝐞𝐧𝐭 𝐃𝐞𝐭𝐚𝐢𝐥𝐬 template, offered after a new booking is saved. */
 export function confirmationMessage(appointment: Appointment): string {
-  const { customerName, date, time, endTime, price } = appointment;
-  const lines = [
-    `你好 ${customerName}！你的預約已確認：`,
-    `日期：${formatDateHeader(date)}`,
-    `時間：${endTime && endTime !== time ? `${time}–${endTime}` : time}`,
-    `項目：${serviceLabel(appointment)}`,
-    price ? `收費：$${price}` : null,
-    '如需更改請回覆此訊息，謝謝！',
-  ];
-  return lines.filter(Boolean).join('\n');
+  const { service, date, time, endTime, durationMinutes } = appointment;
+  const day = parseIsoDate(date);
+  const when = isNaN(day.getTime())
+    ? date
+    : `${day.getDate()}/${day.getMonth() + 1}（${WEEKDAY_LABELS[day.getDay()]}）`;
+  const range = endTime && endTime !== time ? `${time}–${endTime}` : time;
+  return [
+    '𝐀𝐩𝐩𝐨𝐢𝐧𝐭𝐦𝐞𝐧𝐭 𝐃𝐞𝐭𝐚𝐢𝐥𝐬 🫧',
+    '',
+    '感謝你預約 nails_with_cats_✨',
+    '確認訂金後才會預留位置',
+    '',
+    '🐈 麻煩再確認一下以下時間及注意事項喔 🐈‍⬛',
+    '',
+    `𝗗𝗮𝘁𝗲 & 𝗧𝗶𝗺𝗲：${when}${range}`,
+    `𝗦𝗲𝗿𝘃𝗶𝗰𝗲：${service}`,
+    durationMinutes ? `𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻：約 ${formatDuration(durationMinutes)}` : null,
+    '',
+    '𝗟𝗼𝗰𝗮𝘁𝗶𝗼𝗻 📍（預約前一天會有提示🔔）',
+    '葵涌葵昌路90號美和工業大廈13樓29號',
+    '葵興 MTR E出口步行約 3 mins',
+    '',
+    '🧚🏻‍♂️ 注意事項 ✨',
+    '',
+    '🐈‍⬛ 請於48小時前確認款式',
+    '🐈 請預留上述足夠時間完成美甲服務',
+    '🐈‍⬛ 為保證服務質素，請務必準時到達',
+    '🐈 遲到超過15分鐘，訂金會被扣除哦～',
+    '🐈‍⬛ 如需更改日期及時間，請於3天前通知',
+    '🐈 即日改期／取消或無故缺席，訂金全額扣除',
+    '🐈‍⬛ 訂金不設退款，可保留3個月用於下次預約',
+    '🐈 如指甲有受損／過短等狀況，請提前告知',
+    '🐈‍⬛ 5天內免費售後（限非人為損壞如脫落；人為損壞／改款式另收費）',
+    '🐈 指甲為手工藝術，不接受完美主義者',
+    '',
+    '如有任何爭議，nails_with_cats_ 保留最終決定權🤍',
+    '',
+    '訂金詳情見下一個 message👇 有咩唔明隨時問我哋～🐾',
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
 }
 
 /** Whether to offer the confirmation message after saving: new customer bookings with a phone. */

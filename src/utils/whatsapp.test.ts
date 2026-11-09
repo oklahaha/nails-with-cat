@@ -5,25 +5,21 @@ import { makeAppointment } from '@/test/appointment';
 import { canSendConfirmation, confirmationMessage, reminderMessage } from './whatsapp';
 
 describe('confirmationMessage', () => {
-  it('lists the date, time range, service and price', () => {
-    const apt = makeAppointment({ endTime: '16:00', handOrFoot: '手', price: 218 });
-    expect(confirmationMessage(apt)).toBe(
-      [
-        '你好 陳小姐！你的預約已確認：',
-        '日期：2026年11月2日 星期一',
-        '時間：14:00–16:00',
-        '項目：整甲（手）',
-        '收費：$218',
-        '如需更改請回覆此訊息，謝謝！',
-      ].join('\n')
+  it('fills the date, time range, service and duration', () => {
+    const message = confirmationMessage(
+      makeAppointment({ endTime: '16:00', durationMinutes: 120, handOrFoot: '手' })
     );
+    expect(message.startsWith('𝐀𝐩𝐩𝐨𝐢𝐧𝐭𝐦𝐞𝐧𝐭 𝐃𝐞𝐭𝐚𝐢𝐥𝐬 🫧\n')).toBe(true);
+    expect(message).toContain('𝗗𝗮𝘁𝗲 & 𝗧𝗶𝗺𝗲：2/11（一）14:00–16:00\n');
+    expect(message).toContain('𝗦𝗲𝗿𝘃𝗶𝗰𝗲：整甲\n');
+    expect(message).toContain('𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻：約 2 小時\n');
+    expect(message.endsWith('有咩唔明隨時問我哋～🐾')).toBe(true);
   });
 
-  it('leaves out 手/腳 for lashes and a missing price', () => {
-    const message = confirmationMessage(makeAppointment({ service: '眼睫毛', handOrFoot: '手' }));
-    expect(message).toContain('項目：眼睫毛\n');
-    expect(message).not.toContain('收費');
-    expect(message).toContain('時間：14:00\n');
+  it('leaves out a missing end time and duration', () => {
+    const message = confirmationMessage(makeAppointment({ durationMinutes: 0 }));
+    expect(message).toContain('（一）14:00\n');
+    expect(message).not.toContain('𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻');
   });
 });
 
