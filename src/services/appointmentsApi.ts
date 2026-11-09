@@ -3,13 +3,14 @@
  *
  * Configure in .env.local (see .env.example):
  *   EXPO_PUBLIC_APPS_SCRIPT_URL    the deployed /exec URL
- *   EXPO_PUBLIC_APPS_SCRIPT_TOKEN  must match the API_TOKEN script property
+ *   Authentication uses the signed-in account’s server-issued session.
  *
  * When the URL is empty, falls back to mock data so the UI still runs.
  * Which spreadsheet is used (copy vs real) is decided by the script's
  * SPREADSHEET_ID property, not by the app.
  */
 
+import { getSession, signOut, type Session } from '@/auth/session';
 import { mockCustomerAnalytics } from '@/data/mockCustomerAnalytics';
 import { MOCK_APPOINTMENTS } from '@/data/mockAppointments';
 import type {
@@ -24,7 +25,11 @@ import { todayIsoDate } from '@/utils/dates';
 import { sheetPhone } from '@/utils/phone';
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
-const APPS_SCRIPT_TOKEN = process.env.EXPO_PUBLIC_APPS_SCRIPT_TOKEN ?? '';
+function apiToken(): string {
+  const session = getSession();
+  if (!session?.token) throw new AuthError('請重新登入');
+  return session.token;
+}
 
 /** True while no Apps Script URL is configured. */
 export const isUsingMockApi = !APPS_SCRIPT_WEB_APP_URL;
@@ -73,7 +78,7 @@ export async function registerPushToken(input: {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'registerPushToken',
       pushToken: input.token,
       platform: input.platform,
@@ -108,7 +113,7 @@ export async function listAppointments(
 
   const params = new URLSearchParams({
     action: 'listAppointments',
-    token: APPS_SCRIPT_TOKEN,
+    token: apiToken(),
   });
   if (options.from) params.set('from', options.from);
   if (options.to) params.set('to', options.to);
@@ -130,7 +135,7 @@ export async function listCustomerAppointments(key: CustomerKey): Promise<Appoin
 
   const params = new URLSearchParams({
     action: 'listCustomerAppointments',
-    token: APPS_SCRIPT_TOKEN,
+    token: apiToken(),
     name: key.name,
   });
   if (key.id) params.set('id', key.id);
@@ -149,7 +154,7 @@ export async function listFinishedPhotoAppointments(): Promise<Appointment[]> {
 
   const params = new URLSearchParams({
     action: 'listFinishedPhotoAppointments',
-    token: APPS_SCRIPT_TOKEN,
+    token: apiToken(),
   });
   const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ appointments: Appointment[] }>(res);
@@ -195,7 +200,7 @@ export async function createAppointment(
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'createAppointment',
       pushToken: senderPushToken,
       id,
@@ -244,7 +249,7 @@ export async function updateAppointment(
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'updateAppointment',
       pushToken: senderPushToken,
       id,
@@ -271,7 +276,7 @@ export async function deleteAppointment(id: string): Promise<void> {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'deleteAppointment',
       pushToken: senderPushToken,
       id,
@@ -301,7 +306,7 @@ export async function addAppointmentPhoto(
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'addAppointmentPhoto',
       id,
       kind,
@@ -327,7 +332,7 @@ export async function removeAppointmentPhoto(
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'removeAppointmentPhoto',
       id,
       kind,
@@ -346,7 +351,7 @@ export async function getAppointmentPhoto(path: string, size: PhotoSize): Promis
 
   const params = new URLSearchParams({
     action: 'getAppointmentPhoto',
-    token: APPS_SCRIPT_TOKEN,
+    token: apiToken(),
     path,
     size,
   });
@@ -377,7 +382,7 @@ export async function listCustomers(): Promise<Customer[]> {
 
   const params = new URLSearchParams({
     action: 'listCustomers',
-    token: APPS_SCRIPT_TOKEN,
+    token: apiToken(),
   });
   const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   const data = await parseResponse<{ customers: Customer[] }>(res);
@@ -396,7 +401,7 @@ export async function listCustomerAnalytics(): Promise<CustomerAnalytics> {
 
   const params = new URLSearchParams({
     action: 'listCustomerAnalytics',
-    token: APPS_SCRIPT_TOKEN,
+    token: apiToken(),
   });
   const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
   return parseResponse<CustomerAnalytics>(res);
@@ -424,7 +429,7 @@ export async function createCustomer(input: CustomerInput): Promise<Customer> {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'createCustomer',
       pushToken: senderPushToken,
       customer: input,
@@ -459,7 +464,7 @@ export async function updateCustomer(
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'updateCustomer',
       pushToken: senderPushToken,
       key,
@@ -485,7 +490,7 @@ export async function deleteCustomer(key: CustomerKey): Promise<void> {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
-      token: APPS_SCRIPT_TOKEN,
+      token: apiToken(),
       action: 'deleteCustomer',
       pushToken: senderPushToken,
       key,
@@ -506,6 +511,9 @@ const REQUEST_TIMEOUT_MS = 60_000;
 /** No answer from Apps Script (offline, timed out): the write may or may not have happened. */
 class ConnectionError extends Error {}
 
+/** Signed out, or the server refused the session; the outbox keeps the write for after sign-in. */
+export class AuthError extends Error {}
+
 /**
  * Worth sending again: no answer came back, or the script gave up waiting for
  * its lock while the other phone was saving.
@@ -516,11 +524,16 @@ export function isRetryable(e: unknown): boolean {
 }
 
 /** fetch, giving up after REQUEST_TIMEOUT_MS. */
+const responseSessions = new WeakMap<Response, Session | null>();
+
 async function request(url: string, init?: RequestInit): Promise<Response> {
+  const session = getSession();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    responseSessions.set(response, session);
+    return response;
   } catch (e) {
     if (controller.signal.aborted) throw new ConnectionError('連線逾時，請檢查網絡後再試');
     throw new ConnectionError(e instanceof Error ? e.message : '連線失敗');
@@ -540,7 +553,13 @@ async function parseResponse<T>(res: Response): Promise<T> {
     throw new Error('伺服器回應格式錯誤，請檢查 Apps Script 部署設定');
   }
 
-  if (!data.ok) throw new Error(data.error);
+  if (!data.ok) {
+    if (data.error === 'Unauthorized') {
+      if (responseSessions.get(res) === getSession()) signOut();
+      throw new AuthError('請重新登入');
+    }
+    throw new Error(data.error);
+  }
   return data;
 }
 

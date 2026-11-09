@@ -28,6 +28,7 @@ jest.mock('@/hooks/useCustomers', () => ({
   findCachedCustomer: (key: { id?: string; name: string }) => mockFindCustomer(key),
   reloadCustomers: () => mockReloadCustomers(),
 }));
+jest.mock('@/auth/session', () => ({ getSession: () => ({ email: 'test@example.com' }) }));
 jest.mock('@/services/appointmentsApi', () => ({}));
 jest.mock('@/utils/dates', () => ({ todayIsoDate: () => '2026-11-09' }));
 

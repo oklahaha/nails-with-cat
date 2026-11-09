@@ -27,6 +27,7 @@ import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
+import { getSession } from '@/auth/session';
 import { findCachedAppointment, loadAppointments } from '@/hooks/useAppointments';
 import { findCachedCustomer, reloadCustomers } from '@/hooks/useCustomers';
 import { registerPushToken, setSenderPushToken } from '@/services/appointmentsApi';
@@ -95,7 +96,8 @@ let lastScheduled: string | undefined;
 export function scheduleLocalNotifications(appointments: Appointment[]): Promise<void> {
   const N = Notifications;
   if (!N) return Promise.resolve();
-  const list = buildLocalNotifications(appointments);
+  const session = getSession();
+  const list = buildLocalNotifications(session ? appointments : []);
   const signature = JSON.stringify(
     list.map((n) => [n.at.getTime(), n.title, n.body, n.data.appointmentId ?? ''])
   );
@@ -108,6 +110,10 @@ export function scheduleLocalNotifications(appointments: Appointment[]): Promise
       await ensureChannels(N);
       await N.cancelAllScheduledNotificationsAsync();
       for (const n of list) {
+        if (getSession() !== session) {
+          await N.cancelAllScheduledNotificationsAsync();
+          return;
+        }
         await N.scheduleNotificationAsync({
           content: { title: n.title, body: n.body, data: n.data, sound: 'default' },
           trigger: {
@@ -116,6 +122,10 @@ export function scheduleLocalNotifications(appointments: Appointment[]): Promise
             channelId: CHANNEL_REMINDERS,
           },
         });
+      }
+      if (getSession() !== session) {
+        await N.cancelAllScheduledNotificationsAsync();
+        return;
       }
       lastScheduled = signature;
     })

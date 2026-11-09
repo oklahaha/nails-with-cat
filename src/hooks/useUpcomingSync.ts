@@ -16,6 +16,7 @@
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
+import { getSession } from '@/auth/session';
 import { loadAppointments } from '@/hooks/useAppointments';
 import { scheduleLocalNotifications } from '@/notifications/notifications';
 import { onAppointmentsChanged } from '@/services/appointmentsApi';
@@ -31,6 +32,11 @@ let again = false;
  * more round after it, so changes made meanwhile aren't missed.
  */
 export function syncUpcoming(): Promise<void> {
+  const session = getSession();
+  if (!session) {
+    updateTodayWidget([], todayIsoDate());
+    return scheduleLocalNotifications([]);
+  }
   if (running) {
     again = true;
     return running;
@@ -38,6 +44,7 @@ export function syncUpcoming(): Promise<void> {
   running = (async () => {
     do {
       again = false;
+      if (getSession() !== session) break;
       const today = todayIsoDate();
       try {
         // A week past the widget's timeline, so its last day still knows the next booking
@@ -45,9 +52,14 @@ export function syncUpcoming(): Promise<void> {
         const appointments = (await loadAppointments({ from: today })).filter(
           (apt) => apt.date <= until
         );
+        if (getSession() !== session) break;
         updateTodayWidget(appointments, today);
         await scheduleLocalNotifications(appointments);
       } catch {
+        if (getSession() !== session) {
+          updateTodayWidget([], today);
+          await scheduleLocalNotifications([]);
+        }
         // Offline or Apps Script failed: keep what's there, retry on the next sync
       }
     } while (again);

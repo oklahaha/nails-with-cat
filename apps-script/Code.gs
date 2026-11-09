@@ -5,7 +5,9 @@
  * so switching from the copy to the real data needs no code change:
  *
  *   SPREADSHEET_ID   ID of the spreadsheet (the copy during development)
- *   API_TOKEN        shared secret; the app sends it as `token`
+ *   ALLOWED_EMAILS   comma-separated server-managed operator emails
+ *   GOOGLE_CLIENT_IDS comma-separated accepted OAuth audiences
+ *   AUTH_GENERATION increment to revoke all sessions and push grants
  *   PUSH_TOKENS      set by the script: devices to tell about booking changes
  *   ANALYSIS_SPREADSHEET_ID  optional: the results of analysis/, read-only here
  *
@@ -155,7 +157,12 @@ function doGet(e) {
 function doPost(e) {
   return handle_(function () {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    checkToken_(body.token);
+    if (body.action === 'signIn') return createSession_(body.idToken);
+    const principal = checkToken_(body.token);
+    if (body.action === 'signOut') {
+      PropertiesService.getScriptProperties().deleteProperty(principal.key);
+      return {};
+    }
 
     switch (body.action) {
       case 'createAppointment': {
@@ -195,7 +202,7 @@ function doPost(e) {
         return {};
       }
       case 'registerPushToken':
-        registerPushToken_(body);
+        registerPushToken_(body, principal);
         return {};
       default:
         throw new Error('Unknown action: ' + body.action);
@@ -216,10 +223,82 @@ function handle_(fn) {
   );
 }
 
+// Sessions are opaque bearer credentials, stored only as hashes on the server.
+// The old bundled API_TOKEN is never accepted as authentication.
+function authList_(name) {
+  return String(PropertiesService.getScriptProperties().getProperty(name) || '')
+    .split(',').map(function (v) {
+      return name === 'ALLOWED_EMAILS' ? v.trim().toLowerCase() : v.trim();
+    }).filter(Boolean);
+}
+
+function authGeneration_() {
+  const props = PropertiesService.getScriptProperties();
+  return String(props.getProperty('AUTH_GENERATION') || '1');
+}
+
+function sessionKey_(token) {
+  return 'SESSION:' + Utilities.base64EncodeWebSafe(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token)
+  );
+}
+
+function sessionAt_(key) {
+  try {
+    const session = JSON.parse(PropertiesService.getScriptProperties().getProperty(key) || 'null');
+    if (!session || !Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now() || session.generation !== authGeneration_() ||
+        authList_('ALLOWED_EMAILS').indexOf(session.email) === -1) return null;
+    return session;
+  } catch (err) { return null; }
+}
+
+const SESSION_MS = 90 * 24 * 60 * 60 * 1000;
+
 function checkToken_(token) {
-  const expected = PropertiesService.getScriptProperties().getProperty('API_TOKEN');
-  if (!expected) throw new Error('API_TOKEN script property is not set');
-  if (token !== expected) throw new Error('Unauthorized');
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) throw new Error('Unauthorized');
+  const key = sessionKey_(token);
+  const session = sessionAt_(key);
+  if (!session) throw new Error('Unauthorized');
+  // Sliding expiry: renewed at most once a day, so only 90 days unused signs a phone out
+  if (session.expiresAt - Date.now() < SESSION_MS - 24 * 60 * 60 * 1000) {
+    session.expiresAt = Date.now() + SESSION_MS;
+    PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(session));
+  }
+  return { key: key, email: session.email };
+}
+
+function createSession_(idToken) {
+  if (typeof idToken !== 'string' || idToken.length > 8192 || !idToken) throw new Error('Unauthorized');
+  let response;
+  try {
+    response = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' +
+      encodeURIComponent(idToken), { muteHttpExceptions: true });
+  } catch (err) { throw new Error('Authentication service unavailable'); }
+  if (response.getResponseCode() !== 200) throw new Error('Unauthorized');
+  const claims = JSON.parse(response.getContentText());
+  const email = String(claims.email || '').trim().toLowerCase();
+  if (['accounts.google.com', 'https://accounts.google.com'].indexOf(claims.iss) === -1 ||
+      authList_('GOOGLE_CLIENT_IDS').indexOf(String(claims.aud)) === -1 ||
+      !(claims.email_verified === true || claims.email_verified === 'true') ||
+      !claims.sub || !Number.isFinite(Number(claims.exp)) || Number(claims.exp) * 1000 <= Date.now() ||
+      authList_('ALLOWED_EMAILS').indexOf(email) === -1) throw new Error('Unauthorized');
+  const token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  const expiresAt = Date.now() + SESSION_MS;
+  const props = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const all = props.getProperties();
+    const active = Object.keys(all).filter(function (key) {
+      if (key.indexOf('SESSION:') !== 0) return false;
+      if (!sessionAt_(key)) { props.deleteProperty(key); return false; }
+      return true;
+    });
+    if (active.length >= 60) throw new Error('Session limit reached; revoke unused sessions');
+    props.setProperty(sessionKey_(token), JSON.stringify({ email: email, expiresAt: expiresAt,
+      generation: authGeneration_() }));
+  } finally { lock.releaseLock(); }
+  return { session: { email: email, token: token, expiresAt: expiresAt } };
 }
 
 function openSpreadsheet_() {
@@ -641,7 +720,7 @@ function putOptionalCells_(cells, headers, a, currentHandling) {
   if (a.view != null) cells[COL.view] = plainText_(a.view);
   if (a.complexDesign != null) {
     requireColumn_(headers, COL.complexDesign);
-    cells[COL.complexDesign] = a.complexDesign;
+    cells[COL.complexDesign] = plainText_(a.complexDesign);
   }
   if (a.keepDeposit != null) {
     requireColumn_(headers, COL.depositHandling);
@@ -721,7 +800,7 @@ function createAppointment_(input, requestedId) {
 
     const cells = {};
     cells[COL.id] = id;
-    cells[COL.service] = a.service;
+    cells[COL.service] = plainText_(a.service);
     cells[COL.notes] = plainText_(a.notes);
     cells[COL.customerName] = plainText_(
       customerValueForSheet_(recent, customers, customer, a.customerName)
@@ -730,9 +809,9 @@ function createAppointment_(input, requestedId) {
     cells[COL.time] = a.time + ':00';
     cells[COL.duration] =
       a.durationMinutes != null ? durationCellValue_(recent, a.durationMinutes) : '';
-    cells[COL.handOrFoot] = a.handOrFoot;
+    cells[COL.handOrFoot] = plainText_(a.handOrFoot);
     cells[COL.price] = a.price != null ? a.price : '';
-    cells[COL.status] = status;
+    cells[COL.status] = plainText_(status);
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     putOptionalCells_(cells, headers, a);
 
@@ -786,7 +865,7 @@ function updateAppointment_(id, input) {
     const [y, m, d] = a.date.split('-').map(Number);
 
     const cells = {};
-    cells[COL.service] = a.service;
+    cells[COL.service] = plainText_(a.service);
     cells[COL.notes] = plainText_(a.notes);
     cells[COL.customerName] = plainText_(
       storesId && customer && customer.id ? customer.id : a.customerName
@@ -797,9 +876,9 @@ function updateAppointment_(id, input) {
       a.durationMinutes != null
         ? durationValueLike_(cellText_(current, COL.duration), a.durationMinutes)
         : '';
-    cells[COL.handOrFoot] = a.handOrFoot;
+    cells[COL.handOrFoot] = plainText_(a.handOrFoot);
     cells[COL.price] = a.price != null ? a.price : '';
-    if (hasStatus) cells[COL.status] = status;
+    if (hasStatus) cells[COL.status] = plainText_(status);
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     putOptionalCells_(cells, headers, a, cellText_(current, COL.depositHandling));
 
@@ -1500,7 +1579,7 @@ function writePushTokens_(tokens) {
 }
 
 /** Add or refresh a device; the app calls this on every launch. */
-function registerPushToken_(input) {
+function registerPushToken_(input, principal) {
   const token = String(input.pushToken || '').trim();
   if (!/^Expo(nent)?PushToken\[.+\]$/.test(token)) throw new Error('Invalid push token');
 
@@ -1508,7 +1587,12 @@ function registerPushToken_(input) {
   lock.waitLock(15000);
   try {
     const tokens = readPushTokens_();
+    Object.keys(tokens).forEach(function (existing) {
+      if (!tokens[existing] || !tokens[existing].sessionKey ||
+          !sessionAt_(tokens[existing].sessionKey)) delete tokens[existing];
+    });
     tokens[token] = {
+      sessionKey: principal.key,
       platform: String(input.platform || ''),
       device: String(input.device || ''),
       updatedAt: new Date().toISOString(),
@@ -1555,7 +1639,8 @@ function sendChangePush_(title, body, data, senderToken) {
   try {
     const tokens = readPushTokens_();
     const targets = Object.keys(tokens).filter(function (token) {
-      return token !== senderToken;
+      return token !== senderToken && tokens[token] && tokens[token].sessionKey &&
+        Boolean(sessionAt_(tokens[token].sessionKey));
     });
     if (!targets.length) return;
 

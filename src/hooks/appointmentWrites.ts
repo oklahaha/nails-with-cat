@@ -22,6 +22,7 @@ import {
   addAppointmentPhoto,
   createAppointment,
   deleteAppointment,
+  AuthError,
   isRetryable,
   removeAppointmentPhoto,
   updateAppointment,
@@ -135,6 +136,7 @@ const sendSave = defineWrite<SavePayload>('saveAppointment', {
         const saved = await updateAppointment(realId, input);
         settleAppointment(id, { ...local, ...saved, id: realId, phone: saved.phone || local.phone });
       } catch (e) {
+        if (e instanceof AuthError) throw e;
         settleAppointment(id, { ...before, id });
         reportFailure('儲存', local, e);
       }
@@ -151,6 +153,7 @@ const sendSave = defineWrite<SavePayload>('saveAppointment', {
       settleCreate(id, saved.id);
       settleAppointment(id, { ...local, ...saved, phone: saved.phone || local.phone });
     } catch (e) {
+      if (e instanceof AuthError) throw e;
       settleCreate(id, null);
       settleAppointment(id, null);
       reportFailure('新增', local, e);
@@ -169,6 +172,7 @@ const sendDelete = defineWrite<DeletePayload>('deleteAppointment', {
       settleAppointment(realId, null);
       if (realId !== id) settleAppointment(id, null);
     } catch (e) {
+      if (e instanceof AuthError) throw e;
       settleAppointment(id, { ...apt, id });
       reportFailure('刪除', apt, e);
     }
@@ -186,6 +190,7 @@ const sendPhotoAdd = defineWrite<PhotoPayload>('addAppointmentPhoto', {
       markPhotoUploaded(path);
       settlePhoto(path, 'add');
     } catch (e) {
+      if (e instanceof AuthError) throw e;
       undoPhoto(path, 'add');
       discardPhoto(path);
       if (e !== CREATE_FAILED) reportFailure('上傳相片', apt, e);
@@ -201,6 +206,7 @@ const sendPhotoRemove = defineWrite<PhotoPayload>('removeAppointmentPhoto', {
       discardPhoto(path);
       settlePhoto(path, 'remove');
     } catch (e) {
+      if (e instanceof AuthError) throw e;
       undoPhoto(path, 'remove');
       if (e !== CREATE_FAILED) reportFailure('移除相片', apt, e);
     }

@@ -12,6 +12,7 @@ import { renameCachedCustomer } from '@/hooks/useAppointments';
 import { setPendingCustomer, settleCustomer } from '@/hooks/useCustomers';
 import { defineWrite } from '@/hooks/writeQueue';
 import {
+  AuthError,
   createCustomer,
   deleteCustomer,
   updateCustomer,
@@ -57,6 +58,7 @@ const sendSave = defineWrite<SavePayload>('saveCustomer', {
         settleCustomer(key, saved);
         renameCachedCustomer(local.name, saved.name, saved.phone);
       } catch (e) {
+        if (e instanceof AuthError) throw e;
         settleCustomer(keyOf(local), before);
         renameCachedCustomer(local.name, before.name, before.phone);
         reportFailure('儲存', before.name, e);
@@ -67,6 +69,7 @@ const sendSave = defineWrite<SavePayload>('saveCustomer', {
     try {
       settleCustomer(key, await createCustomer(input));
     } catch (e) {
+      if (e instanceof AuthError) throw e;
       settleCustomer(key, null);
       reportFailure('新增顧客', local.name, e);
     }
@@ -81,6 +84,7 @@ const sendDelete = defineWrite<{ customer: Customer }>('deleteCustomer', {
       await deleteCustomer(key);
       settleCustomer(key, null);
     } catch (e) {
+      if (e instanceof AuthError) throw e;
       settleCustomer(key, customer);
       reportFailure('刪除', customer.name, e);
     }

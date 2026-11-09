@@ -7,6 +7,10 @@ jest.mock('@/utils/persistentStorage', () => ({
   writeStoredNow: (key: string, value: string) => mockStored.set(key, value),
 }));
 
+// Defined outside the factory so every launch() sees the same class
+class MockAuthError extends Error {}
+jest.mock('@/services/appointmentsApi', () => ({ AuthError: MockAuthError }));
+
 type WriteQueue = typeof import('./writeQueue');
 
 /** A fresh copy of the module, as after the app is restarted. */
@@ -104,6 +108,32 @@ describe('write outbox', () => {
       'run save a',
       'run delete b',
     ]);
+    expect(outbox()).toEqual([]);
+  });
+
+  it('keeps a write refused for a lost session, and later ones, until the next sign-in', async () => {
+    const { defineWrite, resumeWrites } = launch();
+    resumeWrites();
+    let signedIn = false;
+    const sent: string[] = [];
+    const send = defineWrite<string>('save', {
+      run: async (p) => {
+        if (!signedIn) throw new MockAuthError('請重新登入');
+        sent.push(p);
+      },
+      restore: () => {},
+    });
+
+    send('a');
+    send('b');
+    await settle();
+    expect(sent).toEqual([]);
+    expect(outbox()).toHaveLength(2);
+
+    signedIn = true;
+    resumeWrites();
+    await settle();
+    expect(sent).toEqual(['a', 'b']);
     expect(outbox()).toEqual([]);
   });
 

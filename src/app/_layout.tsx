@@ -9,13 +9,14 @@
  */
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 
 import { useSession } from '@/auth/session';
 import { RootAlerts } from '@/components/RootAlerts';
 import { WhatsAppConfirmationDialog } from '@/components/WhatsAppConfirmationDialog';
 import { stackScreenOptions } from '@/constants/stackOptions';
 import { useResumeWrites } from '@/hooks/resumeWrites';
-import { useUpcomingSync } from '@/hooks/useUpcomingSync';
+import { syncUpcoming, useUpcomingSync } from '@/hooks/useUpcomingSync';
 import { useNotifications } from '@/notifications/notifications';
 import { PHOTO_KINDS, type PhotoKind } from '@/utils/appointmentPhotos';
 
@@ -32,6 +33,9 @@ function SignedInSync() {
 
 export default function RootLayout() {
   const signedIn = useSession() !== null;
+  useEffect(() => {
+    if (!signedIn) void syncUpcoming();
+  }, [signedIn]);
 
   return (
     <>

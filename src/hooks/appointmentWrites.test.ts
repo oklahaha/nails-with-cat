@@ -9,20 +9,24 @@ const mockApi = {
   deleteAppointment: jest.fn<(...args: unknown[]) => Promise<unknown>>(),
 };
 const mockAlert = jest.fn();
+const mockSettle = jest.fn();
 
 /** A connection failure, as request() throws it (see isRetryable). */
 class MockConnectionError extends Error {}
+/** The session is gone, as apiToken() / parseResponse throw it. */
+class MockAuthError extends Error {}
 
 jest.mock('@/services/appointmentsApi', () => ({
   ...mockApi,
   addAppointmentPhoto: jest.fn(),
   removeAppointmentPhoto: jest.fn(),
   isRetryable: (e: unknown) => e instanceof MockConnectionError,
+  AuthError: MockAuthError,
 }));
 jest.mock('@/hooks/useAppointments', () => ({
   setPendingAppointment: jest.fn(),
   setPendingPhoto: jest.fn(),
-  settleAppointment: jest.fn(),
+  settleAppointment: (...args: unknown[]) => mockSettle(...args),
   settlePhoto: jest.fn(),
   undoPhoto: jest.fn(),
 }));
@@ -84,6 +88,19 @@ describe('appointment writes', () => {
 
     expect(mockApi.createAppointment).toHaveBeenCalledTimes(1);
     expect(mockAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('neither undoes nor reports a create refused for a lost session', async () => {
+    const { saveAppointment } = load();
+    mockApi.createAppointment.mockRejectedValueOnce(new MockAuthError('請重新登入'));
+
+    saveAppointment(input);
+    await settle();
+
+    expect(mockApi.createAppointment).toHaveBeenCalledTimes(1);
+    expect(mockAlert).not.toHaveBeenCalled();
+    // Left pending for the resend after sign-in, not undone
+    expect(mockSettle).not.toHaveBeenCalled();
   });
 
   it('still deletes and edits a booking whose create failed, since the row may exist', async () => {

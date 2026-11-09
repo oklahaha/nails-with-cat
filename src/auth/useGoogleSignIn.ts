@@ -10,8 +10,9 @@ import { Platform, TurboModuleRegistry } from 'react-native';
 import { showAlert } from '@/utils/alert';
 
 import { ALLOWED_EMAILS, isAllowedEmail, notAllowedMessage } from './allowedEmails';
-import { signIn } from './session';
+import { authenticate, signIn } from './session';
 
+const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 
 // The library looks its native module up on import and throws without it
@@ -27,13 +28,13 @@ const Google: typeof GoogleSignInType | null = TurboModuleRegistry.get('RNGoogle
  * package name and signing key, and only needs one registered.
  */
 // Expo Go has no Google native module, so dev bundles there skip sign-in
-// and use the first allowed account (never in release builds)
-const SKIP_SIGN_IN = __DEV__ && !Google;
+// and use the first allowed account only for mock data (never for a live API)
+const SKIP_SIGN_IN = __DEV__ && !Google && !process.env.EXPO_PUBLIC_APPS_SCRIPT_URL;
 
 export const GOOGLE_SIGN_IN_CONFIGURED =
-  SKIP_SIGN_IN || Boolean(Google && (Platform.OS !== 'ios' || IOS_CLIENT_ID));
+  SKIP_SIGN_IN || Boolean(Google && WEB_CLIENT_ID && (Platform.OS !== 'ios' || IOS_CLIENT_ID));
 
-Google?.GoogleSignin.configure({ iosClientId: IOS_CLIENT_ID });
+Google?.GoogleSignin.configure({ iosClientId: IOS_CLIENT_ID, webClientId: WEB_CLIENT_ID });
 
 /** Only call where GOOGLE_SIGN_IN_CONFIGURED is true. */
 export function useGoogleSignIn() {
@@ -56,14 +57,15 @@ export function useGoogleSignIn() {
       // Cancelled
       if (!isSuccessResponse(response)) return;
 
-      const { email, name } = response.data.user;
+      const { email } = response.data.user;
       if (!isAllowedEmail(email)) {
         await GoogleSignin.signOut();
         showAlert('沒有權限', notAllowedMessage(email));
         return;
       }
       // The root layout's guard then shows the timetable
-      signIn({ email: email.trim().toLowerCase(), name: name ?? undefined });
+      if (!response.data.idToken) throw new Error('Missing Google ID token');
+      await authenticate(response.data.idToken);
     } catch (error) {
       if (isErrorWithCode(error)) {
         if (error.code === statusCodes.SIGN_IN_CANCELLED || error.code === statusCodes.IN_PROGRESS) return;

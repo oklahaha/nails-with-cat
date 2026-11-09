@@ -11,6 +11,7 @@
  * have sent one without hearing back: a new booking carries its own
  * 預約ID, and Apps Script treats a repeated create or delete as done.
  */
+import { AuthError } from '@/services/appointmentsApi';
 import { readStored, writeStoredNow } from '@/utils/persistentStorage';
 
 const STORAGE_KEY = 'write-outbox-v1';
@@ -33,16 +34,26 @@ function saveOutbox(): void {
   writeStoredNow(STORAGE_KEY, JSON.stringify(outbox));
 }
 
+// Set when a write finds the session gone: it and every later write stay in the
+// outbox, in order, until resumeWrites runs again after the next sign-in
+let held = false;
+
 function schedule(record: WriteRecord): void {
   const handler = handlers.get(record.kind) as WriteHandler<unknown> | undefined;
-  queue = queue
-    .then(() => handler?.run(record.payload))
-    // A handler that throws anyway mustn't stop every later write
-    .catch(() => {})
-    .then(() => {
-      outbox = outbox.filter((r) => r !== record);
-      saveOutbox();
-    });
+  queue = queue.then(async () => {
+    if (held) return;
+    try {
+      await handler?.run(record.payload);
+    } catch (e) {
+      if (e instanceof AuthError) {
+        held = true;
+        return;
+      }
+      // A handler that throws anyway mustn't stop every later write
+    }
+    outbox = outbox.filter((r) => r !== record);
+    saveOutbox();
+  });
 }
 
 /**
@@ -63,7 +74,14 @@ let resumed = false;
 
 /** Restore and resend the writes a closed app left unsent. Called once at launch. */
 export function resumeWrites(): void {
-  if (resumed) return;
+  if (resumed) {
+    // Signed in again (SignedInSync remounts): send what the lost session held back
+    if (held) {
+      held = false;
+      for (const record of outbox) schedule(record);
+    }
+    return;
+  }
   resumed = true;
   let saved: WriteRecord[];
   try {
