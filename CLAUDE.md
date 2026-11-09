@@ -27,6 +27,7 @@ npm run start:go          # same tunnel, but the QR code opens Expo Go (expo-dev
 npm run lint              # expo lint
 npx tsc --noEmit          # typecheck
 npm test                  # jest (jest-expo preset); npm test -- <path> for one file
+npx eas-cli@latest update --channel production --environment production --message "…"  # ship JS-only changes to TestFlight builds (expo-updates, runtimeVersion = app version; native changes need a new build)
 ```
 
 Tests sit next to the code as `*.test.ts` (never under `src/app/`, where every file is a route) and cover pure logic only. Import `describe` / `it` / `expect` from `@jest/globals`: TypeScript 6 doesn't load `@types/*` globals by default. `src/test/` holds shared fixtures such as `makeAppointment`. Jest's `modulePaths` includes `node_modules/expo/node_modules` because `expo-modules-core`, which the preset loads, is installed only there.

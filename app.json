@@ -115,6 +115,12 @@
         "projectId": "da93e937-c714-437d-ac82-3006e42dedd1"
       }
     },
-    "owner": "heiheion"
+    "owner": "heiheion",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/da93e937-c714-437d-ac82-3006e42dedd1"
+    }
   }
 }
