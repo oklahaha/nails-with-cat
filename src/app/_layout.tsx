@@ -11,6 +11,8 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
+// Reads Google's web sign-in redirect before Stack.Protected moves the page
+import '@/auth/googleRedirect';
 import { useSession } from '@/auth/session';
 import { RootAlerts } from '@/components/RootAlerts';
 import { WhatsAppConfirmationDialog } from '@/components/WhatsAppConfirmationDialog';

@@ -35,7 +35,7 @@ One-time setup:
 
 ## Google sign-in
 
-The app opens on a sign-in screen and only lets in the accounts listed in `src/auth/allowedEmails.ts`. iOS and Android use `@react-native-google-signin/google-signin` (Google's native SDKs), so they need a development build, not Expo Go. Its web support is for sponsors only, so `npm run web` signs in with `expo-auth-session` instead. All clients go in the same Google Cloud project:
+The app opens on a sign-in screen and only lets in the accounts listed in `src/auth/allowedEmails.ts`. iOS and Android use `@react-native-google-signin/google-signin` (Google's native SDKs), so they need a development build, not Expo Go. Its web support is for sponsors only, so the web version redirects to Google's sign-in page itself (`src/auth/useGoogleSignIn.web.ts`). All clients go in the same Google Cloud project:
 
 1. **Consent screen:** Google Cloud Console → Google Auth Platform → Branding / Audience. Pick **External** and fill in the app name and support email. While the app is in **Testing**, add the three allowed Gmail addresses as **Test users** (other accounts then can't even get past Google). The scopes are only `openid`, `email` and `profile`, which need no verification.
 2. **iOS client:** Clients → Create client → **iOS**, Bundle ID `com.nailswithcat.app`. Put its client ID in `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`. `app.config.ts` turns it into the URL scheme Google returns to (`com.googleusercontent.apps.…`), so the ID must be set when the app is built.
