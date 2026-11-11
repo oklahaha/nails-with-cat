@@ -462,7 +462,8 @@ export function useAppointments(
   );
   const current =
     cache.get(key) ?? (result.key === key ? result.appointments : undefined) ?? covering;
-  const error = result.key === key ? result.error : null;
+  // A failed reload over cached data keeps showing that data, unsynced
+  const error = result.key === key && current === undefined ? result.error : null;
 
   return {
     appointments: current ?? EMPTY,

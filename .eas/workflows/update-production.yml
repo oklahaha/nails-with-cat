@@ -1,0 +1,17 @@
+# Runs `eas update` on EAS's servers: hermesc has no Linux ARM binary, so it fails on this aarch64 machine.
+name: Update production
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        type: string
+        required: true
+
+jobs:
+  update:
+    type: update
+    environment: production
+    params:
+      channel: production
+      message: ${{ inputs.message }}
