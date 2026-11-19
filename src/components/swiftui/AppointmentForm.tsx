@@ -14,6 +14,7 @@ import {
   LabeledContent,
   Menu,
   Picker,
+  Popover,
   Section,
   Spacer,
   Text,
@@ -25,8 +26,10 @@ import {
 import {
   animation,
   Animation,
+  background,
   buttonStyle,
   contentShape,
+  cornerRadius,
   datePickerStyle,
   environment,
   fixedSize,
@@ -36,6 +39,7 @@ import {
   keyboardType,
   labelsHidden,
   multilineTextAlignment,
+  padding,
   pickerStyle,
   scrollDismissesKeyboard,
   shapes,
@@ -60,7 +64,7 @@ import { useAppointmentForm, type FormField } from '@/hooks/useAppointmentForm';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { STATUS_OPTIONS, type Appointment, type ServiceType } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import { formatDuration, formatShortDate, isDayPick, minutesToTime, todayIsoDate } from '@/utils/dates';
+import { formatDuration, isDayPick, minutesToTime, todayIsoDate } from '@/utils/dates';
 import { formatPhone } from '@/utils/phone';
 
 import { openPhotoViewer } from '@/utils/appointmentActions';
@@ -293,35 +297,46 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
             )}
 
             <Section title="時間">
-              {/* The compact picker's popover doesn't close on a pick (and rebuilding it to
-                  force that broke with @expo/ui updates), so the row opens our own calendar. */}
-              <Button
-                onPress={() => setCalendarOpen(!calendarOpen)}
-                modifiers={[buttonStyle('plain')]}
-              >
-                <HStack modifiers={[contentShape(shapes.rectangle())]}>
-                  <Text>日期</Text>
-                  <Spacer />
-                  <Text modifiers={[foregroundStyle(calendarOpen ? colors.accent : colors.text)]}>
-                    {formatShortDate(date)}
-                  </Text>
-                </HStack>
-              </Button>
-              {calendarOpen ? (
-                <DatePicker
-                  title="日期"
-                  selection={isoToDate(date)}
-                  displayedComponents={['date']}
-                  onDateChange={(d) => {
-                    const picked = dateToIso(d);
-                    setDate(picked);
-                    clearError('date');
-                    // The month/year wheel changes the date too; only a tapped day closes
-                    if (isDayPick(date, picked)) setCalendarOpen(false);
-                  }}
-                  modifiers={[datePickerStyle('graphical'), ...PICKER_LOOK]}
-                />
-              ) : null}
+              {/* Looks like the compact picker, but the compact picker's own popover
+                  can't be closed from JS, so this one opens the same calendar in ours. */}
+              <LabeledContent label="日期">
+                <Popover isPresented={calendarOpen} onIsPresentedChange={setCalendarOpen}>
+                  <Popover.Trigger>
+                    <Button onPress={() => setCalendarOpen(true)} modifiers={[buttonStyle('plain')]}>
+                      <Text
+                        modifiers={[
+                          foregroundStyle(calendarOpen ? colors.accent : colors.text),
+                          padding({ horizontal: 11, vertical: 6 }),
+                          background(colors.surfaceRaised),
+                          cornerRadius(8),
+                        ]}
+                      >
+                        {date.replace(/^(\d+)-0?(\d+)-0?(\d+)$/, '$1年$2月$3日')}
+                      </Text>
+                    </Button>
+                  </Popover.Trigger>
+                  <Popover.Content>
+                    <DatePicker
+                      title="日期"
+                      selection={isoToDate(date)}
+                      displayedComponents={['date']}
+                      onDateChange={(d) => {
+                        const picked = dateToIso(d);
+                        setDate(picked);
+                        clearError('date');
+                        // The month/year wheel changes the date too; only a tapped day closes
+                        if (isDayPick(date, picked)) setCalendarOpen(false);
+                      }}
+                      modifiers={[
+                        datePickerStyle('graphical'),
+                        frame({ width: 320 }),
+                        padding({ all: 8 }),
+                        ...PICKER_LOOK,
+                      ]}
+                    />
+                  </Popover.Content>
+                </Popover>
+              </LabeledContent>
               {errorText('date')}
 
               <DatePicker
