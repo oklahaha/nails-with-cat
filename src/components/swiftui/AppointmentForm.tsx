@@ -29,7 +29,6 @@ import {
   contentShape,
   datePickerStyle,
   environment,
-  id,
   fixedSize,
   font,
   foregroundStyle,
@@ -43,7 +42,7 @@ import {
   tag,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import {
   toComplexDesign,
@@ -61,7 +60,7 @@ import { useAppointmentForm, type FormField } from '@/hooks/useAppointmentForm';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { STATUS_OPTIONS, type Appointment, type ServiceType } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
-import { formatDuration, minutesToTime, todayIsoDate } from '@/utils/dates';
+import { formatDuration, formatShortDate, isDayPick, minutesToTime, todayIsoDate } from '@/utils/dates';
 import { formatPhone } from '@/utils/phone';
 
 import { openPhotoViewer } from '@/utils/appointmentActions';
@@ -137,6 +136,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     // A blank 完結 shows (and saves as) the start time
     requireSpecialEndTime: false,
   });
+  const [calendarOpen, setCalendarOpen] = useState(false);
   // Text fields live in native state, read back when saving
   const customerNameText = useNativeState(editing?.customerName ?? params.customerName ?? '');
   const notesText = useNativeState(editing?.notes ?? '');
@@ -293,19 +293,35 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
             )}
 
             <Section title="時間">
-              {/* Compact SwiftUI picker. Its calendar popover doesn't close on a
-                  pick, so a new id per date rebuilds the picker, which dismisses it. */}
-              <DatePicker
-                key={date}
-                title="日期"
-                selection={isoToDate(date)}
-                displayedComponents={['date']}
-                onDateChange={(d) => {
-                  setDate(dateToIso(d));
-                  clearError('date');
-                }}
-                modifiers={[datePickerStyle('compact'), id(date), ...PICKER_LOOK]}
-              />
+              {/* The compact picker's popover doesn't close on a pick (and rebuilding it to
+                  force that broke with @expo/ui updates), so the row opens our own calendar. */}
+              <Button
+                onPress={() => setCalendarOpen(!calendarOpen)}
+                modifiers={[buttonStyle('plain')]}
+              >
+                <HStack modifiers={[contentShape(shapes.rectangle())]}>
+                  <Text>日期</Text>
+                  <Spacer />
+                  <Text modifiers={[foregroundStyle(calendarOpen ? colors.accent : colors.text)]}>
+                    {formatShortDate(date)}
+                  </Text>
+                </HStack>
+              </Button>
+              {calendarOpen ? (
+                <DatePicker
+                  title="日期"
+                  selection={isoToDate(date)}
+                  displayedComponents={['date']}
+                  onDateChange={(d) => {
+                    const picked = dateToIso(d);
+                    setDate(picked);
+                    clearError('date');
+                    // The month/year wheel changes the date too; only a tapped day closes
+                    if (isDayPick(date, picked)) setCalendarOpen(false);
+                  }}
+                  modifiers={[datePickerStyle('graphical'), ...PICKER_LOOK]}
+                />
+              ) : null}
               {errorText('date')}
 
               <DatePicker

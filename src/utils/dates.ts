@@ -112,3 +112,12 @@ export function formatShortDate(iso: string): string {
   const weekday = WEEKDAY_LABELS[date.getDay()];
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${weekday}）`;
 }
+
+/**
+ * Whether a change from the iOS calendar is a tapped day rather than its month/year wheel,
+ * which keeps the day number. shortcut: tapping the same day number in another month, or a
+ * wheel turn that clamps the 31st to a shorter month, guess wrong; fine for open/close.
+ */
+export function isDayPick(prev: string, next: string): boolean {
+  return prev.slice(8) !== next.slice(8);
+}

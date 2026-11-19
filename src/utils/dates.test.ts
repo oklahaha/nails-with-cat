@@ -1,6 +1,14 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { addDays, addMonths, formatDuration, minutesToTime, monthGrid, timeToMinutes } from './dates';
+import {
+  addDays,
+  addMonths,
+  formatDuration,
+  isDayPick,
+  minutesToTime,
+  monthGrid,
+  timeToMinutes,
+} from './dates';
 
 describe('formatDuration', () => {
   it('shows minutes as hours', () => {
@@ -38,5 +46,16 @@ describe('date helpers', () => {
     expect(grid[0][0]).toBe('2026-11-01'); // a Sunday
     expect(grid[grid.length - 1][6]).toBe('2026-12-05');
     expect(grid.every((week) => week.length === 7)).toBe(true);
+  });
+});
+
+describe('isDayPick', () => {
+  it('is a day tap when the day number changes', () => {
+    expect(isDayPick('2026-11-19', '2026-11-03')).toBe(true);
+    expect(isDayPick('2026-11-19', '2026-12-05')).toBe(true);
+  });
+  it('is month/year navigation when only the month or year changes', () => {
+    expect(isDayPick('2026-11-19', '2026-12-19')).toBe(false);
+    expect(isDayPick('2026-11-19', '2027-11-19')).toBe(false);
   });
 });
