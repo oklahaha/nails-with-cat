@@ -2,7 +2,7 @@
   "expo": {
     "name": "nails-with-cat",
     "slug": "nails-with-cat",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/nails_with_cat_icon.png",
     "scheme": "nailswithcat",

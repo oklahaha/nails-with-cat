@@ -29,6 +29,7 @@ import {
   tag,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
+import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
@@ -50,6 +51,7 @@ import {
   addMonths,
   formatMonthTitle,
   formatWeekTitle,
+  startOfWeek,
   todayIsoDate,
 } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -165,6 +167,22 @@ export default function TimetableScreen() {
             </Picker>
             <Spacer />
             <HStack spacing={spacing.sm}>
+              {mode === 'week' ? (
+                // The open times from this week on, as an Instagram story or text
+                <Button
+                  label="匯出可約時間"
+                  systemImage="square.and.arrow.up"
+                  onPress={() =>
+                    router.push({ pathname: '/available-slots', params: { week: startOfWeek(anchor) } })
+                  }
+                  modifiers={[
+                    glassButton(),
+                    buttonBorderShape('circle'),
+                    labelStyle('iconOnly'),
+                    tint(colors.accent),
+                  ]}
+                />
+              ) : null}
               <Button
                 label="上一頁"
                 systemImage="chevron.left"

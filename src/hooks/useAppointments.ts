@@ -388,6 +388,8 @@ type Result = {
   key: string;
   appointments?: Appointment[];
   error: string | null;
+  /** Set by a load that succeeded, so the rows are as the sheet has them now. */
+  synced?: boolean;
 };
 
 /**
@@ -425,7 +427,7 @@ export function useAppointments(
       try {
         const data = await loadAppointments({ from, to });
         if (requestId !== requestIdRef.current) return;
-        setResult({ key: k, appointments: data, error: null });
+        setResult({ key: k, appointments: data, error: null, synced: true });
       } catch (e) {
         if (requestId !== requestIdRef.current) return;
         setResult({
@@ -471,6 +473,10 @@ export function useAppointments(
     reloading,
     refreshing,
     error,
+    /** This range's last load succeeded and none is running (cached rows alone may be old). */
+    synced: result.key === key && result.synced === true && !reloading,
+    /** The last load's error, even when cached rows are still shown. */
+    syncError: result.key === key ? result.error : null,
     reload: load,
   };
 }
@@ -550,7 +556,7 @@ export function useCustomerAppointments(customer: CustomerKey | undefined) {
     try {
       const data = await fetchCached(k, () => listCustomerAppointments({ id, name }));
       if (requestId !== requestIdRef.current) return;
-      setResult({ key: k, appointments: data, error: null });
+      setResult({ key: k, appointments: data, error: null, synced: true });
     } catch (e) {
       if (requestId !== requestIdRef.current) return;
       setResult({

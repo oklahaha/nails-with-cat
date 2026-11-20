@@ -21,6 +21,28 @@ export function toIsoDate(date: Date): string {
   return `${date.getFullYear()}-${m}-${d}`;
 }
 
+/** The studio's time zone: bookings are written in Hong Kong time. */
+const STUDIO_TIME_ZONE = 'Asia/Hong_Kong';
+
+/**
+ * `date` as a Date whose local fields read the studio's wall clock, so code using
+ * getHours / toIsoDate gets Hong Kong time on a phone set to another zone.
+ */
+export function studioTime(date: Date): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: STUDIO_TIME_ZONE,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+  }).formatToParts(date);
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return new Date(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'));
+}
+
 export function todayIsoDate(): string {
   return toIsoDate(new Date());
 }

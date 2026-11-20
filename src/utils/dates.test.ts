@@ -7,6 +7,7 @@ import {
   isDayPick,
   minutesToTime,
   monthGrid,
+  studioTime,
   timeToMinutes,
 } from './dates';
 
@@ -57,5 +58,14 @@ describe('isDayPick', () => {
   it('is month/year navigation when only the month or year changes', () => {
     expect(isDayPick('2026-11-19', '2026-12-19')).toBe(false);
     expect(isDayPick('2026-11-19', '2027-11-19')).toBe(false);
+  });
+});
+
+describe('studioTime', () => {
+  it('reads the Hong Kong wall clock whatever the phone’s zone', () => {
+    const hk = studioTime(new Date(Date.UTC(2026, 10, 24, 5, 0, 30)));
+    expect([hk.getDate(), hk.getHours(), hk.getMinutes(), hk.getSeconds()]).toEqual([24, 13, 0, 30]);
+    // 20:00 UTC is already the next day in Hong Kong
+    expect(studioTime(new Date(Date.UTC(2026, 10, 24, 20, 0))).getDate()).toBe(25);
   });
 });

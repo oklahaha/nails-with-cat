@@ -81,6 +81,10 @@ export default function RootLayout() {
             })}
           />
           <Stack.Screen
+            name="available-slots"
+            options={{ title: '可約時間', presentation: 'modal' }}
+          />
+          <Stack.Screen
             name="add-customer"
             options={{ title: '新增顧客', presentation: 'modal' }}
           />

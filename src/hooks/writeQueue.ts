@@ -11,6 +11,8 @@
  * have sent one without hearing back: a new booking carries its own
  * 預約ID, and Apps Script treats a repeated create or delete as done.
  */
+import { useSyncExternalStore } from 'react';
+
 import { AuthError } from '@/services/appointmentsApi';
 import { readStored, writeStoredNow } from '@/utils/persistentStorage';
 
@@ -30,8 +32,28 @@ let outbox: WriteRecord[] = [];
 let nextSeq = 1;
 let queue: Promise<void> = Promise.resolve();
 
+const outboxListeners = new Set<() => void>();
+
 function saveOutbox(): void {
   writeStoredNow(STORAGE_KEY, JSON.stringify(outbox));
+  for (const listener of outboxListeners) listener();
+}
+
+/** Whether a write of one of `kinds` is still in the outbox (queued, running or held). */
+export function hasQueuedWrites(kinds: readonly string[]): boolean {
+  return outbox.some((record) => kinds.includes(record.kind));
+}
+
+/** hasQueuedWrites, re-rendering as writes are queued and done. Pass a constant `kinds`. */
+export function useQueuedWrites(kinds: readonly string[]): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      outboxListeners.add(listener);
+      return () => outboxListeners.delete(listener);
+    },
+    () => hasQueuedWrites(kinds),
+    () => false
+  );
 }
 
 // Set when a write finds the session gone: it and every later write stay in the
