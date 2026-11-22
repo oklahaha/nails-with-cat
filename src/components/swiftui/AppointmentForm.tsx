@@ -147,6 +147,9 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [timeOpen, setTimeOpen] = useState(false);
+  // A picked day turns the date popover into the time wheel: iOS drops a second
+  // popover asked for while the first is still closing
+  const [calendarShowsTime, setCalendarShowsTime] = useState(false);
   // The first text field after 活動: 顧客 or the 特別事項 text
   const firstFieldRef = useRef<TextFieldRef>(null);
   // One pending auto-advance at a time; opening a picker by hand cancels it
@@ -181,6 +184,28 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
       },
       onSaved
     );
+
+  const timeWheel = (
+    <DatePicker
+      title="開始"
+      selection={timeToDate(time)}
+      displayedComponents={['hourAndMinute']}
+      onDateChange={(d) => {
+        const value = dateToTime(d);
+        setTime(value);
+        clearError('time');
+        // An end time now before the start has to be picked again
+        if (isSpecial && validEndTime && endTimeInput < value) setEndTimeInput('');
+      }}
+      modifiers={[
+        datePickerStyle('wheel'),
+        labelsHidden(),
+        frame({ width: 240 }),
+        padding({ all: 8 }),
+        ...TIME_PICKER_LOOK,
+      ]}
+    />
+  );
 
   const errorText = (field: FormField) =>
     errors[field] ? (
@@ -327,7 +352,13 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
               {/* Looks like the compact picker, but the compact picker's own popover
                   can't be closed from JS, so this one opens the same calendar in ours. */}
               <LabeledContent label="日期">
-                <Popover isPresented={calendarOpen} onIsPresentedChange={setCalendarOpen}>
+                <Popover
+                  isPresented={calendarOpen}
+                  onIsPresentedChange={(open) => {
+                    setCalendarOpen(open);
+                    if (!open) setCalendarShowsTime(false);
+                  }}
+                >
                   <Popover.Trigger>
                     <Button
                       onPress={() => {
@@ -349,33 +380,36 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                     </Button>
                   </Popover.Trigger>
                   <Popover.Content>
-                    <DatePicker
-                      title="日期"
-                      selection={isoToDate(date)}
-                      displayedComponents={['date']}
-                      onDateChange={(d) => {
-                        const picked = dateToIso(d);
-                        setDate(picked);
-                        clearError('date');
-                        // The month/year wheel changes the date too; only a tapped day closes
-                        if (isDayPick(date, picked)) {
-                          setCalendarOpen(false);
-                          after(() => setTimeOpen(true));
-                        }
-                      }}
-                      modifiers={[
-                        datePickerStyle('graphical'),
-                        frame({ width: 320 }),
-                        padding({ all: 8 }),
-                        ...PICKER_LOOK,
-                      ]}
-                    />
+                    {calendarShowsTime ? (
+                      <VStack spacing={0} modifiers={[padding({ top: 12 })]}>
+                        <Text modifiers={[font({ weight: 'semibold' })]}>開始時間</Text>
+                        {timeWheel}
+                      </VStack>
+                    ) : (
+                      <DatePicker
+                        title="日期"
+                        selection={isoToDate(date)}
+                        displayedComponents={['date']}
+                        onDateChange={(d) => {
+                          const picked = dateToIso(d);
+                          setDate(picked);
+                          clearError('date');
+                          // The month/year wheel changes the date too; only a tapped day moves on
+                          if (isDayPick(date, picked)) setCalendarShowsTime(true);
+                        }}
+                        modifiers={[
+                          datePickerStyle('graphical'),
+                          frame({ width: 320 }),
+                          padding({ all: 8 }),
+                          ...PICKER_LOOK,
+                        ]}
+                      />
+                    )}
                   </Popover.Content>
                 </Popover>
               </LabeledContent>
               {errorText('date')}
 
-              {/* A wheel in our own popover, so picking a date can open it */}
               <LabeledContent label="開始">
                 <Popover isPresented={timeOpen} onIsPresentedChange={setTimeOpen}>
                   <Popover.Trigger>
@@ -399,25 +433,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                     </Button>
                   </Popover.Trigger>
                   <Popover.Content>
-                    <DatePicker
-                      title="開始"
-                      selection={timeToDate(time)}
-                      displayedComponents={['hourAndMinute']}
-                      onDateChange={(d) => {
-                        const value = dateToTime(d);
-                        setTime(value);
-                        clearError('time');
-                        // An end time now before the start has to be picked again
-                        if (isSpecial && validEndTime && endTimeInput < value) setEndTimeInput('');
-                      }}
-                      modifiers={[
-                        datePickerStyle('wheel'),
-                        labelsHidden(),
-                        frame({ width: 240 }),
-                        padding({ all: 8 }),
-                        ...TIME_PICKER_LOOK,
-                      ]}
-                    />
+                    {timeWheel}
                   </Popover.Content>
                 </Popover>
               </LabeledContent>
