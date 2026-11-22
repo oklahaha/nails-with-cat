@@ -27,10 +27,21 @@ export function subscribeAlerts(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function enqueueAlert(title: string, message?: string, buttons?: AlertButton[]): void {
+/** Returns the function that takes the alert back, if it's still queued or showing. */
+export function enqueueAlert(
+  title: string,
+  message?: string,
+  buttons?: AlertButton[]
+): () => void {
   const shown = buttons && buttons.length > 0 ? buttons : [{ text: '確定' }];
-  alerts = [...alerts, { id: nextId++, title, message, buttons: shown }];
+  const alert = { id: nextId++, title, message, buttons: shown };
+  alerts = [...alerts, alert];
   changed();
+  return () => {
+    if (!alerts.includes(alert)) return;
+    alerts = alerts.filter((a) => a !== alert);
+    changed();
+  };
 }
 
 export function currentAlert(): QueuedAlert | undefined {

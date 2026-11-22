@@ -48,6 +48,21 @@ describe('alertQueue', () => {
     expect(queue.currentAlert()?.title).toBe('second');
   });
 
+  it('takes back an alert that is showing or queued, and ignores one already answered', () => {
+    const takeBackFirst = queue.enqueueAlert('first');
+    const takeBackSecond = queue.enqueueAlert('second');
+    queue.enqueueAlert('third');
+
+    takeBackSecond();
+    takeBackFirst();
+    expect(queue.currentAlert()?.title).toBe('third');
+
+    const third = queue.currentAlert()!;
+    queue.answerAlert(third, third.buttons[0]);
+    takeBackFirst();
+    expect(queue.currentAlert()).toBeUndefined();
+  });
+
   it('lets the newest presenter present, and falls back when it goes', () => {
     const root = {};
     const modal = {};

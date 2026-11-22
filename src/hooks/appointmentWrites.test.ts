@@ -31,7 +31,10 @@ jest.mock('@/hooks/useAppointments', () => ({
   undoPhoto: jest.fn(),
 }));
 jest.mock('@/hooks/useUpcomingSync', () => ({ syncUpcoming: jest.fn() }));
-jest.mock('@/hooks/useCustomers', () => ({ findCachedCustomer: () => undefined }));
+jest.mock('@/hooks/useCustomers', () => ({
+  findCachedCustomer: () => undefined,
+  getCachedCustomers: () => null,
+}));
 jest.mock('@/services/photoFiles', () => ({}));
 jest.mock('@/utils/persistentStorage', () => ({ readStored: () => null, writeStoredNow: () => {} }));
 jest.mock('@/utils/alert', () => ({ showAlert: (...args: unknown[]) => mockAlert(...args) }));

@@ -4,15 +4,17 @@ import { Alert, type AlertButton, Platform } from 'react-native';
  * Drop-in replacement for Alert.alert that also works on web.
  * react-native-web's Alert.alert is a no-op, so on web this falls back to
  * window.alert / window.confirm and still runs the button's onPress.
+ * Returns the function that takes it back: a no-op here, since neither
+ * Alert.alert nor the browser dialogs can be closed from code (iOS can).
  */
 export function showAlert(
   title: string,
   message?: string,
   buttons?: AlertButton[]
-): void {
+): () => void {
   if (Platform.OS !== 'web') {
     Alert.alert(title, message, buttons);
-    return;
+    return noop;
   }
 
   const text = message ? `${title}\n\n${message}` : title;
@@ -24,9 +26,12 @@ export function showAlert(
     // confirm() only has OK / Cancel, so say what OK does
     if (window.confirm(`${text}\n\n按「確定」：${confirm.text}`)) confirm.onPress?.();
     else cancel.onPress?.();
-    return;
+    return noop;
   }
 
   window.alert(text);
   (confirm ?? cancel)?.onPress?.();
+  return noop;
 }
+
+function noop(): void {}

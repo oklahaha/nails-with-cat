@@ -19,6 +19,7 @@ import {
   Spacer,
   Text,
   TextField,
+  type TextFieldRef,
   Toggle,
   useNativeState,
   VStack,
@@ -46,7 +47,7 @@ import {
   tag,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import {
   toComplexDesign,
@@ -75,6 +76,10 @@ import { SwiftModal } from './SwiftModal';
 
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
 const PICKER_LOOK = [tint(colors.accent), environment('locale', 'zh_Hant_HK')];
+/** zh_Hant_HK shows 上午/下午; en_GB gives a 24-hour clock (time pickers show only digits). */
+const TIME_PICKER_LOOK = [tint(colors.accent), environment('locale', 'en_GB')];
+/** Lets a menu or popover finish closing before the next field opens. */
+const NEXT_FIELD_DELAY_MS = 400;
 
 type Props = {
   /** The appointment to edit; leave out to add a new one. */
@@ -141,6 +146,17 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     requireSpecialEndTime: false,
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
+  // The first text field after 活動: 顧客 or the 特別事項 text
+  const firstFieldRef = useRef<TextFieldRef>(null);
+  // One pending auto-advance at a time; opening a picker by hand cancels it
+  const nextStep = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const cancelNext = () => clearTimeout(nextStep.current);
+  const after = (step: () => void) => {
+    cancelNext();
+    nextStep.current = setTimeout(step, NEXT_FIELD_DELAY_MS);
+  };
+  useEffect(() => cancelNext, []);
   // Text fields live in native state, read back when saving
   const customerNameText = useNativeState(editing?.customerName ?? params.customerName ?? '');
   const notesText = useNativeState(editing?.notes ?? '');
@@ -223,7 +239,10 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                 label="活動"
                 selection={service || null}
                 onSelectionChange={(value) => {
-                  if (typeof value === 'string' && value) handleServiceChange(value as ServiceType);
+                  if (typeof value !== 'string' || !value) return;
+                  handleServiceChange(value as ServiceType);
+                  // Walk on to the next field: 活動 → 顧客 → 日期 → 開始
+                  after(() => void firstFieldRef.current?.focus());
                 }}
               >
                 {SERVICES.map((s) => (
@@ -241,13 +260,19 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
           <>
             {isSpecial ? (
               <Section title="特別事項">
-                <TextField placeholder="輸入特別事項內容" text={notesText} axis="vertical" />
+                <TextField
+                  ref={firstFieldRef}
+                  placeholder="輸入特別事項內容"
+                  text={notesText}
+                  axis="vertical"
+                />
               </Section>
             ) : (
               <Section title="顧客">
                 <HStack spacing={10}>
                   <Image systemName="person.fill" size={15} color={colors.textSecondary} />
                   <TextField
+                    ref={firstFieldRef}
                     placeholder="輸入姓名搜尋或新增"
                     text={customerNameText}
                     onTextChange={(text) => {
@@ -271,6 +296,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                       customerNameText.set(c.name);
                       setCustomerQuery(c.name);
                       clearError('customerName');
+                      void firstFieldRef.current?.blur();
+                      after(() => setCalendarOpen(true));
                     }}
                     modifiers={[buttonStyle('plain')]}
                   >
@@ -302,7 +329,13 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
               <LabeledContent label="日期">
                 <Popover isPresented={calendarOpen} onIsPresentedChange={setCalendarOpen}>
                   <Popover.Trigger>
-                    <Button onPress={() => setCalendarOpen(true)} modifiers={[buttonStyle('plain')]}>
+                    <Button
+                      onPress={() => {
+                        cancelNext();
+                        setCalendarOpen(true);
+                      }}
+                      modifiers={[buttonStyle('plain')]}
+                    >
                       <Text
                         modifiers={[
                           foregroundStyle(calendarOpen ? colors.accent : colors.text),
@@ -325,7 +358,10 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                         setDate(picked);
                         clearError('date');
                         // The month/year wheel changes the date too; only a tapped day closes
-                        if (isDayPick(date, picked)) setCalendarOpen(false);
+                        if (isDayPick(date, picked)) {
+                          setCalendarOpen(false);
+                          after(() => setTimeOpen(true));
+                        }
                       }}
                       modifiers={[
                         datePickerStyle('graphical'),
@@ -339,19 +375,52 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
               </LabeledContent>
               {errorText('date')}
 
-              <DatePicker
-                title="開始"
-                selection={timeToDate(time)}
-                displayedComponents={['hourAndMinute']}
-                modifiers={PICKER_LOOK}
-                onDateChange={(d) => {
-                  const value = dateToTime(d);
-                  setTime(value);
-                  clearError('time');
-                  // An end time now before the start has to be picked again
-                  if (isSpecial && validEndTime && endTimeInput < value) setEndTimeInput('');
-                }}
-              />
+              {/* A wheel in our own popover, so picking a date can open it */}
+              <LabeledContent label="開始">
+                <Popover isPresented={timeOpen} onIsPresentedChange={setTimeOpen}>
+                  <Popover.Trigger>
+                    <Button
+                      onPress={() => {
+                        cancelNext();
+                        setTimeOpen(true);
+                      }}
+                      modifiers={[buttonStyle('plain')]}
+                    >
+                      <Text
+                        modifiers={[
+                          foregroundStyle(timeOpen ? colors.accent : colors.text),
+                          padding({ horizontal: 11, vertical: 6 }),
+                          background(colors.surfaceRaised),
+                          cornerRadius(8),
+                        ]}
+                      >
+                        {time}
+                      </Text>
+                    </Button>
+                  </Popover.Trigger>
+                  <Popover.Content>
+                    <DatePicker
+                      title="開始"
+                      selection={timeToDate(time)}
+                      displayedComponents={['hourAndMinute']}
+                      onDateChange={(d) => {
+                        const value = dateToTime(d);
+                        setTime(value);
+                        clearError('time');
+                        // An end time now before the start has to be picked again
+                        if (isSpecial && validEndTime && endTimeInput < value) setEndTimeInput('');
+                      }}
+                      modifiers={[
+                        datePickerStyle('wheel'),
+                        labelsHidden(),
+                        frame({ width: 240 }),
+                        padding({ all: 8 }),
+                        ...TIME_PICKER_LOOK,
+                      ]}
+                    />
+                  </Popover.Content>
+                </Popover>
+              </LabeledContent>
               {errorText('time')}
 
               {isSpecial ? (
@@ -359,7 +428,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                   title="完結"
                   selection={timeToDate(endTimeInput || time)}
                   displayedComponents={['hourAndMinute']}
-                  modifiers={PICKER_LOOK}
+                  modifiers={TIME_PICKER_LOOK}
                   onDateChange={(d) => {
                     setEndTimeInput(dateToTime(d));
                     clearError('endTime');

@@ -16,8 +16,9 @@ import {
   undoPhoto,
 } from '@/hooks/useAppointments';
 import { syncUpcoming } from '@/hooks/useUpcomingSync';
-import { findCachedCustomer } from '@/hooks/useCustomers';
+import { findCachedCustomer, getCachedCustomers } from '@/hooks/useCustomers';
 import { defineWrite } from '@/hooks/writeQueue';
+import { withdrawWhatsAppConfirmation } from '@/hooks/whatsAppConfirmation';
 import {
   addAppointmentPhoto,
   createAppointment,
@@ -94,8 +95,13 @@ function reportFailure(action: string, apt: Appointment, e: unknown): void {
 /** How the booking will look once saved, built locally from the form's input. */
 function localAppointment(id: string, input: UpdateAppointmentInput, before?: Appointment) {
   const name = input.customerName.trim();
-  const phone =
-    before && before.customerName === name ? before.phone : findCachedCustomer({ name })?.phone;
+  // The customer list is current (a phone changed or the customer deleted since
+  // `before` was loaded); the booking's own copy only until the list has loaded
+  const phone = getCachedCustomers()
+    ? findCachedCustomer({ name })?.phone
+    : before && before.customerName === name
+      ? before.phone
+      : undefined;
   const isSpecial = input.service === '特別事項';
   return {
     ...before,
@@ -138,6 +144,7 @@ const sendSave = defineWrite<SavePayload>('saveAppointment', {
       } catch (e) {
         if (e instanceof AuthError) throw e;
         settleAppointment(id, { ...before, id });
+        withdrawWhatsAppConfirmation(local);
         reportFailure('儲存', local, e);
       }
       return;
@@ -156,6 +163,7 @@ const sendSave = defineWrite<SavePayload>('saveAppointment', {
       if (e instanceof AuthError) throw e;
       settleCreate(id, null);
       settleAppointment(id, null);
+      withdrawWhatsAppConfirmation(local);
       reportFailure('新增', local, e);
     }
   },

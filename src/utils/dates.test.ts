@@ -59,6 +59,13 @@ describe('isDayPick', () => {
     expect(isDayPick('2026-11-19', '2026-12-19')).toBe(false);
     expect(isDayPick('2026-11-19', '2027-11-19')).toBe(false);
   });
+  it('is the wheel when it clamps the 31st to a shorter month', () => {
+    expect(isDayPick('2026-01-31', '2026-02-28')).toBe(false);
+    expect(isDayPick('2028-01-31', '2028-02-29')).toBe(false);
+    expect(isDayPick('2026-03-31', '2026-04-30')).toBe(false);
+    // A tap on the last day from an earlier day number is still a tap
+    expect(isDayPick('2026-01-10', '2026-02-28')).toBe(true);
+  });
 });
 
 describe('studioTime', () => {

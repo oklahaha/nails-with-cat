@@ -35,7 +35,7 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function getCachedCustomers(): Customer[] | null {
+export function getCachedCustomers(): Customer[] | null {
   return cachedCustomers;
 }
 

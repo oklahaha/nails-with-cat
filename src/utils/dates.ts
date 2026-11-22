@@ -137,9 +137,22 @@ export function formatShortDate(iso: string): string {
 
 /**
  * Whether a change from the iOS calendar is a tapped day rather than its month/year wheel,
- * which keeps the day number. shortcut: tapping the same day number in another month, or a
- * wheel turn that clamps the 31st to a shorter month, guess wrong; fine for open/close.
+ * which keeps the day number, or clamps it to the end of a shorter month.
+ * shortcut: SwiftUI's calendar doesn't say which it was, so tapping the same day number in
+ * another month (or that month's last day, from a later day number) still reads as the
+ * wheel and leaves the calendar open; tap outside to close it.
  */
 export function isDayPick(prev: string, next: string): boolean {
-  return prev.slice(8) !== next.slice(8);
+  if (prev.slice(8) === next.slice(8)) return false;
+  const clamped =
+    prev.slice(0, 7) !== next.slice(0, 7) &&
+    next.slice(8) < prev.slice(8) &&
+    next.slice(8) === lastDayOfMonth(next);
+  return !clamped;
+}
+
+/** The month's last day as `DD`. */
+function lastDayOfMonth(iso: string): string {
+  const [y, m] = iso.split('-').map(Number);
+  return String(new Date(y, m, 0).getDate()).padStart(2, '0');
 }

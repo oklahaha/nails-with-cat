@@ -215,6 +215,8 @@ export default function AddAppointmentScreen() {
                 onChangeText={setNotes}
                 placeholder="輸入特別事項內容"
                 placeholderTextColor={colors.textTertiary}
+                // Mounts once 活動 is picked: go straight on to it
+                autoFocus={!editing}
                 multiline
                 textAlignVertical="top"
               />
@@ -253,6 +255,7 @@ export default function AddAppointmentScreen() {
                 }}
                 placeholder="輸入姓名搜尋或新增"
                 placeholderTextColor={colors.textTertiary}
+                autoFocus={!editing && !customerName}
                 autoCorrect={false}
                 returnKeyType="done"
               />

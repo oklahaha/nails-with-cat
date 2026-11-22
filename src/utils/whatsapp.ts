@@ -92,9 +92,13 @@ export function confirmationMessage(appointment: Appointment): string {
     .join('\n');
 }
 
-/** Whether to offer the confirmation message after saving: new customer bookings with a phone. */
+/** Whether to offer the confirmation message after saving: upcoming (預約) customer bookings with a phone. */
 export function canSendConfirmation(appointment: Appointment): boolean {
-  return appointment.service !== '特別事項' && Boolean(appointment.phone?.trim());
+  return (
+    appointment.service !== '特別事項' &&
+    appointment.status === '預約' &&
+    Boolean(appointment.phone?.trim())
+  );
 }
 
 /**

@@ -31,6 +31,12 @@ describe('canSendConfirmation', () => {
       false
     );
   });
+
+  it('skips visits already done or missed', () => {
+    for (const status of ['已完成', 'No show']) {
+      expect(canSendConfirmation(makeAppointment({ phone: '85291234567', status }))).toBe(false);
+    }
+  });
 });
 
 describe('reminderMessage', () => {

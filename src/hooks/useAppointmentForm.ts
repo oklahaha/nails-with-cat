@@ -275,8 +275,8 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
       const saved = saveAppointment(toInput(text, chosen), editing);
       if (!editing && !isSpecial) addPhotos(saved, 'reference', referenceDrafts.take());
       hapticSuccess();
-      // Once the form has closed, ask about a WhatsApp confirmation
-      if (!editing) offerWhatsAppConfirmation(saved);
+      // Once the form has closed, ask about a WhatsApp confirmation (edits too)
+      offerWhatsAppConfirmation(saved);
       onSaved(saved);
     };
 
