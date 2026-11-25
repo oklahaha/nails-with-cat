@@ -40,6 +40,7 @@ import {
   keyboardType,
   labelsHidden,
   multilineTextAlignment,
+  offset,
   padding,
   pickerStyle,
   scrollDismissesKeyboard,
@@ -63,6 +64,7 @@ import {
 import { colors } from '@/constants/theme';
 import { useAppointmentForm, type FormField } from '@/hooks/useAppointmentForm';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { SHAKE_STEP_MS, useShake } from '@/hooks/useShake';
 import { STATUS_OPTIONS, type Appointment, type ServiceType } from '@/types/appointment';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration, isDayPick, minutesToTime, todayIsoDate } from '@/utils/dates';
@@ -133,6 +135,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     endTimeError,
     clashes,
     errors,
+    failedSaves,
     clearError,
     submit,
   } = useAppointmentForm({
@@ -211,10 +214,11 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     />
   );
 
-  const errorText = (field: FormField) =>
-    errors[field] ? (
-      <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>{errors[field]}</Text>
-    ) : null;
+  // A component, so each shake step re-renders only the message, not the form
+  const errorMessage = (message?: string) => (
+    <ErrorMessage message={message} failedSaves={failedSaves} />
+  );
+  const errorText = (field: FormField) => errorMessage(errors[field]);
 
   // Under 參考作品: the price quoted for that design
   const quoteRow = (
@@ -482,11 +486,7 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
               ) : endTime ? (
                 <PlaceholderRow label="完結" text={`${endTime}（${formatDuration(duration ?? 0)}）`} />
               ) : null}
-              {endTimeError ? (
-                <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>
-                  {endTimeError}
-                </Text>
-              ) : null}
+              {errorMessage(endTimeError)}
 
               {clashes.length > 0 ? (
                 <VStack spacing={4} alignment="leading">
@@ -682,4 +682,21 @@ function defaultStartTime(): string {
   const now = new Date();
   const next = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30;
   return minutesToTime(Math.min(Math.max(next, 9 * 60), 20 * 60 + 30));
+}
+
+/** A form error that shakes on each failed save. */
+function ErrorMessage({ message, failedSaves }: { message?: string; failedSaves: number }) {
+  const shakeX = useShake(failedSaves, Boolean(message));
+  return message ? (
+    <Text
+      modifiers={[
+        font({ size: 13 }),
+        foregroundStyle(colors.danger),
+        offset({ x: shakeX }),
+        animation(Animation.linear({ duration: SHAKE_STEP_MS / 1000 }), shakeX),
+      ]}
+    >
+      {message}
+    </Text>
+  ) : null;
 }

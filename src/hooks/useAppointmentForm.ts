@@ -27,7 +27,7 @@ import {
 } from '@/constants/services';
 import { addPhotos, saveAppointment } from '@/hooks/appointmentWrites';
 import { useDraftPhotos } from '@/hooks/useAddPhotos';
-import { hapticSuccess } from '@/utils/haptics';
+import { hapticSuccess, hapticWarning } from '@/utils/haptics';
 import { useAppointments, useCustomerAppointments } from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
 import { offerWhatsAppConfirmation } from '@/hooks/whatsAppConfirmation';
@@ -93,6 +93,8 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const [priceEdited, setPriceEdited] = useState(false);
   const [status, setStatus] = useState(editing?.status ?? initial.status);
   const [errors, setErrors] = useState<FormErrors>({});
+  // Counts failed saves, so the screens can shake the error messages
+  const [failedSaves, setFailedSaves] = useState(0);
 
   // 參考作品 picked for a new booking; existing bookings add them in their details
   const referenceDrafts = useDraftPhotos('reference');
@@ -279,7 +281,11 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const submit = (text: FormText, onSaved: (saved: Appointment) => void) => {
     const found = validate(text);
     setErrors(found);
-    if (Object.keys(found).length > 0 || !service) return;
+    if (Object.keys(found).length > 0 || !service) {
+      hapticWarning();
+      setFailedSaves((n) => n + 1);
+      return;
+    }
     const chosen = service;
     const save = () => {
       const saved = saveAppointment(toInput(text, chosen), editing);
@@ -351,6 +357,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     dayBookings,
     otherBookings,
     errors,
+    failedSaves,
     clearError,
     submit,
   };

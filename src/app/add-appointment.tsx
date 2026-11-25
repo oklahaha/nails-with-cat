@@ -13,8 +13,9 @@
  * saveAppointment() shows it at once and sends it in the background.
  */
 import { router, useLocalSearchParams } from 'expo-router';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -41,6 +42,8 @@ import {
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
 import { useAppointmentForm } from '@/hooks/useAppointmentForm';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { SHAKE_STEP_MS, SHAKE_STEPS } from '@/hooks/useShake';
 import { findCachedAppointment } from '@/hooks/useAppointments';
 import { STATUS_OPTIONS } from '@/types/appointment';
 import { openPhotoViewer } from '@/utils/appointmentActions';
@@ -103,6 +106,7 @@ export default function AddAppointmentScreen() {
     dayBookings,
     otherBookings,
     errors,
+    failedSaves,
     clearError,
     submit,
   } = useAppointmentForm({
@@ -111,6 +115,7 @@ export default function AddAppointmentScreen() {
     initial: { customerName: params.customerName, date: params.date ?? '', time: '', status: '' },
     requireSpecialEndTime: true,
   });
+  const reduceMotion = useReduceMotion();
   // Suggestions show while typing and hide once one is picked
   const [suggesting, setSuggesting] = useState(false);
   const [price, setPrice] = useState(editing?.price != null ? String(editing.price) : '');
@@ -159,7 +164,7 @@ export default function AddAppointmentScreen() {
         }}
         invalid={Boolean(errors.date)}
       />
-      <FieldError message={errors.date} />
+      <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={errors.date} />
     </Section>
   );
 
@@ -185,7 +190,7 @@ export default function AddAppointmentScreen() {
       ) : (
         <Text style={styles.placeholderNote}>先選擇日期，再揀時段</Text>
       )}
-      <FieldError message={errors.time} />
+      <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={errors.time} />
     </Section>
   );
 
@@ -206,7 +211,7 @@ export default function AddAppointmentScreen() {
             onChange={handleServiceChange}
             invalid={Boolean(errors.service)}
           />
-          <FieldError message={errors.service} />
+          <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={errors.service} />
         </Section>
 
         {!service ? null : isSpecial ? (
@@ -242,7 +247,7 @@ export default function AddAppointmentScreen() {
               ) : (
                 <Text style={styles.placeholderNote}>先選擇開始時間，再揀完結時間</Text>
               )}
-              <FieldError message={endTimeError} />
+              <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={endTimeError} />
             </Section>
           </>
         ) : (
@@ -286,7 +291,7 @@ export default function AddAppointmentScreen() {
                   ))}
                 </View>
               ) : null}
-              <FieldError message={errors.customerName} />
+              <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={errors.customerName} />
             </Section>
 
             {dateSection}
@@ -328,7 +333,7 @@ export default function AddAppointmentScreen() {
                     accessibilityLabel="報價"
                   />
                 </View>
-                <FieldError message={errors.quote} />
+                <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={errors.quote} />
               </Section>
             )}
 
@@ -441,7 +446,7 @@ export default function AddAppointmentScreen() {
                   keyboardType="number-pad"
                 />
               </View>
-              <FieldError message={errors.price} />
+              <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={errors.price} />
               {topUpHint ? <Text style={styles.priceHint}>{topUpHint}</Text> : null}
 
               <TextInput
@@ -523,8 +528,46 @@ function Section({
   );
 }
 
-function FieldError({ message }: { message?: string }) {
-  return message ? <Text style={styles.error}>{message}</Text> : null;
+/** A form error that shakes on each failed save, on the native thread. */
+function FieldError({
+  message,
+  failedSaves,
+  reduceMotion,
+}: {
+  message?: string;
+  failedSaves: number;
+  // From the form: React Native Web mixes up several listeners' setters
+  reduceMotion: boolean;
+}) {
+  const [x] = useState(() => new Animated.Value(0));
+  // The last count seen, so turning Reduce Motion off doesn't replay an old shake
+  const shaken = useRef(failedSaves);
+  const hasMessage = Boolean(message);
+  useEffect(() => {
+    if (failedSaves === shaken.current) return;
+    shaken.current = failedSaves;
+    // Hidden errors don't animate: a native value with no view is never released
+    if (reduceMotion || !hasMessage) return;
+    const shake = Animated.sequence(
+      SHAKE_STEPS.map((toValue) =>
+        Animated.timing(x, {
+          toValue,
+          duration: SHAKE_STEP_MS,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+      ),
+    );
+    shake.start();
+    return () => {
+      shake.stop();
+      x.setValue(0);
+    };
+  }, [failedSaves, reduceMotion, hasMessage, x]);
+  return message ? (
+    <Animated.Text style={[styles.error, { transform: [{ translateX: x }] }]}>
+      {message}
+    </Animated.Text>
+  ) : null;
 }
 
 const styles = StyleSheet.create({
