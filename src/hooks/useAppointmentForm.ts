@@ -38,7 +38,7 @@ import { previousKeptDeposit } from '@/utils/keptDeposit';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 
-export type FormField = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price';
+export type FormField = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price' | 'quote';
 export type FormErrors = Partial<Record<FormField, string>>;
 
 /** The free-text fields, as the screen holds them. */
@@ -85,6 +85,10 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const setNailExtra = (key: NailExtra, on: boolean) => {
     setNailExtras((prev) => ({ ...prev, [key]: on }));
   };
+  // 報價 lives here rather than in the screens because 收費 follows it
+  const [quote, setQuote] = useState(editing?.quote != null ? String(editing.quote) : '');
+  const quoteValue =
+    usesNailExtras(service) && /^\d+$/.test(quote.trim()) ? Number(quote.trim()) : undefined;
   // Once 收費 is typed by hand, nothing else overwrites it
   const [priceEdited, setPriceEdited] = useState(false);
   const [status, setStatus] = useState(editing?.status ?? initial.status);
@@ -103,6 +107,8 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
 
   const isSpecial = service === SPECIAL;
   const showNailExtras = showsNailExtras(service, handOrFoot);
+  // Only 整甲 and 整甲 + 眼睫毛 take 參考作品 and 報價
+  const showReference = usesNailExtras(service);
   // Hidden add-ons are saved cleared, so a booking switched to 腳 drops them
   const appliedNailExtras = showNailExtras ? { complexDesign, ...nailExtras } : NO_NAIL_EXTRAS;
 
@@ -131,8 +137,9 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
         date
       )
     : undefined;
-  // Follows the service, 手/腳 and add-ons until 收費 is typed by hand
+  // Follows 報價, else the service, 手/腳 and add-ons, until 收費 is typed by hand
   const autoPrice =
+    quoteValue ??
     topUpPrice ??
     (service ? defaultPriceFor(service, { handOrFoot, ...appliedNailExtras }) : undefined);
   // Edits keep the sheet's 收費 until something the price depends on changes,
@@ -145,6 +152,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     appliedNailExtras.extension,
     isTopUp ? customerName.trim() : '',
     isTopUp ? date : '',
+    quoteValue ?? '',
   ].join('|');
   const [openedPriceKey] = useState(priceKey);
   const [keepSheetPrice, setKeepSheetPrice] = useState(editing != null);
@@ -228,8 +236,9 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
       } else if (endBeforeStart) {
         next.endTime = '完結時間不可早於開始時間';
       }
-    } else if (text.price.trim() && !/^\d+$/.test(text.price.trim())) {
-      next.price = '收費請只輸入數字';
+    } else {
+      if (text.price.trim() && !/^\d+$/.test(text.price.trim())) next.price = '收費請只輸入數字';
+      if (showReference && quote.trim() && quoteValue == null) next.quote = '報價請只輸入數字';
     }
     return next;
   };
@@ -255,6 +264,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
           durationMinutes: duration,
           handOrFoot: usesHandOrFoot(chosen) ? handOrFoot : undefined,
           price: text.price.trim() ? Number(text.price.trim()) : undefined,
+          quote: quoteValue,
           // Other services leave 訂金 and the add-ons untouched
           deposit: usesDeposit(chosen) ? deposit : undefined,
           ...(usesNailExtras(chosen) ? appliedNailExtras : {}),
@@ -273,7 +283,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     const chosen = service;
     const save = () => {
       const saved = saveAppointment(toInput(text, chosen), editing);
-      if (!editing && !isSpecial) addPhotos(saved, 'reference', referenceDrafts.take());
+      if (!editing && usesNailExtras(chosen)) addPhotos(saved, 'reference', referenceDrafts.take());
       hapticSuccess();
       // Once the form has closed, ask about a WhatsApp confirmation (edits too)
       offerWhatsAppConfirmation(saved);
@@ -322,6 +332,8 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     setNailExtra,
     status,
     setStatus,
+    quote,
+    setQuote,
     setPriceEdited,
     autoPrice,
     followAutoPrice,
@@ -329,6 +341,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     topUpHint,
     isSpecial,
     showNailExtras,
+    showReference,
     validTime,
     validEndTime,
     duration,

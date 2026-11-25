@@ -52,6 +52,8 @@ const COL = {
   duration: 'Duration',
   handOrFoot: '手/腳',
   price: '收費',
+  // The price quoted for the 參考作品; skipped when the sheet has no such column
+  quote: '報價',
   status: '狀態',
   endTime: 'End Time',
   // AppSheet column holding the 特別事項 text (same as 備注)
@@ -400,6 +402,8 @@ function toAppointment_(row, customers, tz) {
   if (handOrFoot) apt.handOrFoot = handOrFoot;
   const price = toNumber_(row.values[COL.price]);
   if (price != null) apt.price = price;
+  const quote = toNumber_(row.values[COL.quote]);
+  if (quote != null) apt.quote = quote;
   const complexDesign = cellText_(row, COL.complexDesign);
   if (complexDesign) apt.complexDesign = complexDesign;
   Object.keys(FLAG_COL).forEach(function (key) {
@@ -680,6 +684,7 @@ function parseAppointmentInput_(input) {
     notes: String(input.notes || '').trim(),
     durationMinutes: durationMinutes,
     price: toNumber_(input.price),
+    quote: toNumber_(input.quote),
     handOrFoot: String(input.handOrFoot || '').trim(),
     // AppSheet fills View with the customer's name on every booking (and 備注
     // on 特別事項, which the app sends), so rows written here match
@@ -749,6 +754,7 @@ function appointmentResponse_(id, a, status, customer) {
   if (a.durationMinutes != null) out.durationMinutes = a.durationMinutes;
   if (a.handOrFoot) out.handOrFoot = a.handOrFoot;
   if (a.price != null) out.price = a.price;
+  if (a.quote != null) out.quote = a.quote;
   if (a.complexDesign != null) out.complexDesign = a.complexDesign;
   if (a.keepDeposit) out.keepDeposit = true;
   Object.keys(a.flags).forEach(function (key) {
@@ -811,6 +817,7 @@ function createAppointment_(input, requestedId) {
       a.durationMinutes != null ? durationCellValue_(recent, a.durationMinutes) : '';
     cells[COL.handOrFoot] = plainText_(a.handOrFoot);
     cells[COL.price] = a.price != null ? a.price : '';
+    cells[COL.quote] = a.quote != null ? a.quote : '';
     cells[COL.status] = plainText_(status);
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     putOptionalCells_(cells, headers, a);
@@ -878,6 +885,7 @@ function updateAppointment_(id, input) {
         : '';
     cells[COL.handOrFoot] = plainText_(a.handOrFoot);
     cells[COL.price] = a.price != null ? a.price : '';
+    cells[COL.quote] = a.quote != null ? a.quote : '';
     if (hasStatus) cells[COL.status] = plainText_(status);
     cells[COL.endTime] = a.endTime ? a.endTime + ':00' : '';
     putOptionalCells_(cells, headers, a, cellText_(current, COL.depositHandling));

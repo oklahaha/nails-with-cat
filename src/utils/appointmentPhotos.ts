@@ -4,6 +4,7 @@
  * booking has started). Each photo is known by its Drive path, the sheet's
  * value, which the app picks so it can be shown before it's uploaded.
  */
+import { usesNailExtras } from '@/constants/services';
 import { NO_SHOW, type Appointment } from '@/types/appointment';
 import { toIsoDate } from '@/utils/dates';
 import { randomId } from '@/utils/randomId';
@@ -42,9 +43,13 @@ function isCustomerRow(apt: Appointment): boolean {
   return apt.service !== '特別事項' && apt.customerName.trim() !== '';
 }
 
-/** Whether a booking shows 參考作品: every customer booking can have them. */
+/**
+ * Whether a booking shows 參考作品: 整甲 and 整甲 + 眼睫毛 bookings, plus any
+ * other booking that already has some, so they stay viewable.
+ */
 export function showsReferencePhotos(apt: Appointment): boolean {
-  return isCustomerRow(apt);
+  if (photosOf(apt, 'reference').length > 0) return true;
+  return isCustomerRow(apt) && usesNailExtras(apt.service);
 }
 
 /**

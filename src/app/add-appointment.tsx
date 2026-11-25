@@ -86,12 +86,15 @@ export default function AddAppointmentScreen() {
     setNailExtra,
     status,
     setStatus,
+    quote,
+    setQuote,
     setPriceEdited,
     autoPrice,
     followAutoPrice,
     topUpHint,
     isSpecial,
     showNailExtras,
+    showReference,
     validTime,
     validEndTime,
     duration,
@@ -291,23 +294,41 @@ export default function AddAppointmentScreen() {
 
             {/* Before 手/腳 and 收費: they're usually decided from this photo.
                 An existing booking adds photos in its details instead. */}
-            {editing ? null : (
+            {!showReference ? null : (
               <Section title="參考作品">
-                <PhotoStrip
-                  kind="reference"
-                  paths={referenceDrafts.paths}
-                  adding={referenceDrafts.adding}
-                  canAdd={referenceDrafts.canAdd}
-                  onAdd={(source) => void referenceDrafts.add(source)}
-                  onOpen={(path) =>
-                    openPhotoViewer({
-                      kind: 'reference',
-                      start: path,
-                      paths: referenceDrafts.paths,
-                    })
-                  }
-                  onRemove={referenceDrafts.remove}
-                />
+                {editing ? null : (
+                  <PhotoStrip
+                    kind="reference"
+                    paths={referenceDrafts.paths}
+                    adding={referenceDrafts.adding}
+                    canAdd={referenceDrafts.canAdd}
+                    onAdd={(source) => void referenceDrafts.add(source)}
+                    onOpen={(path) =>
+                      openPhotoViewer({
+                        kind: 'reference',
+                        start: path,
+                        paths: referenceDrafts.paths,
+                      })
+                    }
+                    onRemove={referenceDrafts.remove}
+                  />
+                )}
+                <View style={[styles.priceField, errors.quote && styles.inputInvalid]}>
+                  <Text style={styles.pricePrefix}>報價 $</Text>
+                  <TextInput
+                    style={styles.priceInput}
+                    value={quote}
+                    onChangeText={(text) => {
+                      setQuote(text);
+                      clearError('quote');
+                    }}
+                    placeholder="可選填"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="number-pad"
+                    accessibilityLabel="報價"
+                  />
+                </View>
+                <FieldError message={errors.quote} />
               </Section>
             )}
 

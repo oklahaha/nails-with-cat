@@ -199,6 +199,7 @@ export default function AppointmentDetailsScreen() {
                 <Row label="已付訂金" value={appointment.deposit ? '是' : '否'} />
               ) : null}
               {appointment.keepDeposit ? <Row label="保留訂金" value="是（下次預約用）" /> : null}
+              {appointment.quote != null ? <Row label="報價" value={`$${appointment.quote}`} /> : null}
               <Row label="收費" value={appointment.price != null ? `$${appointment.price}` : ''} />
             </Section>
 

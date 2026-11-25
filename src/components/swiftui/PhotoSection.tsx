@@ -31,6 +31,8 @@ import {
   shapes,
 } from '@expo/ui/swift-ui/modifiers';
 
+import type { ReactNode } from 'react';
+
 import { colors } from '@/constants/theme';
 import { addPhotos } from '@/hooks/appointmentWrites';
 import { useAddPhotos } from '@/hooks/useAddPhotos';
@@ -57,6 +59,8 @@ type Props = {
   onOpen: (path: string) => void;
   /** Adds a ✕ to each thumbnail; left out where the viewer removes them. */
   onRemove?: (path: string) => void;
+  /** Extra rows under the photos, e.g. the form's 報價. */
+  children?: ReactNode;
 };
 
 export function PhotoSection({
@@ -69,6 +73,7 @@ export function PhotoSection({
   onAdd,
   onOpen,
   onRemove,
+  children,
 }: Props) {
   const { title } = PHOTO_KINDS[kind];
   const sources = (
@@ -141,6 +146,7 @@ export function PhotoSection({
           </HStack>
         </ScrollView>
       )}
+      {children}
     </Section>
   );
 }

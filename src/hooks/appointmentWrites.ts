@@ -277,6 +277,7 @@ function inputAsIs(apt: Appointment): UpdateAppointmentInput {
     durationMinutes: apt.durationMinutes,
     handOrFoot: apt.handOrFoot as UpdateAppointmentInput['handOrFoot'],
     price: apt.price,
+    quote: apt.quote,
     deposit: apt.deposit,
     complexDesign: apt.complexDesign as UpdateAppointmentInput['complexDesign'],
     removal: apt.removal,

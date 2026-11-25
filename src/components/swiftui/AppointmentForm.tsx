@@ -119,12 +119,14 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     setNailExtra,
     status,
     setStatus,
+    setQuote,
     setPriceEdited,
     autoPrice,
     followAutoPrice,
     topUpHint,
     isSpecial,
     showNailExtras,
+    showReference,
     validEndTime,
     duration,
     endTime,
@@ -167,6 +169,8 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   useEffect(() => {
     if (autoPrice != null && followAutoPrice) priceTextState.set(String(autoPrice));
   }, [autoPrice, followAutoPrice, priceTextState]);
+
+  const quoteText = useNativeState(editing?.quote != null ? String(editing.quote) : '');
 
   const reduceMotion = useReduceMotion();
   // Changes whenever the form gains or loses rows, which then slide rather than jump
@@ -211,6 +215,31 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     errors[field] ? (
       <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.danger)]}>{errors[field]}</Text>
     ) : null;
+
+  // Under 參考作品: the price quoted for that design
+  const quoteRow = (
+    <>
+      <LabeledContent label="報價">
+        <HStack spacing={4}>
+          <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>$</Text>
+          <TextField
+            placeholder="選填"
+            text={quoteText}
+            onTextChange={(text) => {
+              setQuote(text);
+              clearError('quote');
+            }}
+            modifiers={[
+              keyboardType('ascii-capable-number-pad'),
+              multilineTextAlignment('trailing'),
+              frame({ width: 100 }),
+            ]}
+          />
+        </HStack>
+      </LabeledContent>
+      {errorText('quote')}
+    </>
+  );
 
   return (
     <SwiftModal
@@ -486,7 +515,9 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
               <>
                 {/* Before 詳情: 複雜款 and 收費 are usually decided from this photo.
                     An existing booking adds photos in its details instead. */}
-                {editing ? null : (
+                {!showReference ? null : editing ? (
+                  <Section title="參考作品">{quoteRow}</Section>
+                ) : (
                   <PhotoSection
                     kind="reference"
                     paths={referenceDrafts.paths}
@@ -502,7 +533,9 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                       })
                     }
                     onRemove={referenceDrafts.remove}
-                  />
+                  >
+                    {quoteRow}
+                  </PhotoSection>
                 )}
 
                 <Section

@@ -52,8 +52,11 @@ describe('showsFinishedPhotos', () => {
 });
 
 describe('showsReferencePhotos', () => {
-  it('is for customer bookings only', () => {
+  it('is for 整甲 and 整甲 + 眼睫毛 customer bookings, or any that already have some', () => {
     expect(showsReferencePhotos(makeAppointment())).toBe(true);
+    expect(showsReferencePhotos(makeAppointment({ service: '整甲 + 眼睫毛' }))).toBe(true);
+    expect(showsReferencePhotos(makeAppointment({ service: '眼睫毛' }))).toBe(false);
+    expect(showsReferencePhotos(makeAppointment({ service: '眼睫毛', referencePhotos: ['p1'] }))).toBe(true);
     expect(showsReferencePhotos(makeAppointment({ service: '特別事項', customerName: '' }))).toBe(false);
   });
 });

@@ -108,6 +108,7 @@ export default function AppointmentDetailsScreen() {
           ? [{ label: '訂金', value: appointment.deposit ? '已付' : '未付' }]
           : []),
         ...(appointment.keepDeposit ? [{ label: '保留訂金', value: '是（下次預約用）' }] : []),
+        ...(appointment.quote != null ? [{ label: '報價', value: `$${appointment.quote}` }] : []),
         { label: '收費', value: appointment.price != null ? `$${appointment.price}` : undefined },
         { label: '備注', value: appointment.notes },
         { label: '狀態', value: appointment.status },
