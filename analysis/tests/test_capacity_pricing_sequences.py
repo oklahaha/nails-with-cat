@@ -35,6 +35,11 @@ def test_list_price_follows_the_app_rules():
     assert PR.list_price(v).tolist() == [378, 298, 646, 428, 0, 214, 428, 30]
 
 
+def test_list_price_charges_50_for_a_few_nails_extended():
+    v = pd.DataFrame([_visit("整甲", "2026-12-01", extension=True)]).assign(extension_level=["幾隻"])
+    assert PR.list_price(v).tolist() == [268]  # 218 + 50
+
+
 def test_apriori_and_rules_on_the_textbook_example():
     # Tan et al. Ch6 market baskets
     items = ["Bread", "Milk", "Diaper", "Beer", "Eggs", "Coke"]

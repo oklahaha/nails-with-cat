@@ -31,6 +31,7 @@ def test_service_columns():
 def test_default_duration_follows_the_app_rules():
     assert default_duration("整甲", "手") == 120
     assert default_duration("整甲", "手", "一個鐘", removal=True, extension=True) == 120 + 60 + 30 + 60
+    assert default_duration("整甲", "手", extension="幾隻") == 120 + 30
     # 腳 bookings don't take the add-ons
     assert default_duration("整甲", "腳", "一個鐘", removal=True) == 60
     assert default_duration("整甲 + 眼睫毛", "手 + 腳") == 180 + 120

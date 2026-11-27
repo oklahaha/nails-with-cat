@@ -17,6 +17,7 @@ from analysis.clean import (
     ROLE_UPCOMING,
     ROLE_VISIT,
     build_frames,
+    cell_extension,
     cell_flag,
     cell_number,
     cell_text,
@@ -81,6 +82,13 @@ def test_cell_number_and_flag():
     assert cell_flag(True) is True
     assert cell_flag("FALSE") is False
     assert cell_flag("") is None
+
+
+def test_cell_extension_reads_text_and_old_flags():
+    assert cell_extension("幾隻") == "幾隻"
+    assert cell_extension(True) == "全手"
+    assert cell_extension("FALSE") == "不延長"
+    assert cell_extension("") is None
 
 
 # --- tables -----------------------------------------------------------------

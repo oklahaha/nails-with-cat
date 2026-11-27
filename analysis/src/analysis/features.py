@@ -50,6 +50,8 @@ DEFAULT_DURATION = {
 }
 NAIL_HAND_FOOT_DURATION = {"手": 120, "腳": 60, "手 + 腳": 180}
 COMPLEX_DESIGN_MINUTES = {"半個鐘": 30, "一個鐘": 60}
+# 延長 by level; True is an older row's TRUE (全手)
+EXTENSION_MINUTES = {"幾隻": 30, "全手": 60, True: 60}
 
 
 def service_kind(service: str) -> str:
@@ -72,7 +74,7 @@ def add_service_columns(visits: pd.DataFrame) -> pd.DataFrame:
 
 
 def default_duration(service: str, hand_foot: str = "", complex_design: str = "",
-                     removal: bool | None = None, extension: bool | None = None) -> float:
+                     removal: bool | None = None, extension: bool | str | None = None) -> float:
     """The app's rule for a booking's full length (defaultDurationFor in services.ts).
 
     腳 bookings don't take the 整甲 add-ons. Unknown services give NaN.
@@ -87,14 +89,14 @@ def default_duration(service: str, hand_foot: str = "", complex_design: str = ""
     if hand_foot != "腳":
         minutes += COMPLEX_DESIGN_MINUTES.get(complex_design, 0)
         minutes += 30 if removal else 0
-        minutes += 60 if extension else 0
+        minutes += EXTENSION_MINUTES.get(extension, 0)
     return float(minutes)
 
 
 def best_duration(appointments: pd.DataFrame) -> pd.Series:
     """Minutes per booking: the row's Duration where the app wrote it, else the service default."""
     defaults = appointments.apply(
-        lambda r: default_duration(r["service"], r["hand_foot"], r["complex_design"], r["removal"], r["extension"]),
+        lambda r: default_duration(r["service"], r["hand_foot"], r["complex_design"], r["removal"], r["extension_level"]),
         axis=1,
     )
     return appointments["duration_min"].where(appointments["duration_reliable"], defaults)

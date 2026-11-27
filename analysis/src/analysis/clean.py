@@ -169,6 +169,15 @@ def cell_flag(value: Any) -> bool | None:
     return None
 
 
+def cell_extension(value: Any) -> str | None:
+    """延長 as 不延長 / 幾隻 / 全手: the app writes the text; older rows are TRUE (全手) / FALSE."""
+    text = cell_text(value)
+    if text in ("不延長", "幾隻", "全手"):
+        return text
+    flag = cell_flag(value)
+    return None if flag is None else ("全手" if flag else "不延長")
+
+
 # ---------------------------------------------------------------------------
 # Tables
 # ---------------------------------------------------------------------------
@@ -232,8 +241,11 @@ def clean_appointments(rows: list[list[Any]]) -> pd.DataFrame:
     df["price_was_text"] = raw["price_raw"].map(
         lambda v: isinstance(v, str) and v.strip() != "" and np.isnan(cell_number(v))
     )
-    for col in ["deposit", "removal", "extension"]:
+    for col in ["deposit", "removal"]:
         df[col] = raw[f"{col}_raw"].map(cell_flag)
+    # extension: any 延長 (blank → None, like the flags); extension_level: how much
+    df["extension_level"] = raw["extension_raw"].map(cell_extension)
+    df["extension"] = df["extension_level"].map(lambda level: None if level is None else level != "不延長")
     df["keep_deposit"] = raw["deposit_handling"].map(cell_text) == KEEP_DEPOSIT
 
     df["start"] = df["date"] + pd.to_timedelta(df["start_minute"], unit="min")

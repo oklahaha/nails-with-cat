@@ -26,7 +26,7 @@ BASE_PRICE = {"整甲": 218, "眼睫毛": 428, "整甲 + 眼睫毛": 646, "補�
               "補眼睫毛": 428, "拆眼睫毛": 100, "粉嫩術": 2000}
 NAIL_HAND_FOOT_PRICE = {"手": 218, "腳": 298, "手 + 腳": 516}
 COMPLEX_PRICE = {"半個鐘": 60, "一個鐘": 120}
-EXTENSION_PRICE = 100
+EXTENSION_PRICE = {"幾隻": 50, "全手": 100}
 REMOVAL_PRICE = 0
 # src/utils/topUpPrice.ts: (full sets it tops up, [(within days, price)], full price)
 TOP_UP_TIERS = {
@@ -45,7 +45,8 @@ def list_price(visits: pd.DataFrame) -> pd.Series:
     nail_base = hand_foot.map(NAIL_HAND_FOOT_PRICE) + np.where(v["service"] == "整甲 + 眼睫毛", BASE_PRICE["眼睫毛"], 0)
     price = price.where(~nails, nail_base)
     extras = (v["complex_design"].map(COMPLEX_PRICE).fillna(0)
-              + v["extension"].fillna(False).astype(bool) * EXTENSION_PRICE
+              # extension_level from clean.py; frames with only the flag count it as 全手
+              + v.get("extension_level", v["extension"].map({True: "全手"})).map(EXTENSION_PRICE).fillna(0)
               + v["removal"].fillna(False).astype(bool) * REMOVAL_PRICE)
     price = price + np.where(nails & (hand_foot != "腳"), extras, 0)
 
