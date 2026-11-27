@@ -11,6 +11,7 @@
  */
 
 import { getSession, signOut, type Session } from '@/auth/session';
+import { toExtension } from '@/constants/services';
 import { mockCustomerAnalytics } from '@/data/mockCustomerAnalytics';
 import { MOCK_APPOINTMENTS } from '@/data/mockAppointments';
 import type {
@@ -23,6 +24,51 @@ import type { CustomerAnalytics } from '@/types/customerAnalytics';
 import type { PhotoKind, PhotoSize } from '@/utils/appointmentPhotos';
 import { todayIsoDate } from '@/utils/dates';
 import { sheetPhone } from '@/utils/phone';
+
+/**
+ * The booking and photo write format; must match WRITE_FORMAT in Code.gs,
+ * which refuses writes in another one.
+ */
+const WRITE_FORMAT = 2;
+let writeFormatChecked: Promise<void> | null = null;
+
+/**
+ * Before the first booking or photo write of a launch, check the script
+ * writes this format: an older one would accept the write and drop what it
+ * doesn't know (報價 by photo, 延長's options).
+ */
+function ensureWriteFormat(): Promise<void> {
+  writeFormatChecked ??= (async () => {
+    const params = new URLSearchParams({ action: 'ping', token: apiToken() });
+    const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
+    const data = await parseResponse<{ writeFormat?: number }>(res);
+    if (data.writeFormat !== WRITE_FORMAT) throw new ScriptOutdatedError('Apps Script 需要更新');
+  })().catch((e: unknown) => {
+    // Checked again next time: offline, or the script updated meanwhile
+    writeFormatChecked = null;
+    throw e;
+  });
+  return writeFormatChecked;
+}
+
+/** A booking as the script sends it: 延長's option is in `extensionLevel`. */
+type ScriptAppointment = Omit<Appointment, 'extension'> & {
+  extension?: string | boolean;
+  extensionLevel?: string;
+  /** On an edit's answer: a resend already saved, answered with the row as it is now. */
+  repeated?: boolean;
+};
+
+/**
+ * The script keeps `extension` TRUE / FALSE for app versions from before 幾隻;
+ * a script from before then sends only that, read as 全手 / 不延長.
+ */
+function fromScript({ extensionLevel, repeated: _repeated, ...apt }: ScriptAppointment): Appointment {
+  return {
+    ...apt,
+    extension: extensionLevel ?? (apt.extension == null ? undefined : toExtension(apt.extension)),
+  };
+}
 
 const APPS_SCRIPT_WEB_APP_URL = process.env.EXPO_PUBLIC_APPS_SCRIPT_URL ?? '';
 function apiToken(): string {
@@ -119,8 +165,8 @@ export async function listAppointments(
   if (options.to) params.set('to', options.to);
 
   const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
-  const data = await parseResponse<{ appointments: Appointment[] }>(res);
-  return data.appointments;
+  const data = await parseResponse<{ appointments: ScriptAppointment[] }>(res);
+  return data.appointments.map(fromScript);
 }
 
 /**
@@ -141,8 +187,8 @@ export async function listCustomerAppointments(key: CustomerKey): Promise<Appoin
   if (key.id) params.set('id', key.id);
 
   const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
-  const data = await parseResponse<{ appointments: Appointment[] }>(res);
-  return data.appointments;
+  const data = await parseResponse<{ appointments: ScriptAppointment[] }>(res);
+  return data.appointments.map(fromScript);
 }
 
 /** Fetch every booking with 完成作品, any date, for the 作品 tab. */
@@ -157,8 +203,8 @@ export async function listFinishedPhotoAppointments(): Promise<Appointment[]> {
     token: apiToken(),
   });
   const res = await request(`${APPS_SCRIPT_WEB_APP_URL}?${params.toString()}`);
-  const data = await parseResponse<{ appointments: Appointment[] }>(res);
-  return data.appointments;
+  const data = await parseResponse<{ appointments: ScriptAppointment[] }>(res);
+  return data.appointments.map(fromScript);
 }
 
 /**
@@ -183,7 +229,6 @@ export async function createAppointment(
       durationMinutes: input.durationMinutes,
       handOrFoot: input.handOrFoot,
       price: input.price,
-      quote: input.quote,
       deposit: input.deposit,
       keepDeposit: input.keepDeposit,
       complexDesign: input.complexDesign,
@@ -196,6 +241,7 @@ export async function createAppointment(
     return created;
   }
 
+  await ensureWriteFormat();
   // text/plain avoids a CORS preflight on web, which Apps Script can't answer.
   const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
@@ -203,14 +249,15 @@ export async function createAppointment(
     body: JSON.stringify({
       token: apiToken(),
       action: 'createAppointment',
+      format: WRITE_FORMAT,
       pushToken: senderPushToken,
       id,
       appointment: input,
     }),
   });
-  const data = await parseResponse<{ appointment: Appointment }>(res);
+  const data = await parseResponse<{ appointment: ScriptAppointment }>(res);
   notifyChanged();
-  return data.appointment;
+  return fromScript(data.appointment);
 }
 
 /**
@@ -218,8 +265,10 @@ export async function createAppointment(
  */
 export async function updateAppointment(
   id: string,
-  input: UpdateAppointmentInput
-): Promise<Appointment> {
+  input: UpdateAppointmentInput,
+  /** The same for every send of one edit, so the script applies it once. */
+  writeId?: string
+): Promise<Appointment & { repeated?: boolean }> {
   if (isUsingMockApi) {
     await delay(300);
 
@@ -234,7 +283,6 @@ export async function updateAppointment(
       durationMinutes: input.durationMinutes,
       handOrFoot: input.handOrFoot,
       price: input.price,
-      quote: input.quote,
       deposit: input.deposit,
       keepDeposit: input.keepDeposit,
       complexDesign: input.complexDesign,
@@ -247,20 +295,23 @@ export async function updateAppointment(
     return updated;
   }
 
+  await ensureWriteFormat();
   const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       token: apiToken(),
       action: 'updateAppointment',
+      format: WRITE_FORMAT,
       pushToken: senderPushToken,
       id,
+      writeId,
       appointment: input,
     }),
   });
-  const data = await parseResponse<{ appointment: Appointment }>(res);
+  const data = await parseResponse<{ appointment: ScriptAppointment }>(res);
   notifyChanged();
-  return data.appointment;
+  return { ...fromScript(data.appointment), repeated: data.appointment.repeated === true };
 }
 
 /**
@@ -297,23 +348,28 @@ export async function addAppointmentPhoto(
   id: string,
   kind: PhotoKind,
   path: string,
-  base64: string
+  base64: string,
+  /** 報價 for a 參考作品, saved on its 相片 row */
+  price?: number | null
 ): Promise<void> {
   if (isUsingMockApi) {
     await delay(300);
     return;
   }
 
+  await ensureWriteFormat();
   const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       token: apiToken(),
       action: 'addAppointmentPhoto',
+      format: WRITE_FORMAT,
       id,
       kind,
       path,
       base64,
+      price,
     }),
   });
   await parseResponse<object>(res);
@@ -515,6 +571,12 @@ class ConnectionError extends Error {}
 
 /** Signed out, or the server refused the session; the outbox keeps the write for after sign-in. */
 export class AuthError extends Error {}
+
+/**
+ * The script is older than this app's write format. An AuthError, so writes
+ * wait in the outbox as for a lost session, sent at the next launch.
+ */
+export class ScriptOutdatedError extends AuthError {}
 
 /**
  * Worth sending again: no answer came back, or the script gave up waiting for

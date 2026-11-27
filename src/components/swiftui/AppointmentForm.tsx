@@ -25,6 +25,7 @@ import {
   VStack,
 } from '@expo/ui/swift-ui';
 import {
+  accessibilityLabel,
   animation,
   Animation,
   background,
@@ -56,6 +57,8 @@ import {
   usesHandOrFoot,
   HAND_OR_FOOT_OPTIONS,
   COMPLEX_DESIGN_OPTIONS,
+  EXTENSION_OPTIONS,
+  toExtension,
   NAIL_EXTRAS,
   SERVICES,
   serviceColor,
@@ -69,11 +72,12 @@ import { STATUS_OPTIONS, type Appointment, type ServiceType } from '@/types/appo
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration, isDayPick, minutesToTime, todayIsoDate } from '@/utils/dates';
 import { formatPhone } from '@/utils/phone';
+import { quoteLabel } from '@/utils/quotes';
 
 import { openPhotoViewer } from '@/utils/appointmentActions';
 
 import { dateToIso, dateToTime, isoToDate, timeToDate } from './dateIso';
-import { PhotoSection } from './PhotoSection';
+import { PhotoSection, THUMB } from './PhotoSection';
 import { SwiftModal } from './SwiftModal';
 
 /** Same styling as @expo/ui's DateTimePicker drop-in: accent tint, Chinese month/weekday names. */
@@ -113,15 +117,19 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     setHandOrFoot,
     deposit,
     setDeposit,
-    referenceDrafts,
+    referencePhotos,
     keptDepositHint,
     complexDesign,
     setComplexDesign,
+    extension,
+    setExtension,
     nailExtras,
     setNailExtra,
     status,
     setStatus,
-    setQuote,
+    quotes,
+    liveQuotes,
+    setQuoteFor,
     setPriceEdited,
     autoPrice,
     followAutoPrice,
@@ -173,8 +181,6 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
     if (autoPrice != null && followAutoPrice) priceTextState.set(String(autoPrice));
   }, [autoPrice, followAutoPrice, priceTextState]);
 
-  const quoteText = useNativeState(editing?.quote != null ? String(editing.quote) : '');
-
   const reduceMotion = useReduceMotion();
   // Changes whenever the form gains or loses rows, which then slide rather than jump
   const rowLayout =
@@ -220,29 +226,18 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
   );
   const errorText = (field: FormField) => errorMessage(errors[field]);
 
-  // Under 參考作品: the price quoted for that design
-  const quoteRow = (
-    <>
-      <LabeledContent label="報價">
-        <HStack spacing={4}>
-          <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>$</Text>
-          <TextField
-            placeholder="選填"
-            text={quoteText}
-            onTextChange={(text) => {
-              setQuote(text);
-              clearError('quote');
-            }}
-            modifiers={[
-              keyboardType('ascii-capable-number-pad'),
-              multilineTextAlignment('trailing'),
-              frame({ width: 100 }),
-            ]}
-          />
-        </HStack>
-      </LabeledContent>
-      {errorText('quote')}
-    </>
+  // Each photo's 報價 sits right under it, so there's no counting which is which
+  const quoteBelow = (path: string, i: number) => (
+    <QuoteField
+      // Native state reads `initial` once: a reload's new 報價 remounts it (with any typed text kept)
+      key={`${path}:${liveQuotes[path] ?? ''}`}
+      label={quoteLabel(i)}
+      initial={quotes[path] ?? ''}
+      onChange={(text) => {
+        setQuoteFor(path, text);
+        clearError('quote');
+      }}
+    />
   );
 
   return (
@@ -513,28 +508,33 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
 
             {isSpecial ? null : (
               <>
-                {/* Before 詳情: 複雜款 and 收費 are usually decided from this photo.
-                    An existing booking adds photos in its details instead. */}
-                {!showReference ? null : editing ? (
-                  <Section title="參考作品">{quoteRow}</Section>
-                ) : (
+                {/* Before 詳情: 複雜款 and 收費 are usually decided from this photo */}
+                {!showReference ? null : (
                   <PhotoSection
                     kind="reference"
-                    paths={referenceDrafts.paths}
-                    hint="顧客 WhatsApp 傳來的款式相片，儲存預約後會上傳"
-                    adding={referenceDrafts.adding}
-                    canAdd={referenceDrafts.canAdd}
-                    onAdd={(source) => void referenceDrafts.add(source)}
+                    paths={referencePhotos.paths}
+                    hint={
+                      editing
+                        ? '加入的相片會即時上傳'
+                        : '顧客 WhatsApp 傳來的款式相片，儲存預約後會上傳'
+                    }
+                    pending={referencePhotos.pending}
+                    adding={referencePhotos.adding}
+                    canAdd={referencePhotos.canAdd}
+                    onAdd={(source) => void referencePhotos.add(source)}
                     onOpen={(path) =>
                       openPhotoViewer({
                         kind: 'reference',
                         start: path,
-                        paths: referenceDrafts.paths,
+                        paths: referencePhotos.paths,
+                        // A saved booking's photos are removed in the viewer, after a confirm
+                        appointmentId: referencePhotos.appointmentId,
                       })
                     }
-                    onRemove={referenceDrafts.remove}
+                    onRemove={referencePhotos.remove}
+                    below={quoteBelow}
                   >
-                    {quoteRow}
+                    {errorText('quote')}
                   </PhotoSection>
                 )}
 
@@ -575,6 +575,25 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
                         modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 240 })]}
                       >
                         {COMPLEX_DESIGN_OPTIONS.map((option) => (
+                          <Text key={option} modifiers={[tag(option)]}>
+                            {option}
+                          </Text>
+                        ))}
+                      </Picker>
+                    </LabeledContent>
+                  ) : null}
+                  {showNailExtras ? (
+                    // 幾隻 adds 30 min / $50, 全手 1 h / $100 (services.ts)
+                    <LabeledContent label="延長">
+                      <Picker
+                        label="延長"
+                        selection={extension}
+                        onSelectionChange={(value) => {
+                          if (typeof value === 'string') setExtension(toExtension(value));
+                        }}
+                        modifiers={[pickerStyle('segmented'), labelsHidden(), frame({ width: 240 })]}
+                      >
+                        {EXTENSION_OPTIONS.map((option) => (
                           <Text key={option} modifiers={[tag(option)]}>
                             {option}
                           </Text>
@@ -682,6 +701,38 @@ function defaultStartTime(): string {
   const now = new Date();
   const next = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30;
   return minutesToTime(Math.min(Math.max(next, 9 * 60), 20 * 60 + 30));
+}
+
+/** A photo's 報價, under its thumbnail; its text lives in native state, sent up as typed. */
+function QuoteField({
+  label,
+  initial,
+  onChange,
+}: {
+  label: string;
+  initial: string;
+  onChange: (text: string) => void;
+}) {
+  const text = useNativeState(initial);
+  return (
+    <HStack
+      spacing={2}
+      modifiers={[
+        padding({ horizontal: 8, vertical: 6 }),
+        frame({ width: THUMB }),
+        background(colors.surfaceRaised),
+        cornerRadius(8),
+      ]}
+    >
+      <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>$</Text>
+      <TextField
+        placeholder="報價"
+        text={text}
+        onTextChange={onChange}
+        modifiers={[keyboardType('ascii-capable-number-pad'), accessibilityLabel(label)]}
+      />
+    </HStack>
+  );
 }
 
 /** A form error that shakes on each failed save. */

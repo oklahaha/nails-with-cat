@@ -43,7 +43,7 @@ import type { Appointment } from '@/types/appointment';
 import { openPhotoViewer } from '@/utils/appointmentActions';
 import { PHOTO_KINDS, photosOf, type PhotoKind } from '@/utils/appointmentPhotos';
 
-const THUMB = 84;
+export const THUMB = 84;
 const CORNER = 10;
 
 type Props = {
@@ -59,7 +59,9 @@ type Props = {
   onOpen: (path: string) => void;
   /** Adds a ✕ to each thumbnail; left out where the viewer removes them. */
   onRemove?: (path: string) => void;
-  /** Extra rows under the photos, e.g. the form's 報價. */
+  /** Drawn under each thumbnail, e.g. its 報價. */
+  below?: (path: string, index: number) => ReactNode;
+  /** Extra rows under the photos, e.g. an error message. */
   children?: ReactNode;
 };
 
@@ -73,6 +75,7 @@ export function PhotoSection({
   onAdd,
   onOpen,
   onRemove,
+  below,
   children,
 }: Props) {
   const { title } = PHOTO_KINDS[kind];
@@ -109,16 +112,18 @@ export function PhotoSection({
         </Menu>
       ) : (
         <ScrollView axes="horizontal" showsIndicators={false}>
-          <HStack spacing={8}>
+          <HStack spacing={8} alignment="top">
             {paths.map((path, i) => (
-              <Thumbnail
-                key={path}
-                path={path}
-                label={`${title} ${i + 1}`}
-                uploading={pending?.has(path) ?? false}
-                onOpen={() => onOpen(path)}
-                onRemove={onRemove && (() => onRemove(path))}
-              />
+              <VStack key={path} spacing={6}>
+                <Thumbnail
+                  path={path}
+                  label={`${title} ${i + 1}`}
+                  uploading={pending?.has(path) ?? false}
+                  onOpen={() => onOpen(path)}
+                  onRemove={onRemove && (() => onRemove(path))}
+                />
+                {below?.(path, i)}
+              </VStack>
             ))}
             {canAdd ? (
               <Menu
@@ -216,10 +221,13 @@ export function BookingPhotoSection({
   appointment,
   kind,
   hint,
+  below,
 }: {
   appointment: Appointment;
   kind: PhotoKind;
   hint?: string;
+  /** Under each thumbnail; given the live booking, so it follows uploads and reloads. */
+  below?: (live: Appointment, path: string, index: number) => ReactNode;
 }) {
   const live = useLiveAppointment(appointment.id) ?? appointment;
   const paths = photosOf(live, kind);
@@ -240,6 +248,7 @@ export function BookingPhotoSection({
       onOpen={(path) =>
         openPhotoViewer({ kind, start: path, paths, appointmentId: appointment.id })
       }
+      below={below && ((path, i) => below(live, path, i))}
     />
   );
 }

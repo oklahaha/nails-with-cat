@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { defaultDurationFor, defaultPriceFor, type ServiceChoices } from './services';
 
-const none = { removal: false, extension: false, complexDesign: '不是複雜款' };
+const none = { removal: false, extension: '不延長', complexDesign: '不是複雜款' };
 
 describe('default Duration and 收費', () => {
   it.each<[string, ServiceChoices, number, number]>([
@@ -25,7 +25,8 @@ describe('default Duration and 收費', () => {
 
   it.each<[string, Partial<ServiceChoices>, number, number]>([
     ['拆甲', { removal: true }, 30, 0],
-    ['延長', { extension: true }, 60, 100],
+    ['延長 全手', { extension: '全手' }, 60, 100],
+    ['延長 幾隻', { extension: '幾隻' }, 30, 50],
     ['複雜款 半個鐘', { complexDesign: '半個鐘' }, 30, 60],
     ['複雜款 一個鐘', { complexDesign: '一個鐘' }, 60, 120],
   ])('%s adds its time and 收費 to 整甲 for 手', (_, extra, minutes, price) => {
@@ -35,7 +36,7 @@ describe('default Duration and 收費', () => {
   });
 
   it('adds every add-on together', () => {
-    const all = { handOrFoot: '手', removal: true, extension: true, complexDesign: '一個鐘' };
+    const all = { handOrFoot: '手', removal: true, extension: '全手', complexDesign: '一個鐘' };
     expect(defaultDurationFor('整甲', all)).toBe(120 + 30 + 60 + 60);
     expect(defaultPriceFor('整甲', all)).toBe(218 + 0 + 100 + 120);
   });

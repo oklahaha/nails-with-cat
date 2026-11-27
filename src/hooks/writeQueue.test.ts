@@ -9,7 +9,13 @@ jest.mock('@/utils/persistentStorage', () => ({
 
 // Defined outside the factory so every launch() sees the same class
 class MockAuthError extends Error {}
-jest.mock('@/services/appointmentsApi', () => ({ AuthError: MockAuthError }));
+class MockScriptOutdatedError extends MockAuthError {}
+jest.mock('@/services/appointmentsApi', () => ({
+  AuthError: MockAuthError,
+  ScriptOutdatedError: MockScriptOutdatedError,
+}));
+const mockAlert = jest.fn();
+jest.mock('@/utils/alert', () => ({ showAlert: (...args: unknown[]) => mockAlert(...args) }));
 
 type WriteQueue = typeof import('./writeQueue');
 
@@ -143,5 +149,20 @@ describe('write outbox', () => {
     resumeWrites();
     await settle();
     expect(outbox()).toEqual([]);
+  });
+
+  it('keeps writes for an outdated script in the outbox, sent at the next launch', async () => {
+    const { defineWrite } = launch();
+    const send = defineWrite<string>('save', {
+      run: async () => {
+        throw new MockScriptOutdatedError('Apps Script 需要更新');
+      },
+      restore: () => {},
+    });
+    send('a');
+    send('b');
+    await settle();
+    expect(outbox()).toHaveLength(2);
+    expect(mockAlert).toHaveBeenCalledTimes(1);
   });
 });

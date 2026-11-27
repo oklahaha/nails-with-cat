@@ -4,6 +4,7 @@
  * saved booking, where photos upload as soon as they're picked; the new-booking
  * form uses `PhotoStrip` directly, with drafts.
  */
+import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -27,7 +28,7 @@ import { showAlert } from '@/utils/alert';
 import { openPhotoViewer } from '@/utils/appointmentActions';
 import { PHOTO_KINDS, photosOf, type PhotoKind } from '@/utils/appointmentPhotos';
 
-const THUMB = 84;
+export const THUMB = 84;
 
 type Props = {
   kind: PhotoKind;
@@ -39,9 +40,21 @@ type Props = {
   onOpen: (path: string) => void;
   /** Adds a ✕ to each thumbnail; left out where the viewer removes them. */
   onRemove?: (path: string) => void;
+  /** Drawn under each thumbnail, e.g. its 報價. */
+  below?: (path: string, index: number) => ReactNode;
 };
 
-export function PhotoStrip({ kind, paths, pending, adding, canAdd, onAdd, onOpen, onRemove }: Props) {
+export function PhotoStrip({
+  kind,
+  paths,
+  pending,
+  adding,
+  canAdd,
+  onAdd,
+  onOpen,
+  onRemove,
+  below,
+}: Props) {
   const { title } = PHOTO_KINDS[kind];
 
   const chooseSource = () => {
@@ -78,14 +91,16 @@ export function PhotoStrip({ kind, paths, pending, adding, canAdd, onAdd, onOpen
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
       {paths.map((path, i) => (
-        <Thumbnail
-          key={path}
-          path={path}
-          label={`${title} ${i + 1}`}
-          uploading={pending?.has(path) ?? false}
-          onOpen={() => onOpen(path)}
-          onRemove={onRemove && (() => onRemove(path))}
-        />
+        <View key={path} style={styles.item}>
+          <Thumbnail
+            path={path}
+            label={`${title} ${i + 1}`}
+            uploading={pending?.has(path) ?? false}
+            onOpen={() => onOpen(path)}
+            onRemove={onRemove && (() => onRemove(path))}
+          />
+          {below?.(path, i)}
+        </View>
       ))}
       {canAdd ? (
         <Pressable
@@ -154,7 +169,16 @@ function Thumbnail({
 }
 
 /** A saved booking's titled photos: picked ones upload straight away, without 修改. */
-export function BookingPhotos({ appointment, kind }: { appointment: Appointment; kind: PhotoKind }) {
+export function BookingPhotos({
+  appointment,
+  kind,
+  below,
+}: {
+  appointment: Appointment;
+  kind: PhotoKind;
+  /** Under each thumbnail; given the live booking, so it follows uploads and reloads. */
+  below?: (live: Appointment, path: string, index: number) => ReactNode;
+}) {
   const live = useLiveAppointment(appointment.id) ?? appointment;
   const paths = photosOf(live, kind);
   const pending = usePendingPhotos();
@@ -173,6 +197,7 @@ export function BookingPhotos({ appointment, kind }: { appointment: Appointment;
         canAdd={canAdd}
         onAdd={(source) => void add(source)}
         onOpen={(path) => openPhotoViewer({ kind, start: path, paths, appointmentId: appointment.id })}
+        below={below && ((path, i) => below(live, path, i))}
       />
     </View>
   );
@@ -201,9 +226,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   strip: {
+    alignItems: 'flex-start',
     gap: spacing.sm,
     paddingTop: spacing.xs,
     paddingRight: spacing.xs,
+  },
+  item: {
+    width: THUMB,
+    gap: spacing.xs,
   },
   tile: {
     width: THUMB,

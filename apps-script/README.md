@@ -70,16 +70,17 @@ New customers can record how they found the studio (朋友介紹, Instagram, 小
 
 ## Photos (參考作品, 完成作品)
 
-The app uploads and shows booking photos through the script, which keeps them in the `參考作品_images` and `完成作品_images` folders beside the spreadsheet (found by name, and created if missing when uploading). `參考作品` and `完成作品` hold each photo's path, one per line. To turn it on:
+The app uploads and shows booking photos through the script, which keeps them in the `參考作品_images` and `完成作品_images` folders beside the spreadsheet (found by name, and created if missing when uploading). The `相片` tab holds one row per photo: `預約ID | Type | 相片路徑 | Price` (Type is `參考作品` or `完成作品`; Price is a 參考作品's 報價, or the booking's 收費 for a 完成作品). The script errors if the tab or a column is missing. To turn it on:
 
 1. Paste the new `Code.gs` and `appsscript.json` (it now asks for Google Drive access).
 2. Run `debugPhotoFolders` once from the editor, approve the new permission and check the log lists both folders.
-3. Redeploy as a new version (see "Updating the code").
-4. Before switching to the real sheet, add its `參考作品` column. Uploads there fail with a clear error until it exists.
+3. In the sheet `SPREADSHEET_ID` points at, add the `相片` tab with those four headers and move the photos into it, one row each. Do this **before** redeploying: the redeployed script reads photos only from `相片`, and every list (the calendar too) fails while the tab is missing.
+4. Run `fillFinishedPhotoPrices` once from the editor to copy each booking's 收費 into its 完成作品 rows (safe to run again).
+5. Redeploy as a new version (see "Updating the code"). Before switching to another sheet later, give it a `相片` tab the same way.
 
 The 作品 tab lists bookings through `listFinishedPhotoAppointments`, so it also needs the new `Code.gs` redeployed.
 
-The script can only read or trash files in those folders (and `預約資料_Images` paths, whose files moved to `完成作品_images`). Removing a photo in the app moves the file to Drive's trash. Deleting a booking leaves its photos in Drive.
+The script can only read or trash files in those folders (and `預約資料_Images` paths, whose files moved to `完成作品_images`). Removing a photo in the app moves the file to Drive's trash. Deleting a booking leaves its photos in Drive and its `相片` rows, which are kept to train a price model.
 
 ## Notes
 

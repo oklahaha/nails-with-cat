@@ -9,6 +9,7 @@
  * lists and reported with an alert.
  */
 import {
+  findCachedAppointment,
   setPendingAppointment,
   setPendingPhoto,
   settleAppointment,
@@ -36,8 +37,9 @@ import type {
   UpdateAppointmentInput,
 } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
-import type { PhotoKind } from '@/utils/appointmentPhotos';
+import { photosOf, type PhotoKind } from '@/utils/appointmentPhotos';
 import { appointmentTitle } from '@/utils/appointmentTitle';
+import { withQuotes } from '@/utils/quotes';
 import { minutesToTime, timeToMinutes } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
 import { randomId } from '@/utils/randomId';
@@ -103,9 +105,18 @@ function localAppointment(id: string, input: UpdateAppointmentInput, before?: Ap
       ? before.phone
       : undefined;
   const isSpecial = input.service === '特別事項';
+  const { quotesByPath, ...fields } = input;
+  // The booking as cached now: its photos may have changed since `before` was opened
+  const current = before && (findCachedAppointment(before.id) ?? before);
   return {
     ...before,
-    ...input,
+    ...fields,
+    // Paired with the photos they're by position for, as withPhotosOf expects
+    referencePhotos: current?.referencePhotos,
+    quotes:
+      current && quotesByPath
+        ? withQuotes(current.referencePhotos ?? [], current.quotes, quotesByPath)
+        : current?.quotes,
     id,
     customerName: name,
     notes: input.notes.trim(),
@@ -125,7 +136,34 @@ type SavePayload = {
   local: Appointment;
   /** The booking before an edit; absent for a new one. */
   before?: Appointment;
+  /** An edit's id, kept in the outbox, so a resend isn't applied twice. */
+  writeId?: string;
 };
+
+/**
+ * A save queued by an app from before 報價 by photo carries the booking's
+ * single `quote`, sent on every save (No show and 保留訂金 too): send it, by
+ * the photo it was for, only when it differs from the booking's `before`.
+ * (A cleared 報價 was left out, like an unchanged one, so it's not sent.)
+ */
+export function withoutLegacyQuote(
+  input: UpdateAppointmentInput,
+  before?: Appointment
+): UpdateAppointmentInput {
+  const { quote, ...rest } = input as UpdateAppointmentInput & { quote?: number };
+  const first = before?.referencePhotos?.[0];
+  const was = (before as (Appointment & { quote?: number }) | undefined)?.quote;
+  if (quote == null || quote === was || !first || rest.quotesByPath) return rest;
+  return { ...rest, quotesByPath: { [first]: quote } };
+}
+
+/** Send once more if the first try may not have arrived (offline, timed out, lock busy). */
+function retryOnce<T>(send: () => Promise<T>): Promise<T> {
+  return send().catch((e: unknown) => {
+    if (!isRetryable(e)) throw e;
+    return send();
+  });
+}
 
 /** Show the save at once, while it's sent. */
 function showSave({ id, local, before }: SavePayload): void {
@@ -135,12 +173,18 @@ function showSave({ id, local, before }: SavePayload): void {
 
 const sendSave = defineWrite<SavePayload>('saveAppointment', {
   restore: showSave,
-  run: async ({ id, input, local, before }) => {
+  run: async ({ id, input: queued, local, before, writeId }) => {
+    const input = withoutLegacyQuote(queued, before);
     if (before) {
       try {
         const realId = await sheetId(id);
-        const saved = await updateAppointment(realId, input);
-        settleAppointment(id, { ...local, ...saved, id: realId, phone: saved.phone || local.phone });
+        const { repeated, ...saved } = await retryOnce(() =>
+          updateAppointment(realId, input, writeId)
+        );
+        // A resend already saved answers with the sheet's row as it is now: take
+        // it whole, so fields cleared since (left out of it) stay cleared
+        const base = repeated ? {} : local;
+        settleAppointment(id, { ...base, ...saved, id: realId, phone: saved.phone || local.phone });
       } catch (e) {
         if (e instanceof AuthError) throw e;
         settleAppointment(id, { ...before, id });
@@ -152,10 +196,7 @@ const sendSave = defineWrite<SavePayload>('saveAppointment', {
     try {
       // A first try can fail after the row was written (e.g. timed out); a resend
       // with the same 預約ID then answers with that row instead of adding another
-      const saved = await createAppointment(input, id).catch((e: unknown) => {
-        if (!isRetryable(e)) throw e;
-        return createAppointment(input, id);
-      });
+      const saved = await retryOnce(() => createAppointment(input, id));
       if (saved.id !== id) realIds.set(id, saved.id);
       settleCreate(id, saved.id);
       settleAppointment(id, { ...local, ...saved, phone: saved.phone || local.phone });
@@ -187,14 +228,40 @@ const sendDelete = defineWrite<DeletePayload>('deleteAppointment', {
   },
 });
 
-type PhotoPayload = { apt: Appointment; kind: PhotoKind; path: string };
+type PhotoPayload = { apt: Appointment; kind: PhotoKind; path: string; price?: number | null };
+
+/** Bookings whose older-app 報價 has been given to one of their uploads this launch. */
+const legacyQuoteGiven = new Set<string>();
+
+/**
+ * An upload queued by an app from before 報價 by photo has no price, while
+ * its booking's single 報價 (`quote`) has nowhere else to go now: give it to
+ * the booking's first 參考作品, null to the rest (and to every upload when an
+ * earlier photo is already on the booking). Changes the payload, saved with the outbox.
+ */
+export function adoptLegacyQuote(payload: PhotoPayload): void {
+  const legacy = (payload.apt as Appointment & { quote?: number }).quote;
+  if (payload.price !== undefined || payload.kind !== 'reference' || legacy == null) return;
+  // The cache may not hold the booking yet at the first launch after an upgrade
+  const cached = findCachedAppointment(payload.apt.id);
+  const earlier = [...(cached ? photosOf(cached, 'reference') : []), ...photosOf(payload.apt, 'reference')]
+    .filter((p) => p !== payload.path);
+  payload.price = earlier.length === 0 && !legacyQuoteGiven.has(payload.apt.id) ? legacy : null;
+  legacyQuoteGiven.add(payload.apt.id);
+}
 
 const sendPhotoAdd = defineWrite<PhotoPayload>('addAppointmentPhoto', {
-  restore: ({ apt, kind, path }) => setPendingPhoto(apt.id, kind, path, 'add'),
-  run: async ({ apt, kind, path }) => {
+  restore: (payload) => {
+    adoptLegacyQuote(payload);
+    const { apt, kind, path, price } = payload;
+    setPendingPhoto(apt.id, kind, path, 'add', price);
+  },
+  run: async ({ apt, kind, path, price }) => {
     try {
       const realId = await sheetId(apt.id, true);
-      await addAppointmentPhoto(realId, kind, path, await readPendingPhoto(path));
+      // A new booking's 報價 has no other copy, so a dropped upload is tried again
+      const base64 = await readPendingPhoto(path);
+      await retryOnce(() => addAppointmentPhoto(realId, kind, path, base64, price));
       markPhotoUploaded(path);
       settlePhoto(path, 'add');
     } catch (e) {
@@ -207,7 +274,7 @@ const sendPhotoAdd = defineWrite<PhotoPayload>('addAppointmentPhoto', {
 });
 
 const sendPhotoRemove = defineWrite<PhotoPayload>('removeAppointmentPhoto', {
-  restore: ({ apt, kind, path }) => setPendingPhoto(apt.id, kind, path, 'remove'),
+  restore: ({ apt, kind, path }) => setPendingPhoto(apt.id, kind, path, 'remove', undefined, apt),
   run: async ({ apt, kind, path }) => {
     try {
       await removeAppointmentPhoto(await sheetId(apt.id, true), kind, path);
@@ -216,6 +283,8 @@ const sendPhotoRemove = defineWrite<PhotoPayload>('removeAppointmentPhoto', {
     } catch (e) {
       if (e instanceof AuthError) throw e;
       undoPhoto(path, 'remove');
+      // Back on the booking, so a form sends its 報價 again
+      removedHere.delete(path);
       if (e !== CREATE_FAILED) reportFailure('移除相片', apt, e);
     }
   },
@@ -226,16 +295,30 @@ const sendPhotoRemove = defineWrite<PhotoPayload>('removeAppointmentPhoto', {
  * save they show at once and upload in the background, behind the booking's
  * own create; a failed upload is undone and reported.
  */
-export function addPhotos(apt: Appointment, kind: PhotoKind, paths: string[]): void {
-  for (const path of paths) {
-    setPendingPhoto(apt.id, kind, path, 'add');
-    sendPhotoAdd({ apt, kind, path });
-  }
+/** `prices`: a new booking's 報價, one per path, uploaded with each photo. */
+export function addPhotos(
+  apt: Appointment,
+  kind: PhotoKind,
+  paths: string[],
+  prices: (number | null)[] = []
+): void {
+  paths.forEach((path, i) => {
+    setPendingPhoto(apt.id, kind, path, 'add', prices[i]);
+    sendPhotoAdd({ apt, kind, path, price: prices[i] ?? null });
+  });
+}
+
+/** Photos removed on this phone this launch, so a form drops their typed 報價. */
+const removedHere = new Set<string>();
+
+export function wasRemovedHere(path: string): boolean {
+  return removedHere.has(path);
 }
 
 /** Take a photo off a booking and move its file to Drive's trash, in the background. */
 export function removePhoto(apt: Appointment, kind: PhotoKind, path: string): void {
-  setPendingPhoto(apt.id, kind, path, 'remove');
+  removedHere.add(path);
+  setPendingPhoto(apt.id, kind, path, 'remove', undefined, apt);
   sendPhotoRemove({ apt, kind, path });
   hapticWarning();
 }
@@ -248,7 +331,13 @@ export function saveAppointment(input: UpdateAppointmentInput, before?: Appointm
   // A new booking's 預約ID is chosen here, not by Apps Script, so a create sent
   // twice (see writeQueue) finds the row it already made instead of adding another
   const id = before ? (realIds.get(before.id) ?? before.id) : randomId();
-  const payload = { id, input, local: localAppointment(id, input, before), before };
+  const payload = {
+    id,
+    input,
+    local: localAppointment(id, input, before),
+    before,
+    writeId: before ? randomId() : undefined,
+  };
   showSave(payload);
   sendSave(payload);
   return payload.local;
@@ -277,11 +366,11 @@ function inputAsIs(apt: Appointment): UpdateAppointmentInput {
     durationMinutes: apt.durationMinutes,
     handOrFoot: apt.handOrFoot as UpdateAppointmentInput['handOrFoot'],
     price: apt.price,
-    quote: apt.quote,
+    // No quotes: the script leaves the 相片 tab's prices alone
     deposit: apt.deposit,
     complexDesign: apt.complexDesign as UpdateAppointmentInput['complexDesign'],
     removal: apt.removal,
-    extension: apt.extension,
+    extension: apt.extension as UpdateAppointmentInput['extension'],
   };
 }
 

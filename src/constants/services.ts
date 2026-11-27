@@ -10,8 +10,8 @@
  *   saves it blank.
  * - hasDeposit → the form asks whether 訂金 was paid (TRUE / FALSE in the
  *   sheet's 訂金 column); every service but 特別事項. New bookings start on paid.
- * - hasNailExtras → the form asks for 複雜款 (COMPLEX_DESIGN_OPTIONS) and
- *   NAIL_EXTRAS (TRUE / FALSE columns).
+ * - hasNailExtras → the form asks for 複雜款 (COMPLEX_DESIGN_OPTIONS), 延長
+ *   (EXTENSION_OPTIONS) and NAIL_EXTRAS (TRUE / FALSE columns).
  * - color → calendar bar/block colour. The first five keep the AppSheet
  *   timetable's hues (toned down so white text reads on them); the rest
  *   weren't visible there, so they're picked to be distinct.
@@ -112,11 +112,19 @@ export function toComplexDesign(value: string | undefined): ComplexDesign {
   return COMPLEX_DESIGN_OPTIONS.find((option) => option === value) ?? COMPLEX_DESIGN_OPTIONS[0];
 }
 
+/** 延長 options, spelled as the app writes them; the first is the default. */
+export const EXTENSION_OPTIONS = ['不延長', '幾隻', '全手'] as const;
+
+export type Extension = (typeof EXTENSION_OPTIONS)[number];
+
+/** A sheet value as one of the options: older rows hold TRUE (全手) or FALSE. */
+export function toExtension(value: string | boolean | undefined): Extension {
+  if (value === true || value === 'TRUE') return '全手';
+  return EXTENSION_OPTIONS.find((option) => option === value) ?? EXTENSION_OPTIONS[0];
+}
+
 /** Other 整甲 add-ons, each a TRUE / FALSE column in the sheet named by its label. */
-export const NAIL_EXTRAS = [
-  { key: 'removal', label: '拆甲' },
-  { key: 'extension', label: '延長' },
-] as const;
+export const NAIL_EXTRAS = [{ key: 'removal', label: '拆甲' }] as const;
 
 export type NailExtra = (typeof NAIL_EXTRAS)[number]['key'];
 
@@ -126,33 +134,36 @@ export type NailExtras = Record<NailExtra, boolean>;
 export function nailExtrasOf(apt?: Partial<NailExtras>): NailExtras {
   return {
     removal: apt?.removal ?? false,
-    extension: apt?.extension ?? false,
   };
 }
 
 const UNKNOWN_SERVICE_COLOR = '#6E655F';
 
 /** The form's 手/腳 and 整甲 add-ons, which change the default Duration and 收費. */
-export type ServiceChoices = Partial<NailExtras> & { complexDesign?: string; handOrFoot?: string };
+export type ServiceChoices = Partial<NailExtras> & {
+  complexDesign?: string;
+  extension?: string;
+  handOrFoot?: string;
+};
 
 type ChoiceAmounts = {
   complexDesign: Record<ComplexDesign, number>;
+  extension: Record<Extension, number>;
   removal: number;
-  extension: number;
 };
 
 /** Extra time for the 整甲 and 整甲 + 眼睫毛 add-ons. */
 const EXTRA_MINUTES: ChoiceAmounts = {
   complexDesign: { 不是複雜款: 0, 半個鐘: 30, 一個鐘: 60 },
+  extension: { 不延長: 0, 幾隻: 30, 全手: 60 },
   removal: 30,
-  extension: 60,
 };
 
 /** Extra 收費 for the same add-ons. */
 const EXTRA_PRICE: ChoiceAmounts = {
   complexDesign: { 不是複雜款: 0, 半個鐘: 60, 一個鐘: 120 },
+  extension: { 不延長: 0, 幾隻: 50, 全手: 100 },
   removal: 0,
-  extension: 100,
 };
 
 /** `base`, or its 手/腳 override, plus the add-ons that apply. */
@@ -169,8 +180,8 @@ function withChoices(
   return (
     start +
     extra.complexDesign[toComplexDesign(choices.complexDesign)] +
-    (choices.removal ? extra.removal : 0) +
-    (choices.extension ? extra.extension : 0)
+    extra.extension[toExtension(choices.extension)] +
+    (choices.removal ? extra.removal : 0)
   );
 }
 
@@ -213,8 +224,8 @@ export function showsNailExtras(service: string, handOrFoot: string): boolean {
 /** The add-ons saved when they don't apply (e.g. for 腳), clearing any earlier ones. */
 export const NO_NAIL_EXTRAS = {
   complexDesign: COMPLEX_DESIGN_OPTIONS[0],
+  extension: EXTENSION_OPTIONS[0],
   removal: false,
-  extension: false,
 } as const;
 
 /** Like defaultDurationFor: a 整甲 for 腳 has its own price, and add-ons add theirs. */

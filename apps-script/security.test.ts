@@ -93,10 +93,13 @@ describe('spreadsheet write guards', () => {
     const writes: unknown[] = [];
     Object.assign(f.context, {
       openSpreadsheet_: () => ({}), readCustomers_: () => ({ byName: {}, byId: {} }),
-      getSheet_: () => ({ getRange: () => ({ getValues: () => [], getDisplayValues: () => [],
+      getSheet_: () => ({ getRange: () => ({ getValues: () => [], getDisplayValues: () => [], getFormulas: () => [[]],
         setValue: (value: unknown) => writes.push(value) }) }),
       findAppointmentRow_: () => ({ rowIndex: 2, headers: f.call('Object.values(COL)') }),
       toRows_: () => [{ values: { '預約ID': 'dummy' }, display: {} }],
+      photoTab_: () => ({}),
+      photoPricePlan_: () => ({ writes: [], paths: [], quotes: [] }),
+      writePhotoPrices_: () => {},
       SpreadsheetApp: { flush: () => {} },
     });
     f.call(`updateAppointment_('dummy', { customerName: 'Dummy', date: '2026-11-09',

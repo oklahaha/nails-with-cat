@@ -38,6 +38,7 @@ import {
   usesHandOrFoot,
   HAND_OR_FOOT_OPTIONS,
   COMPLEX_DESIGN_OPTIONS,
+  EXTENSION_OPTIONS,
   NAIL_EXTRAS,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, type } from '@/constants/theme';
@@ -49,6 +50,7 @@ import { STATUS_OPTIONS } from '@/types/appointment';
 import { openPhotoViewer } from '@/utils/appointmentActions';
 import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
+import { quoteLabel } from '@/utils/quotes';
 
 /** 訂金 is TRUE / FALSE in the sheet. */
 const DEPOSIT_OPTIONS = [
@@ -81,16 +83,18 @@ export default function AddAppointmentScreen() {
     setHandOrFoot,
     deposit,
     setDeposit,
-    referenceDrafts,
+    referencePhotos,
     keptDepositHint,
     complexDesign,
     setComplexDesign,
+    extension,
+    setExtension,
     nailExtras,
     setNailExtra,
     status,
     setStatus,
-    quote,
-    setQuote,
+    quotes,
+    setQuoteFor,
     setPriceEdited,
     autoPrice,
     followAutoPrice,
@@ -298,41 +302,44 @@ export default function AddAppointmentScreen() {
             {timeSection}
 
             {/* Before 手/腳 and 收費: they're usually decided from this photo.
-                An existing booking adds photos in its details instead. */}
+                Edits upload picks straight away and remove them in the viewer. */}
             {!showReference ? null : (
               <Section title="參考作品">
-                {editing ? null : (
-                  <PhotoStrip
-                    kind="reference"
-                    paths={referenceDrafts.paths}
-                    adding={referenceDrafts.adding}
-                    canAdd={referenceDrafts.canAdd}
-                    onAdd={(source) => void referenceDrafts.add(source)}
-                    onOpen={(path) =>
-                      openPhotoViewer({
-                        kind: 'reference',
-                        start: path,
-                        paths: referenceDrafts.paths,
-                      })
-                    }
-                    onRemove={referenceDrafts.remove}
-                  />
-                )}
-                <View style={[styles.priceField, errors.quote && styles.inputInvalid]}>
-                  <Text style={styles.pricePrefix}>報價 $</Text>
-                  <TextInput
-                    style={styles.priceInput}
-                    value={quote}
-                    onChangeText={(text) => {
-                      setQuote(text);
-                      clearError('quote');
-                    }}
-                    placeholder="可選填"
-                    placeholderTextColor={colors.textTertiary}
-                    keyboardType="number-pad"
-                    accessibilityLabel="報價"
-                  />
-                </View>
+                <PhotoStrip
+                  kind="reference"
+                  paths={referencePhotos.paths}
+                  pending={referencePhotos.pending}
+                  adding={referencePhotos.adding}
+                  canAdd={referencePhotos.canAdd}
+                  onAdd={(source) => void referencePhotos.add(source)}
+                  onOpen={(path) =>
+                    openPhotoViewer({
+                      kind: 'reference',
+                      start: path,
+                      paths: referencePhotos.paths,
+                      appointmentId: referencePhotos.appointmentId,
+                    })
+                  }
+                  onRemove={referencePhotos.remove}
+                  // Each photo's 報價 sits right under it, so there's no counting which is which
+                  below={(path, i) => (
+                    <View style={[styles.quoteField, errors.quote && styles.inputInvalid]}>
+                      <Text style={styles.quotePrefix}>$</Text>
+                      <TextInput
+                        style={styles.quoteInput}
+                        value={quotes[path] ?? ''}
+                        onChangeText={(text) => {
+                          setQuoteFor(path, text);
+                          clearError('quote');
+                        }}
+                        placeholder="報價"
+                        placeholderTextColor={colors.textTertiary}
+                        keyboardType="number-pad"
+                        accessibilityLabel={quoteLabel(i)}
+                      />
+                    </View>
+                  )}
+                />
                 <FieldError failedSaves={failedSaves} reduceMotion={reduceMotion} message={errors.quote} />
               </Section>
             )}
@@ -369,6 +376,29 @@ export default function AddAppointmentScreen() {
                       <Pressable
                         key={option}
                         onPress={() => setComplexDesign(option)}
+                        style={[styles.segment, selected && styles.segmentSelected]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                          {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Section>
+            ) : null}
+
+            {showNailExtras ? (
+              <Section title="延長">
+                <View style={styles.segmented}>
+                  {EXTENSION_OPTIONS.map((option) => {
+                    const selected = extension === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setExtension(option)}
                         style={[styles.segment, selected && styles.segmentSelected]}
                         accessibilityRole="button"
                         accessibilityState={{ selected }}
@@ -725,6 +755,28 @@ const styles = StyleSheet.create({
     borderColor: colors.surface,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
+  },
+  quoteField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surface,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  quotePrefix: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginRight: 2,
+  },
+  quoteInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: spacing.xs + 2,
+    fontSize: 14,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   pricePrefix: {
     color: colors.textSecondary,

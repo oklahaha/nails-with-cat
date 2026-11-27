@@ -23,6 +23,7 @@ import {
   accessibilityLabel,
   buttonStyle,
   contentShape,
+  font,
   foregroundStyle,
   shapes,
 } from '@expo/ui/swift-ui/modifiers';
@@ -40,12 +41,13 @@ import {
   serviceColor,
   showsNailExtras,
   toComplexDesign,
+  toExtension,
   usesDeposit,
   usesHandOrFoot,
 } from '@/constants/services';
 import { colors } from '@/constants/theme';
 import { removeAppointment } from '@/hooks/appointmentWrites';
-import { findCachedAppointment } from '@/hooks/useAppointments';
+import { findCachedAppointment, useLiveAppointment } from '@/hooks/useAppointments';
 import { useKeptDepositHint } from '@/hooks/useKeptDepositHint';
 import {
   canKeepDeposit,
@@ -53,6 +55,7 @@ import {
   pushAppointmentCustomer,
 } from '@/utils/appointmentActions';
 import { showsFinishedPhotos, showsReferencePhotos } from '@/utils/appointmentPhotos';
+import { quoteLabel } from '@/utils/quotes';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -68,6 +71,8 @@ export default function AppointmentDetailsScreen() {
   const [appointment, setAppointment] = useState(() => (id ? findCachedAppointment(id) : undefined));
   const [editing, setEditing] = useState(false);
   const keptDepositHint = useKeptDepositHint(appointment);
+  // 報價 can arrive after opening (with photo uploads or a reload)
+  const live = useLiveAppointment(id);
 
   if (!appointment) {
     return (
@@ -93,7 +98,8 @@ export default function AppointmentDetailsScreen() {
     // 修改 turns this sheet into the form in place; ✕ goes back to the details
     return (
       <AppointmentForm
-        editing={appointment}
+        // The live copy, so the form doesn't start from (and save back) stale 報價 or photos
+        editing={live ?? appointment}
         onClose={() => setEditing(false)}
         onSaved={(saved) => {
           setAppointment({ ...appointment, ...saved, phone: saved.phone || appointment.phone });
@@ -171,7 +177,23 @@ export default function AppointmentDetailsScreen() {
         </Section>
 
         {showsReferencePhotos(appointment) ? (
-          <BookingPhotoSection appointment={appointment} kind="reference" />
+          <BookingPhotoSection
+            appointment={appointment}
+            kind="reference"
+            below={(live, _path, i) => {
+              // Under its photo, as in the form
+              const quote = live.quotes?.[i];
+              return quote == null ? null : (
+                <Text
+                  modifiers={[
+                    font({ size: 13 }),
+                    foregroundStyle({ type: 'hierarchical', style: 'secondary' }),
+                    accessibilityLabel(`${quoteLabel(i)} $${quote}`),
+                  ]}
+                >{`$${quote}`}</Text>
+              );
+            }}
+          />
         ) : null}
         {showsFinishedPhotos(appointment) ? (
           <BookingPhotoSection
@@ -190,6 +212,7 @@ export default function AppointmentDetailsScreen() {
               {showsNailExtras(appointment.service, appointment.handOrFoot ?? '') ? (
                 <>
                   <Row label="複雜款" value={toComplexDesign(appointment.complexDesign)} />
+                  <Row label="延長" value={toExtension(appointment.extension)} />
                   {NAIL_EXTRAS.map(({ key, label }) => (
                     <Row key={key} label={label} value={appointment[key] ? '是' : '否'} />
                   ))}
@@ -199,7 +222,6 @@ export default function AppointmentDetailsScreen() {
                 <Row label="已付訂金" value={appointment.deposit ? '是' : '否'} />
               ) : null}
               {appointment.keepDeposit ? <Row label="保留訂金" value="是（下次預約用）" /> : null}
-              {appointment.quote != null ? <Row label="報價" value={`$${appointment.quote}`} /> : null}
               <Row label="收費" value={appointment.price != null ? `$${appointment.price}` : ''} />
             </Section>
 

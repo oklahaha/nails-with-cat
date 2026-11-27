@@ -71,6 +71,28 @@ describe('applyPhotoOps', () => {
     expect(applyPhotoOps(apt, [op({ kind: 'finished' })]).finishedPhotos).toEqual(['p2']);
   });
 
+  it('keeps an uploading photo\'s 報價 over a reload that lacks its row', () => {
+    const reloaded = makeAppointment({ referencePhotos: ['p1'], quotes: [380] });
+    const shown = applyPhotoOps(reloaded, [op({ path: 'p2', price: 450 })]);
+    expect(shown.referencePhotos).toEqual(['p1', 'p2']);
+    expect(shown.quotes).toEqual([380, 450]);
+  });
+
+  it("takes a removed 參考作品 photo's 報價 along", () => {
+    const apt = makeAppointment({ referencePhotos: ['p1', 'p2'], quotes: [380, 450] });
+    expect(applyPhotoOps(apt, [op({ type: 'remove', path: 'p1' })]).quotes).toEqual([450]);
+    expect(applyPhotoOps(apt, [op({ type: 'remove', path: 'p2' })]).quotes).toEqual([380]);
+  });
+
+  it('puts an undone removal back in its place with its 報價', () => {
+    const removed = makeAppointment({ referencePhotos: ['p2'], quotes: [450] });
+    const back = applyPhotoOps(removed, [op({ type: 'add', path: 'p1', index: 0, price: 380 })]);
+    expect(back.referencePhotos).toEqual(['p1', 'p2']);
+    expect(back.quotes).toEqual([380, 450]);
+    const unquoted = applyPhotoOps(removed, [op({ type: 'add', path: 'p1', index: 0, price: null })]);
+    expect(unquoted.quotes).toEqual([null, 450]);
+  });
+
   it('lets a reload that started after a finished op speak for itself', () => {
     const apt = makeAppointment();
     expect(applyPhotoOps(apt, [op({ pending: false, at: 100 })], 200)).toBe(apt);
@@ -87,6 +109,16 @@ describe('withPhotosOf', () => {
     expect(saved.notes).toBe('改了');
     expect(saved.referencePhotos).toEqual(['new']);
     expect('finishedPhotos' in saved).toBe(false);
+  });
+
+  it('moves a save\'s 報價 onto the kept photos by path', () => {
+    // A removed on this phone; the sheet answers with B and C's 報價
+    const current = makeAppointment({ referencePhotos: ['B', 'C'], quotes: [200] });
+    const answer = makeAppointment({ referencePhotos: ['A', 'B', 'C'], quotes: [100, 200, 300] });
+    expect(withPhotosOf(current, answer).quotes).toEqual([200, 300]);
+    // A photo the answer doesn't list (still uploading) keeps its own 報價
+    const uploading = makeAppointment({ referencePhotos: ['B', 'D'], quotes: [null, 500] });
+    expect(withPhotosOf(uploading, answer).quotes).toEqual([200, 500]);
   });
 });
 

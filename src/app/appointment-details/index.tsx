@@ -19,6 +19,7 @@ import {
   usesHandOrFoot,
   showsNailExtras,
   toComplexDesign,
+  toExtension,
   NAIL_EXTRAS,
 } from '@/constants/services';
 import { colors, pressedStyle, radius, spacing, tint, type } from '@/constants/theme';
@@ -33,6 +34,7 @@ import {
   openAppointmentCustomer,
 } from '@/utils/appointmentActions';
 import { showsFinishedPhotos, showsReferencePhotos } from '@/utils/appointmentPhotos';
+import { quoteLabel } from '@/utils/quotes';
 import { appointmentTitle } from '@/utils/appointmentTitle';
 import { formatDuration } from '@/utils/dates';
 import { formatDateHeader } from '@/utils/groupByDate';
@@ -101,6 +103,7 @@ export default function AppointmentDetailsScreen() {
         ...(showNailExtras
           ? [
               { label: '複雜款', value: toComplexDesign(appointment.complexDesign) },
+              { label: '延長', value: toExtension(appointment.extension) },
               { label: '附加', value: extras.join('、') || '沒有' },
             ]
           : []),
@@ -108,7 +111,6 @@ export default function AppointmentDetailsScreen() {
           ? [{ label: '訂金', value: appointment.deposit ? '已付' : '未付' }]
           : []),
         ...(appointment.keepDeposit ? [{ label: '保留訂金', value: '是（下次預約用）' }] : []),
-        ...(appointment.quote != null ? [{ label: '報價', value: `$${appointment.quote}` }] : []),
         { label: '收費', value: appointment.price != null ? `$${appointment.price}` : undefined },
         { label: '備注', value: appointment.notes },
         { label: '狀態', value: appointment.status },
@@ -169,7 +171,19 @@ export default function AppointmentDetailsScreen() {
         </View>
 
         {showsReferencePhotos(appointment) ? (
-          <BookingPhotos appointment={appointment} kind="reference" />
+          <BookingPhotos
+            appointment={appointment}
+            kind="reference"
+            below={(live, _path, i) => {
+              // Under its photo, as in the form
+              const quote = live.quotes?.[i];
+              return quote == null ? null : (
+                <Text style={styles.quote} accessibilityLabel={`${quoteLabel(i)} $${quote}`}>
+                  {`$${quote}`}
+                </Text>
+              );
+            }}
+          />
         ) : null}
         {showsFinishedPhotos(appointment) ? (
           <BookingPhotos appointment={appointment} kind="finished" />
@@ -214,6 +228,12 @@ export default function AppointmentDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
+  quote: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
   flex: {
     flex: 1,
     backgroundColor: colors.background,

@@ -3,14 +3,16 @@
  *
  * Sheet "預約資料" columns:
  *   預約ID, 活動, 備注, 顧客姓名, 日期, 時間, Duration, 手/腳, 收費, 狀態, End Time, View, 訂金,
- *   複雜款, 拆甲, 延長, 訂金處理, 完成作品, 參考作品, 報價
+ *   複雜款, 拆甲, 延長 (不延長 / 幾隻 / 全手; older rows TRUE / FALSE), 訂金處理 (完成作品, 參考作品, 報價 are no longer used)
  *   (View holds the customer's name, or 備注 for 特別事項 rows; the script fills it in)
  *   (訂金 is used by every service but 特別事項)
  *   (複雜款 is 不是複雜款 / 半個鐘 / 一個鐘, and 拆甲 and 延長 are TRUE / FALSE; only 整甲 and
  *   整甲 + 眼睫毛 use them)
  *   (訂金處理 holds 保留 when the customer keeps the deposit for the next booking)
- *   (參考作品 and 完成作品 hold Google Drive paths of the booking's photos, one per line)
- *   (報價 is the price quoted for the 參考作品 design)
+ *
+ * Sheet "相片" columns: 預約ID, Type (參考作品 / 完成作品), 相片路徑 (Google Drive path),
+ *   Price (the 報價 of a 參考作品). One row per photo, in the order added; rows stay
+ *   when their booking is deleted, kept for training a price model.
  *
  * Sheet "顧客" columns:
  *   顧客ID, 顧客姓名, 電話
@@ -19,7 +21,13 @@
  * (or rename these fields to match your API response 1:1).
  */
 
-import type { ComplexDesign, HandOrFoot, NailExtras, ServiceType } from '@/constants/services';
+import type {
+  ComplexDesign,
+  Extension,
+  HandOrFoot,
+  NailExtras,
+  ServiceType,
+} from '@/constants/services';
 
 export type { ServiceType };
 
@@ -61,9 +69,10 @@ export type Appointment = {
   deposit?: boolean;
   /** 複雜款 — 不是複雜款 / 半個鐘 / 一個鐘 */
   complexDesign?: string;
-  /** 拆甲 / 延長 — TRUE / FALSE in the sheet */
+  /** 拆甲 — TRUE / FALSE in the sheet */
   removal?: boolean;
-  extension?: boolean;
+  /** 延長 — 不延長 / 幾隻 / 全手 (older rows: TRUE / FALSE, read as 全手 / 不延長) */
+  extension?: string;
   /** 狀態 */
   status: AppointmentStatus;
   /** End Time — HH:mm */
@@ -72,8 +81,8 @@ export type Appointment = {
   keepDeposit?: boolean;
   /** 參考作品 — Drive paths of what the customer asked for; only photo writes change these */
   referencePhotos?: string[];
-  /** 報價 — the price quoted for the 參考作品 */
-  quote?: number;
+  /** 報價 — the price quoted for each 參考作品, by position (null: none) */
+  quotes?: (number | null)[];
   /** 完成作品 — Drive paths of the finished work; only photo writes change these */
   finishedPhotos?: string[];
 };
@@ -92,12 +101,14 @@ export type NewAppointmentInput = Partial<NailExtras> & {
   handOrFoot?: HandOrFoot;
   /** 收費 */
   price?: number;
-  /** 報價 — like 收費, cleared when left out */
-  quote?: number;
-  /** 訂金 — written as TRUE / FALSE, only when sent (拆甲 / 延長 too) */
+  /** 報價 changed, by 參考作品 path (null clears one), set as Price on those 相片 rows; others are left alone */
+  quotesByPath?: Record<string, number | null>;
+  /** 訂金 — written as TRUE / FALSE, only when sent (拆甲 too) */
   deposit?: boolean;
   /** 複雜款 — only written when sent */
   complexDesign?: ComplexDesign;
+  /** 延長 — only written when sent */
+  extension?: Extension;
   /** 保留訂金 — writes 保留 to 訂金處理 (or clears it), only when sent */
   keepDeposit?: boolean;
   /** View — 特別事項 sends 備注; when omitted the script writes the customer's name */

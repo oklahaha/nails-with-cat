@@ -19,22 +19,30 @@ import {
   NO_NAIL_EXTRAS,
   showsNailExtras,
   toComplexDesign,
+  toExtension,
   usesDeposit,
   usesHandOrFoot,
   usesNailExtras,
   type HandOrFoot,
   type NailExtra,
 } from '@/constants/services';
-import { addPhotos, saveAppointment } from '@/hooks/appointmentWrites';
-import { useDraftPhotos } from '@/hooks/useAddPhotos';
+import { addPhotos, saveAppointment, wasRemovedHere } from '@/hooks/appointmentWrites';
+import { useAddPhotos, useDraftPhotos } from '@/hooks/useAddPhotos';
 import { hapticSuccess, hapticWarning } from '@/utils/haptics';
-import { useAppointments, useCustomerAppointments } from '@/hooks/useAppointments';
+import {
+  useAppointments,
+  useCustomerAppointments,
+  useLiveAppointment,
+  usePendingPhotos,
+} from '@/hooks/useAppointments';
 import { useCustomers } from '@/hooks/useCustomers';
 import { offerWhatsAppConfirmation } from '@/hooks/whatsAppConfirmation';
 import type { Appointment, ServiceType, UpdateAppointmentInput } from '@/types/appointment';
 import { showAlert } from '@/utils/alert';
 import { addDays, formatShortDate, minutesToTime, timeToMinutes } from '@/utils/dates';
+import { photosOf } from '@/utils/appointmentPhotos';
 import { previousKeptDeposit } from '@/utils/keptDeposit';
+import { firstQuote, parseQuotes } from '@/utils/quotes';
 import { describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 
@@ -81,14 +89,11 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const [complexDesign, setComplexDesign] = useState(() =>
     toComplexDesign(editing?.complexDesign)
   );
+  const [extension, setExtension] = useState(() => toExtension(editing?.extension));
   const [nailExtras, setNailExtras] = useState(() => nailExtrasOf(editing));
   const setNailExtra = (key: NailExtra, on: boolean) => {
     setNailExtras((prev) => ({ ...prev, [key]: on }));
   };
-  // 報價 lives here rather than in the screens because 收費 follows it
-  const [quote, setQuote] = useState(editing?.quote != null ? String(editing.quote) : '');
-  const quoteValue =
-    usesNailExtras(service) && /^\d+$/.test(quote.trim()) ? Number(quote.trim()) : undefined;
   // Once 收費 is typed by hand, nothing else overwrites it
   const [priceEdited, setPriceEdited] = useState(false);
   const [status, setStatus] = useState(editing?.status ?? initial.status);
@@ -97,7 +102,63 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const [failedSaves, setFailedSaves] = useState(0);
 
   // 參考作品 picked for a new booking; existing bookings add them in their details
+  // 參考作品: a new booking holds drafts, sent after the create; an edit
+  // uploads picks straight away, as the details do, and removes in the viewer
   const referenceDrafts = useDraftPhotos('reference');
+  const live = useLiveAppointment(editing?.id) ?? editing;
+  const savedPhotos = live ? photosOf(live, 'reference') : [];
+  const savedAdd = useAddPhotos('reference', savedPhotos.length, (picked) => {
+    if (live) addPhotos(live, 'reference', picked);
+  });
+  const pendingPhotos = usePendingPhotos();
+  const referencePhotos = editing
+    ? {
+        paths: savedPhotos,
+        adding: savedAdd.adding,
+        canAdd: savedAdd.canAdd,
+        add: savedAdd.add,
+        remove: undefined,
+        pending: pendingPhotos,
+        appointmentId: editing.id,
+      }
+    : {
+        paths: referenceDrafts.paths,
+        adding: referenceDrafts.adding,
+        canAdd: referenceDrafts.canAdd,
+        add: referenceDrafts.add,
+        remove: referenceDrafts.remove,
+        pending: undefined,
+        appointmentId: undefined,
+      };
+
+  // 報價 live here rather than in the screens because 收費 follows them: one
+  // per 參考作品 photo (報價1, 報價2, …), kept by its path so adding or removing
+  // photos never moves a 報價 to another photo. Only typed ones are kept here:
+  // the rest show (and save) the live booking's, so a reload isn't undone
+  const [quoteEdits, setQuoteEdits] = useState<Record<string, string>>({});
+  const liveQuotes: Record<string, string> = {};
+  savedPhotos.forEach((path, i) => {
+    const q = live?.quotes?.[i];
+    if (q != null) liveQuotes[path] = String(q);
+  });
+  const quotes = { ...liveQuotes, ...quoteEdits };
+  const parsedQuotes = usesNailExtras(service)
+    ? parseQuotes(referencePhotos.paths.map((path) => quotes[path] ?? ''))
+    : undefined;
+  // 收費 follows the first 報價 given; also without this form's typing, to tell
+  // whether typing changed it
+  const firstQuoteOf = (texts: Record<string, string>) =>
+    usesNailExtras(service)
+      ? firstQuote(referencePhotos.paths.map((path) => texts[path] ?? ''))
+      : undefined;
+  const quoteValue = firstQuoteOf(quotes);
+  const liveQuoteValue = firstQuoteOf(liveQuotes);
+  const setQuoteFor = (path: string, text: string) =>
+    setQuoteEdits((prev) => ({ ...prev, [path]: text }));
+  const quoteNumber = (path: string) => {
+    const text = quotes[path]?.trim();
+    return text ? Number(text) : null;
+  };
 
   const { customers } = useCustomers();
   const dayBookings = useAppointments({ from: date, to: date }, { enabled: date !== '' });
@@ -112,7 +173,9 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   // Only 整甲 and 整甲 + 眼睫毛 take 參考作品 and 報價
   const showReference = usesNailExtras(service);
   // Hidden add-ons are saved cleared, so a booking switched to 腳 drops them
-  const appliedNailExtras = showNailExtras ? { complexDesign, ...nailExtras } : NO_NAIL_EXTRAS;
+  const appliedNailExtras = showNailExtras
+    ? { complexDesign, extension, ...nailExtras }
+    : NO_NAIL_EXTRAS;
 
   // 補眼睫毛 / 補甲: once a known customer is picked, 收費 follows their last set
   const topUp = topUpRuleFor(service);
@@ -154,7 +217,9 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     appliedNailExtras.extension,
     isTopUp ? customerName.trim() : '',
     isTopUp ? date : '',
-    quoteValue ?? '',
+    // Only typing that changes the 報價 收費 follows (the first one) counts: a
+    // later 報價, or one changed on the other phone, keeps the sheet's 收費
+    quoteValue === liveQuoteValue ? '' : String(quoteValue),
   ].join('|');
   const [openedPriceKey] = useState(priceKey);
   const [keepSheetPrice, setKeepSheetPrice] = useState(editing != null);
@@ -240,7 +305,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
       }
     } else {
       if (text.price.trim() && !/^\d+$/.test(text.price.trim())) next.price = '收費請只輸入數字';
-      if (showReference && quote.trim() && quoteValue == null) next.quote = '報價請只輸入數字';
+      if (showReference && parsedQuotes === 'invalid') next.quote = '報價請只輸入數字';
     }
     return next;
   };
@@ -266,7 +331,16 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
           durationMinutes: duration,
           handOrFoot: usesHandOrFoot(chosen) ? handOrFoot : undefined,
           price: text.price.trim() ? Number(text.price.trim()) : undefined,
-          quote: quoteValue,
+          // Only the typed ones, by photo; a new booking's go with its photos instead.
+          // One for a photo the other phone removed is still sent, so the save is refused
+          quotesByPath:
+            editing && usesNailExtras(chosen)
+              ? Object.fromEntries(
+                  Object.keys(quoteEdits)
+                    .filter((path) => !wasRemovedHere(path))
+                    .map((path) => [path, quoteNumber(path)])
+                )
+              : undefined,
           // Other services leave 訂金 and the add-ons untouched
           deposit: usesDeposit(chosen) ? deposit : undefined,
           ...(usesNailExtras(chosen) ? appliedNailExtras : {}),
@@ -289,7 +363,10 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     const chosen = service;
     const save = () => {
       const saved = saveAppointment(toInput(text, chosen), editing);
-      if (!editing && usesNailExtras(chosen)) addPhotos(saved, 'reference', referenceDrafts.take());
+      if (!editing && usesNailExtras(chosen)) {
+        const drafts = referenceDrafts.take();
+        addPhotos(saved, 'reference', drafts, drafts.map(quoteNumber));
+      }
       hapticSuccess();
       // Once the form has closed, ask about a WhatsApp confirmation (edits too)
       offerWhatsAppConfirmation(saved);
@@ -330,16 +407,19 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     setHandOrFoot,
     deposit,
     setDeposit,
-    referenceDrafts,
+    referencePhotos,
     keptDepositHint,
     complexDesign,
     setComplexDesign,
+    extension,
+    setExtension,
     nailExtras,
     setNailExtra,
     status,
     setStatus,
-    quote,
-    setQuote,
+    quotes,
+    liveQuotes,
+    setQuoteFor,
     setPriceEdited,
     autoPrice,
     followAutoPrice,

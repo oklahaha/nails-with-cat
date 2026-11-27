@@ -13,6 +13,7 @@ import { readStored, removeStored, writeStored } from '@/utils/persistentStorage
 import {
   applyPhotoOps,
   livePhotoOps,
+  photosOf,
   type PhotoKind,
   withPhotosOf,
   type PhotoOp,
@@ -22,7 +23,7 @@ import { parseRanges, serializeRanges } from '@/utils/storedAppointments';
 
 const EMPTY: Appointment[] = [];
 
-const STORAGE_KEY = 'appointments-cache-v4';
+const STORAGE_KEY = 'appointments-cache-v5';
 /** v1 saved each range's bookings in full, v2 predates keepDeposit, v3 the photos; drop them. */
 removeStored('appointments-cache-v1');
 removeStored('appointments-cache-v2');
@@ -263,9 +264,22 @@ export function setPendingPhoto(
   appointmentId: string,
   kind: PhotoKind,
   path: string,
-  type: PhotoOp['type']
+  type: PhotoOp['type'],
+  price?: number | null,
+  /** A remove's booking as it was, for when the cache has already lost the photo (a resend at launch). */
+  from?: Appointment
 ): void {
-  const op: PhotoOp = { appointmentId, kind, path, type, pending: true, at: Date.now() };
+  const op: PhotoOp = { appointmentId, kind, path, type, pending: true, at: Date.now(), price };
+  // Remember where a removed 參考作品 was and its 報價, for undoPhoto
+  const before =
+    type === 'remove'
+      ? [findCachedAppointment(appointmentId), from].find((a) => a && photosOf(a, kind).includes(path))
+      : undefined;
+  const index = before ? photosOf(before, kind).indexOf(path) : -1;
+  if (index !== -1) {
+    op.index = index;
+    if (kind === 'reference') op.price = before?.quotes?.[index] ?? null;
+  }
   photoOps = [...photoOps.filter((o) => o.path !== path), op];
   refreshPhotos(appointmentId, (apt) => applyPhotoOps(apt, [op]));
   // A booking's first 完成作品 joins the 作品 tab's list without waiting for a reload

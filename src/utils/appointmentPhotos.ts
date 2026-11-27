@@ -79,6 +79,16 @@ export function withPhotosOf(current: Appointment, apt: Appointment): Appointmen
     if (photos) next[field] = photos;
     else delete next[field];
   }
+  // apt's 報價 belong to its own 參考作品 (a save's answer lists the sheet's), so
+  // they're moved onto the photos kept by path; one apt doesn't list keeps its own
+  const own = apt.referencePhotos ?? [];
+  const quotes = (current.referencePhotos ?? []).map((path, i) => {
+    const at = own.indexOf(path);
+    return at !== -1 ? (apt.quotes?.[at] ?? null) : (current.quotes?.[i] ?? null);
+  });
+  while (quotes.length > 0 && quotes[quotes.length - 1] == null) quotes.pop();
+  if (quotes.length > 0) next.quotes = quotes;
+  else delete next.quotes;
   return next;
 }
 
@@ -91,6 +101,10 @@ export type PhotoOp = {
   pending: boolean;
   /** When it was made, or when it finished. */
   at: number;
+  /** A new booking's 報價 for this 參考作品, saved on its row by the upload; on a remove, the 報價 it had. */
+  price?: number | null;
+  /** On a remove, where the photo was, so undoing it puts it (and its 報價) back there. */
+  index?: number;
 };
 
 /** Finished writes are only needed by reloads that started before them. */
@@ -115,10 +129,30 @@ export function applyPhotoOps(apt: Appointment, ops: PhotoOp[], startedAt?: numb
     const paths = next[field] ?? [];
     const has = paths.includes(op.path);
     if (op.type === 'add' ? has : !has) continue;
-    const changed = op.type === 'add' ? [...paths, op.path] : paths.filter((p) => p !== op.path);
+    const at = op.type === 'add' ? Math.min(op.index ?? paths.length, paths.length) : -1;
+    const changed =
+      op.type === 'add'
+        ? [...paths.slice(0, at), op.path, ...paths.slice(at)]
+        : paths.filter((p) => p !== op.path);
     next = { ...next };
     if (changed.length > 0) next[field] = changed;
     else delete next[field];
+    // Until uploaded, the sheet has no row to hold its 報價, so a reload would drop
+    // it; a photo put back mid-list shifts the 報價 after it along
+    if (op.kind === 'reference' && op.type === 'add' && (op.price != null || (next.quotes && at < paths.length))) {
+      const quotes = [...(next.quotes ?? [])];
+      while (quotes.length < paths.length) quotes.push(null);
+      quotes.splice(at, 0, op.price ?? null);
+      while (quotes.length > 0 && quotes[quotes.length - 1] == null) quotes.pop();
+      if (quotes.length > 0) next.quotes = quotes;
+      else delete next.quotes;
+    }
+    // 報價 follow their photo's position, so a removed photo takes its 報價 along
+    if (op.kind === 'reference' && op.type === 'remove' && next.quotes) {
+      const quotes = next.quotes.filter((_, i) => i !== paths.indexOf(op.path));
+      if (quotes.some((q) => q != null)) next.quotes = quotes;
+      else delete next.quotes;
+    }
   }
   return next;
 }

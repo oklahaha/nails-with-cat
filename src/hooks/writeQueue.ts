@@ -13,7 +13,8 @@
  */
 import { useSyncExternalStore } from 'react';
 
-import { AuthError } from '@/services/appointmentsApi';
+import { AuthError, ScriptOutdatedError } from '@/services/appointmentsApi';
+import { showAlert } from '@/utils/alert';
 import { readStored, writeStoredNow } from '@/utils/persistentStorage';
 
 const STORAGE_KEY = 'write-outbox-v1';
@@ -69,6 +70,9 @@ function schedule(record: WriteRecord): void {
     } catch (e) {
       if (e instanceof AuthError) {
         held = true;
+        if (e instanceof ScriptOutdatedError) {
+          showAlert('未能儲存', 'Apps Script 需要更新。修改會保留在手機，更新後重新開啟 App 便會送出。');
+        }
         return;
       }
       // A handler that throws anyway mustn't stop every later write
