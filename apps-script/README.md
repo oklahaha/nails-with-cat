@@ -74,7 +74,7 @@ The app uploads and shows booking photos through the script, which keeps them in
 
 1. Paste the new `Code.gs` and `appsscript.json` (it now asks for Google Drive access).
 2. Run `debugPhotoFolders` once from the editor, approve the new permission and check the log lists both folders.
-3. In the sheet `SPREADSHEET_ID` points at, add the `相片` tab with those four headers and move the photos into it, one row each. Do this **before** redeploying: the redeployed script reads photos only from `相片`, and every list (the calendar too) fails while the tab is missing.
+3. In the sheet `SPREADSHEET_ID` points at, add the `相片` tab with those four headers and move the photos into it, one row each, in each booking's photo order. Copy each booking's old `預約資料` **報價** into `Price` on its first `參考作品` row: the new script no longer reads that column, so a 報價 left there shows blank. Do this **before** redeploying: the redeployed script reads photos only from `相片`, and every list (the calendar too) fails while the tab is missing.
 4. Run `fillFinishedPhotoPrices` once from the editor to copy each booking's 收費 into its 完成作品 rows (safe to run again).
 5. Redeploy as a new version (see "Updating the code"). Before switching to another sheet later, give it a `相片` tab the same way.
 

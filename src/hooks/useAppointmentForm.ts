@@ -203,7 +203,7 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
       )
     : undefined;
   // Follows 報價, else the service, 手/腳 and add-ons, until 收費 is typed by hand
-  const autoPrice =
+  const rulePrice =
     quoteValue ??
     topUpPrice ??
     (service ? defaultPriceFor(service, { handOrFoot, ...appliedNailExtras }) : undefined);
@@ -224,8 +224,14 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
   const [openedPriceKey] = useState(priceKey);
   const [keepSheetPrice, setKeepSheetPrice] = useState(editing != null);
   if (keepSheetPrice && priceKey !== openedPriceKey) setKeepSheetPrice(false);
+  /**
+   * What 收費 shows until typed by hand: the rules' price, or while an edit
+   * keeps the sheet's, the live booking's, so one changed on the other phone
+   * isn't saved back over with the value the form opened with.
+   */
+  const autoPrice = keepSheetPrice ? live?.price : rulePrice;
   /** Whether the screen should show autoPrice in 收費 (when it's defined). */
-  const followAutoPrice = !priceEdited && !keepSheetPrice;
+  const followAutoPrice = !priceEdited;
 
   const validTime = HHMM.test(time);
   const validEndTime = HHMM.test(endTimeInput);

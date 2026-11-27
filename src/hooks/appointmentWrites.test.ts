@@ -40,7 +40,11 @@ jest.mock('@/hooks/useCustomers', () => ({
   getCachedCustomers: () => null,
 }));
 jest.mock('@/services/photoFiles', () => ({}));
-jest.mock('@/utils/persistentStorage', () => ({ readStored: () => null, writeStoredNow: () => {} }));
+let mockStoredOutbox: string | null = null;
+jest.mock('@/utils/persistentStorage', () => ({
+  readStored: () => mockStoredOutbox,
+  writeStoredNow: () => {},
+}));
 jest.mock('@/utils/alert', () => ({ showAlert: (...args: unknown[]) => mockAlert(...args) }));
 jest.mock('@/utils/haptics', () => ({ hapticWarning: () => {} }));
 
@@ -204,5 +208,40 @@ describe('appointment writes', () => {
     expect(withoutLegacyQuote(legacy(380), before)).toEqual(input);
     expect(withoutLegacyQuote(legacy(450), before)).toEqual({ ...input, quotesByPath: { p1: 450 } });
     expect(withoutLegacyQuote(legacy(450))).toEqual(input);
+  });
+
+  it('goes back to the booking as cached at save time when an edit fails', async () => {
+    const { saveAppointment } = load();
+    const opened = makeAppointment({ id: 'AAAAAAAAAAAAAAAAAAAAAA', referencePhotos: ['p1'], quotes: [380] });
+    // A reload changed the 報價 while the form was open
+    mockFindCached.mockReturnValue({ ...opened, quotes: [450] });
+    mockApi.updateAppointment.mockRejectedValue(new Error('失敗'));
+
+    saveAppointment(input, opened);
+    await settle();
+    mockFindCached.mockReset();
+    mockApi.updateAppointment.mockReset();
+
+    const undone = mockSettle.mock.calls.at(-1)?.[1] as { quotes?: number[] };
+    expect(undone.quotes).toEqual([450]);
+  });
+
+  it('gives an edit queued before write ids one before sending it', async () => {
+    const before = makeAppointment({ id: 'AAAAAAAAAAAAAAAAAAAAAA' });
+    mockStoredOutbox = JSON.stringify([
+      { seq: 1, kind: 'saveAppointment', payload: { id: before.id, input, local: before, before } },
+    ]);
+    mockApi.updateAppointment.mockResolvedValueOnce(before);
+    let resume!: () => void;
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('./appointmentWrites');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      resume = require('./writeQueue').resumeWrites;
+    });
+    resume();
+    await settle();
+    mockStoredOutbox = null;
+    expect(mockApi.updateAppointment.mock.calls[0][2]).toEqual(expect.any(String));
   });
 });

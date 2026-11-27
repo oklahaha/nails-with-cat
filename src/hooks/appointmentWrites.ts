@@ -172,7 +172,12 @@ function showSave({ id, local, before }: SavePayload): void {
 }
 
 const sendSave = defineWrite<SavePayload>('saveAppointment', {
-  restore: showSave,
+  restore: (payload) => {
+    // An edit queued before write ids: given one before its first send, so
+    // its retry can't overwrite an edit the other phone made meanwhile
+    if (payload.before && !payload.writeId) payload.writeId = randomId();
+    showSave(payload);
+  },
   run: async ({ id, input: queued, local, before, writeId }) => {
     const input = withoutLegacyQuote(queued, before);
     if (before) {
@@ -330,6 +335,9 @@ export function removePhoto(apt: Appointment, kind: PhotoKind, path: string): vo
 export function saveAppointment(input: UpdateAppointmentInput, before?: Appointment): Appointment {
   // A new booking's 預約ID is chosen here, not by Apps Script, so a create sent
   // twice (see writeQueue) finds the row it already made instead of adding another
+  // The booking as cached now (a reload may have changed it since the form
+  // opened), so a failed save goes back to it, 報價 included
+  if (before) before = findCachedAppointment(before.id) ?? before;
   const id = before ? (realIds.get(before.id) ?? before.id) : randomId();
   const payload = {
     id,

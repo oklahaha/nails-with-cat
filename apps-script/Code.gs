@@ -228,6 +228,7 @@ function doPost(e) {
         requireWriteFormat_(body);
         return addAppointmentPhoto_(body.id, body.kind, body.path, body.base64, body.price);
       case 'removeAppointmentPhoto':
+        requireWriteFormat_(body);
         return removeAppointmentPhoto_(body.id, body.kind, body.path);
       case 'createCustomer': {
         const result = createCustomer_(body.customer || {});

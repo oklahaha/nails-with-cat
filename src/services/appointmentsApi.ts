@@ -35,7 +35,8 @@ let writeFormatChecked: Promise<void> | null = null;
 /**
  * Before the first booking or photo write of a launch, check the script
  * writes this format: an older one would accept the write and drop what it
- * doesn't know (報價 by photo, 延長's options).
+ * doesn't know (報價 by photo, 延長's options), or remove a photo only from
+ * the columns it used before 相片, leaving a 相片 row on a trashed file.
  */
 function ensureWriteFormat(): Promise<void> {
   writeFormatChecked ??= (async () => {
@@ -386,12 +387,14 @@ export async function removeAppointmentPhoto(
     return;
   }
 
+  await ensureWriteFormat();
   const res = await request(APPS_SCRIPT_WEB_APP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       token: apiToken(),
       action: 'removeAppointmentPhoto',
+      format: WRITE_FORMAT,
       id,
       kind,
       path,
