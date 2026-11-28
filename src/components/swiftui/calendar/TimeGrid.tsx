@@ -60,13 +60,26 @@ type Props = {
   /** One date for the Day view, seven for the Week view. */
   days: string[];
   byDate: Map<string, Appointment[]>;
+  /** Its bookings haven't loaded yet. */
+  loading?: boolean;
+  /** The page on screen (the pager draws its neighbours too). */
+  active?: boolean;
   onPressAppointment: (appointment: Appointment) => void;
   /** Week view: tap a column header to open that day. */
   onPressDay?: (date: string) => void;
 };
 
-export function TimeGrid({ days, byDate, onPressAppointment, onPressDay }: Props) {
-  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
+export function TimeGrid({
+  days,
+  byDate,
+  loading = false,
+  active = true,
+  onPressAppointment,
+  onPressDay,
+}: Props) {
+  // Only the page on screen, once loaded, drives the tab bar: not a neighbour
+  // (re)drawn offscreen, nor an empty grid, as other placeholders don't
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers({ enabled: active && !loading });
   const compact = days.length > 1;
   const now = useNow();
   const today = toIsoDate(now);

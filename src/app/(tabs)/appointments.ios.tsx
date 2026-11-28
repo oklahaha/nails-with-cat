@@ -29,6 +29,7 @@ import { AppointmentRow } from '@/components/swiftui/AppointmentRow';
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
+import { ListSkeleton } from '@/components/swiftui/SwiftSkeleton';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { useAppointments } from '@/hooks/useAppointments';
 import type { Appointment } from '@/types/appointment';
@@ -39,13 +40,9 @@ export default function AppointmentsScreen() {
   const today = todayIsoDate();
   const tomorrow = addDays(today, 1);
   const { appointments, loading, error, reload } = useAppointments({ from: today });
-  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers({ enabled: !loading });
 
   const groups = useMemo(() => groupAppointmentsByDate(appointments), [appointments]);
-
-  if (loading) {
-    return <SwiftStateView loading title="載入預約中…" />;
-  }
 
   if (error) {
     return (
@@ -58,7 +55,7 @@ export default function AppointmentsScreen() {
     );
   }
 
-  if (groups.length === 0) {
+  if (!loading && groups.length === 0) {
     return (
       <SwiftStateView
         title="目前沒有預約"
@@ -83,6 +80,7 @@ export default function AppointmentsScreen() {
               }),
             ]}
           >
+            {loading ? <ListSkeleton rows="appointment" /> : null}
             {groups.map((group) => {
               const relative =
                 group.date === today ? '今日' : group.date === tomorrow ? '明日' : null;
@@ -112,20 +110,23 @@ export default function AppointmentsScreen() {
               );
             })}
 
-            <Section>
-              <Button
-                onPress={() => router.push('/add-appointment')}
-                modifiers={[buttonStyle('plain')]}
-              >
-                <HStack modifiers={[contentShape(shapes.rectangle())]}>
-                  <Text modifiers={[font({ weight: 'semibold' })]}>新增預約</Text>
-                  <Spacer />
-                </HStack>
-              </Button>
-            </Section>
+            {/* Not before the first load: the form's 時間重疊 check would see an empty day */}
+            {loading ? null : (
+              <Section>
+                <Button
+                  onPress={() => router.push('/add-appointment')}
+                  modifiers={[buttonStyle('plain')]}
+                >
+                  <HStack modifiers={[contentShape(shapes.rectangle())]}>
+                    <Text modifiers={[font({ weight: 'semibold' })]}>新增預約</Text>
+                    <Spacer />
+                  </HStack>
+                </Button>
+              </Section>
+            )}
           </List>
         </NavigationStack>
-        <SwiftFab />
+        {loading ? null : <SwiftFab />}
       </ZStack>
     </SwiftHost>
   );

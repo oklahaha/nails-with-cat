@@ -498,16 +498,24 @@ export function useAppointments(
 /**
  * What the cache holds for a range (or a wider cached range), without loading
  * it: for pages drawn beside the one on screen (the iOS timetable pager),
- * whose ranges the screen prefetches.
+ * whose ranges the screen prefetches. Undefined while nothing cached covers it.
  */
-export function useCachedAppointments({ from, to }: ListAppointmentsOptions): Appointment[] {
+export function useCachedAppointments({
+  from,
+  to,
+}: ListAppointmentsOptions): Appointment[] | undefined {
   const key = rangeKey({ from, to });
   const snapshot = useCacheSnapshot(key);
   return useMemo(
-    () => cache.get(key) ?? fromCoveringRange(from, to) ?? EMPTY,
+    () => cachedAppointments({ from, to }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot tracks the cache
     [key, from, to, snapshot]
   );
+}
+
+/** The same, read once outside render (e.g. when a confirmation is answered). */
+export function cachedAppointments({ from, to }: ListAppointmentsOptions): Appointment[] | undefined {
+  return cache.get(rangeKey({ from, to })) ?? fromCoveringRange(from, to);
 }
 
 /**

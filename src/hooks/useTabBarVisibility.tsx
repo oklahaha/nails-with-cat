@@ -31,6 +31,8 @@ const THRESHOLD = 12;
 
 type TabBarLayout = {
   setHidden: (hidden: boolean) => void;
+  /** Whether the bar is hidden now, whoever hid or showed it. */
+  isHidden: () => boolean;
   /** Height of the floating tab bar (Android, web); 0 on iOS. */
   inset: number;
   setInset: (inset: number) => void;
@@ -45,16 +47,30 @@ const TabBarHiddenContext = createContext(false);
 
 const TabBarLayoutContext = createContext<TabBarLayout>({
   setHidden: () => {},
+  isHidden: () => false,
   inset: 0,
   setInset: () => {},
   progress: new Animated.Value(0),
 });
 
 export function TabBarVisibilityProvider({ children }: { children: ReactNode }) {
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHiddenState] = useState(false);
+  const hiddenNow = useRef(false);
   const [inset, setInset] = useState(0);
   const [progress] = useState(() => new Animated.Value(0));
-  const layout = useMemo(() => ({ setHidden, inset, setInset, progress }), [inset, progress]);
+  const layout = useMemo(
+    () => ({
+      setHidden: (next: boolean) => {
+        hiddenNow.current = next;
+        setHiddenState(next);
+      },
+      isHidden: () => hiddenNow.current,
+      inset,
+      setInset,
+      progress,
+    }),
+    [inset, progress]
+  );
   return (
     <TabBarLayoutContext.Provider value={layout}>
       <TabBarHiddenContext.Provider value={hidden}>{children}</TabBarHiddenContext.Provider>
@@ -83,29 +99,36 @@ export function useTabBarInset() {
  * screen gains or loses focus, or unmounts (e.g. leaving the timetable's
  * Day/Week grid for Month).
  */
-export function useHideTabBarOnScroll() {
-  const { setHidden } = useContext(TabBarLayoutContext);
+/** `enabled: false` (an offscreen or loading view) leaves the bar alone, focus included. */
+export function useHideTabBarOnScroll(enabled = true) {
+  const { setHidden, isHidden } = useContext(TabBarLayoutContext);
   const anchor = useRef(0);
-  const hiddenRef = useRef(false);
   // Web scroll views don't report drags, and the floating bar never resizes them.
   const userScrolling = useRef(Platform.OS === 'web');
   const size = useRef({ content: 0, container: 0 });
+  // Kept while disabled too, so a view that becomes active again (a timetable
+  // page swiped back to, still scrolled) measures from where it really is
+  const lastY = useRef(0);
+  // Only the focused screen's scrolling moves the bar: a late event from one
+  // just left mustn't undo what the new screen shows
+  const focused = useRef(false);
 
-  const update = useCallback(
-    (next: boolean) => {
-      if (hiddenRef.current === next) return;
-      hiddenRef.current = next;
-      setHidden(next);
-    },
-    [setHidden],
-  );
+  // Always the shared state, no copy per scroll view: another page or screen may
+  // have shown the bar since (React skips a value that's unchanged)
+  const update = setHidden;
 
   useFocusEffect(
     useCallback(() => {
-      anchor.current = 0;
-      update(false);
-      return () => update(false);
-    }, [update]),
+      focused.current = true;
+      if (enabled) {
+        anchor.current = lastY.current;
+        update(false);
+      }
+      return () => {
+        focused.current = false;
+        if (enabled) update(false);
+      };
+    }, [update, enabled]),
   );
 
   const onScrollOffset = useCallback(
@@ -113,6 +136,8 @@ export function useHideTabBarOnScroll() {
       const last = size.current;
       const resized = last.content !== contentHeight || last.container !== containerHeight;
       size.current = { content: contentHeight, container: containerHeight };
+      lastY.current = y;
+      if (!enabled || !focused.current) return;
 
       if (y <= 0) {
         anchor.current = 0;
@@ -135,12 +160,12 @@ export function useHideTabBarOnScroll() {
       } else if (delta < -THRESHOLD) {
         anchor.current = y;
         update(false);
-      } else if ((delta > 0 && hiddenRef.current) || (delta < 0 && !hiddenRef.current)) {
+      } else if ((delta > 0 && isHidden()) || (delta < 0 && !isHidden())) {
         // Still moving the same way: keep the anchor at the furthest point.
         anchor.current = y;
       }
     },
-    [update],
+    [update, isHidden, enabled],
   );
 
   const setUserScrolling = useCallback((scrolling: boolean) => {

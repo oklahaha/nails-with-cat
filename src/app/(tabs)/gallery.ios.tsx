@@ -45,6 +45,7 @@ import { useWindowDimensions } from 'react-native';
 
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
+import { GallerySkeleton } from '@/components/swiftui/SwiftSkeleton';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { colors } from '@/constants/theme';
 import { useFinishedPhotoAppointments } from '@/hooks/useAppointments';
@@ -68,7 +69,7 @@ export default function GalleryScreen() {
   const searchText = useNativeState('');
   const [query, setQuery] = useState('');
   const { width } = useWindowDimensions();
-  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers({ enabled: !loading });
 
   const tile = Math.floor((width - GAP * (COLUMNS - 1)) / COLUMNS);
   const rows = useMemo(
@@ -90,9 +91,8 @@ export default function GalleryScreen() {
     [tile, filter, query]
   );
 
-  if (loading) {
-    return <SwiftStateView loading title="載入作品中…" systemImage="photo.on.rectangle" />;
-  }
+  const search = searchable(searchText, { prompt: '搜尋顧客姓名', onChange: setQuery });
+
   if (error && appointments.length === 0) {
     return (
       <SwiftStateView
@@ -112,7 +112,7 @@ export default function GalleryScreen() {
             navigationTitle('作品'),
             refreshable(() => reload()),
             ...hideTabBarOnScroll,
-            searchable(searchText, { prompt: '搜尋顧客姓名', onChange: setQuery }),
+            search,
           ]}
         >
           <LazyVStack spacing={GAP} alignment="leading">
@@ -128,7 +128,9 @@ export default function GalleryScreen() {
                 </Text>
               ))}
             </Picker>
-            {rows.length === 0 ? (
+            {loading ? (
+              <GallerySkeleton tile={tile} gap={GAP} />
+            ) : rows.length === 0 ? (
               <Empty filtered={filter !== 'all' || query.trim() !== ''} />
             ) : (
               <LazyVStack.ForEach

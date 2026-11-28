@@ -38,6 +38,7 @@ import { memo, useMemo, useRef, useState } from 'react';
 import { SwiftFab } from '@/components/swiftui/SwiftFab';
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
+import { ListSkeleton } from '@/components/swiftui/SwiftSkeleton';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { glassButton } from '@/components/swiftui/glass';
 import { ownRowBackground, ownRowInsets } from '@/components/swiftui/listRow';
@@ -59,11 +60,15 @@ export default function CustomersScreen() {
   const [limit, setLimit] = useState(PAGE_SIZE);
   // Content height when the last page was added: add the next only once it's laid out
   const grownAt = useRef(-1);
-  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers((y, contentHeight, containerHeight) => {
-    if (contentHeight === grownAt.current) return;
-    if (contentHeight - (y + containerHeight) > containerHeight) return;
-    grownAt.current = contentHeight;
-    setLimit((n) => n + PAGE_SIZE);
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers({
+    // Not over the placeholder, which would page in customers before any are shown
+    enabled: !loading,
+    onScroll: (y, contentHeight, containerHeight) => {
+      if (contentHeight === grownAt.current) return;
+      if (contentHeight - (y + containerHeight) > containerHeight) return;
+      grownAt.current = contentHeight;
+      setLimit((n) => n + PAGE_SIZE);
+    },
   });
 
   const filtered = useMemo(() => {
@@ -75,10 +80,6 @@ export default function CustomersScreen() {
         c.name.toLowerCase().includes(q) || (digits !== '' && c.phone.includes(digits))
     );
   }, [customers, query]);
-
-  if (loading) {
-    return <SwiftStateView loading title="載入顧客中…" systemImage="person" />;
-  }
 
   if (error && customers.length === 0) {
     return (
@@ -112,6 +113,9 @@ export default function CustomersScreen() {
               }),
             ]}
           >
+            {loading ? (
+              <ListSkeleton rows="customer" />
+            ) : (
             <Section
               header={
                 <Text
@@ -145,18 +149,22 @@ export default function CustomersScreen() {
                 ))
               )}
             </Section>
+            )}
           </List>
         </NavigationStack>
 
-        <SwiftFab
-          label="新增顧客"
-          onPress={() =>
-            router.push({
-              pathname: '/add-customer',
-              params: prefillFrom(query, filtered),
-            })
-          }
-        />
+        {/* Not before the list loads: add-customer's duplicate check needs it */}
+        {loading ? null : (
+          <SwiftFab
+            label="新增顧客"
+            onPress={() =>
+              router.push({
+                pathname: '/add-customer',
+                params: prefillFrom(query, filtered),
+              })
+            }
+          />
+        )}
       </ZStack>
     </SwiftHost>
   );

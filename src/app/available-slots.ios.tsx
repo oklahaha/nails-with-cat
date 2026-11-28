@@ -15,6 +15,7 @@ import {
   VStack,
 } from '@expo/ui/swift-ui';
 import {
+  foregroundStyle,
   aspectRatio,
   disabled,
   environment,
@@ -114,7 +115,14 @@ export default function AvailableSlotsScreen() {
       </View>
       <SwiftModal onClose={close}>
         {loading ? (
-          <SwiftStateContent loading title="計算可約時間中…" />
+          // The poster's place, as the image will fill it
+          <List modifiers={[listStyle('insetGrouped')]}>
+            <Section>
+              <VStack modifiers={[frame({ maxWidth: Infinity, minHeight: 460, maxHeight: 460 })]}>
+                <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'secondary' })]}>計算可約時間中…</Text>
+              </VStack>
+            </Section>
+          </List>
         ) : error ? (
           <SwiftStateContent
             title="未能載入預約"

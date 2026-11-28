@@ -134,8 +134,13 @@ export default function AddAppointmentScreen() {
     if (autoPrice != null && followAutoPrice) setPrice(String(autoPrice));
   }
 
+  // The text as it is now, for a save confirmed after 收費 has been refilled
+  const textNow = useRef({ customerName, notes, price });
+  useEffect(() => {
+    textNow.current = { customerName, notes, price };
+  });
   const handleSubmit = () =>
-    submit({ customerName, notes, price }, () => {
+    submit(() => textNow.current, () => {
       // On web the page may be opened directly, with no history to go back to
       if (router.canGoBack()) router.back();
       else router.replace('/');

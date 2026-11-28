@@ -17,6 +17,7 @@ import { useMemo, useState } from 'react';
 
 import { SwiftHost } from '@/components/swiftui/SwiftHost';
 import { useHideTabBarOnScrollModifiers } from '@/components/swiftui/hideTabBarOnScroll';
+import { StatsSkeleton } from '@/components/swiftui/SwiftSkeleton';
 import { SwiftStateView } from '@/components/swiftui/SwiftStateView';
 import { CustomersTab } from '@/components/swiftui/stats/CustomersTab';
 import { ForecastTab } from '@/components/swiftui/stats/ForecastTab';
@@ -75,7 +76,7 @@ export default function StatsScreen() {
   const [picked, setSelected] = useState(months[months.length - 1]);
   const selected = months.includes(picked) ? picked : months[months.length - 1];
   const [pickedTab, setTab] = useState<StatsTab>('overview');
-  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers();
+  const hideTabBarOnScroll = useHideTabBarOnScrollModifiers({ enabled: !loading });
 
   const monthly = useMemo(
     () => months.map((m) => monthStats(appointments, m, today)),
@@ -135,10 +136,6 @@ export default function StatsScreen() {
     [appointments, today]
   );
 
-  if (loading) {
-    return <SwiftStateView loading title="載入統計中…" systemImage="chart.bar" />;
-  }
-
   if (error && appointments.length === 0) {
     return (
       <SwiftStateView
@@ -191,7 +188,8 @@ export default function StatsScreen() {
             </Picker>
           </Section>
 
-          {tab === 'overview' ? (
+          {loading ? <StatsSkeleton overview={tab === 'overview'} /> : null}
+          {tab === 'overview' && !loading ? (
             <OverviewTab
               months={months}
               monthly={monthly}
@@ -201,7 +199,7 @@ export default function StatsScreen() {
               heatmap={heatmap}
             />
           ) : null}
-          {tab === 'customers' ? (
+          {tab === 'customers' && !loading ? (
             <CustomersTab
               insights={insights}
               today={today}
@@ -214,7 +212,7 @@ export default function StatsScreen() {
               onOpenCustomer={openCustomer}
             />
           ) : null}
-          {tab === 'forecast' && insights ? (
+          {tab === 'forecast' && insights && !loading ? (
             <ForecastTab
               forecast={insights.forecast}
               today={today}
@@ -222,7 +220,7 @@ export default function StatsScreen() {
               updatedAt={insights.updatedAt}
             />
           ) : null}
-          {tab === 'insights' && summary ? <InsightsTab insights={summary} /> : null}
+          {tab === 'insights' && summary && !loading ? <InsightsTab insights={summary} /> : null}
         </Form>
       </NavigationStack>
     </SwiftHost>

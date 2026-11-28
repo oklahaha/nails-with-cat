@@ -45,7 +45,8 @@ import { TimetablePager } from '@/components/swiftui/TimetablePager';
 import { glassButton } from '@/components/swiftui/glass';
 import { colors, spacing } from '@/constants/theme';
 import { prefetchAppointments, useAppointments } from '@/hooks/useAppointments';
-import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useMotionAllowed } from '@/hooks/useReduceMotion';
+import { useTabBarLayout } from '@/hooks/useTabBarVisibility';
 import { useTabReselect } from '@/hooks/useTabReselect';
 import {
   addMonths,
@@ -68,13 +69,15 @@ export default function TimetableScreen() {
   // The pages read this range from the cache; this loads it and reports progress
   const { loading, reloading, error, reload } = useAppointments(range);
 
-  // The reload icon spins while loading, or a spinner shows where it can't
-  const reduceMotion = useReduceMotion();
-  const spinIcon = CAN_ROTATE_ICON && !reduceMotion;
+  // The reload icon spins while loading, once Reduce Motion is known to be off
+  const motionAllowed = useMotionAllowed();
+  const spinIcon = CAN_ROTATE_ICON && motionAllowed;
   const iconSpinning = useNativeState(false);
+  // The first load spins it too, over the empty calendar, which is the skeleton
+  const busy = loading || reloading;
   useEffect(() => {
-    iconSpinning.set(reloading);
-  }, [reloading, iconSpinning]);
+    iconSpinning.set(busy);
+  }, [busy, iconSpinning]);
 
   // Once this month is on screen, load the months either side so paging is instant
   useEffect(() => {
@@ -82,6 +85,13 @@ export default function TimetableScreen() {
     prefetchAppointments(timetableRange(addMonths(anchor, 1)));
     prefetchAppointments(timetableRange(addMonths(anchor, -1)));
   }, [anchor, loading]);
+
+  // Each page starts with the tab bar shown: a page left mid-scroll (or a
+  // loading one, which can't scroll it back) mustn't leave it hidden
+  const { setHidden: setTabBarHidden } = useTabBarLayout();
+  useEffect(() => {
+    setTabBarHidden(false);
+  }, [anchor, mode, setTabBarHidden]);
 
   const step = (direction: 1 | -1) => setAnchor(shiftAnchor(mode, anchor, direction));
 
@@ -124,9 +134,14 @@ export default function TimetableScreen() {
               {title}
             </Text>
             <Spacer />
-            {reloading && !spinIcon ? <ProgressView /> : null}
+            {/* Without the spinning icon (Reduce Motion): still text on the first load */}
+            {loading && !spinIcon ? (
+              <Text modifiers={[font({ size: 13 }), foregroundStyle(colors.textSecondary)]}>載入中…</Text>
+            ) : reloading && !spinIcon ? (
+              <ProgressView />
+            ) : null}
             <Button
-              label="重新載入"
+              label={loading ? '載入時間表中' : '重新載入'}
               systemImage="arrow.clockwise"
               onPress={() => void reload()}
               modifiers={[
@@ -208,9 +223,7 @@ export default function TimetableScreen() {
             </HStack>
           </HStack>
 
-          {loading ? (
-            <SwiftStateContent loading title="載入時間表中…" />
-          ) : error ? (
+          {error ? (
             <SwiftStateContent
               title="未能載入時間表"
               message={error}
@@ -219,6 +232,7 @@ export default function TimetableScreen() {
             />
           ) : (
             // Swipe for the next / previous month, week or day, as in iOS Calendar
+            // While loading, its days read 載入中 to VoiceOver, and so does the reload button
             <TimetablePager mode={mode} anchor={anchor} onAnchorChange={setAnchor} onPressDay={openDay} />
           )}
         </VStack>

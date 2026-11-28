@@ -92,6 +92,7 @@ export function TimetablePager({ mode, anchor, onAnchorChange, onPressDay }: Pro
                 mode={mode}
                 // The page on screen keeps the exact anchor (e.g. the day in a month)
                 date={i === index ? anchor : page.date}
+                active={i === index}
                 onPressDay={onPressDay}
                 height={height}
               />
@@ -108,25 +109,39 @@ export function TimetablePager({ mode, anchor, onAnchorChange, onPressDay }: Pro
 function TimetablePage({
   mode,
   date,
+  active,
   onPressDay,
   height,
 }: {
   mode: ViewMode;
   date: string;
+  active: boolean;
   onPressDay: (date: string) => void;
   height: number;
 }) {
-  const appointments = useCachedAppointments(timetableRange(date));
-  const byDate = useMemo(() => groupByDateSorted(appointments), [appointments]);
+  const cached = useCachedAppointments(timetableRange(date));
+  const byDate = useMemo(() => groupByDateSorted(cached ?? []), [cached]);
   if (mode === 'month') {
-    return <MonthView anchor={date} byDate={byDate} onPressDay={onPressDay} height={height} />;
+    return (
+      <MonthView
+        anchor={date}
+        byDate={byDate}
+        onPressDay={onPressDay}
+        height={height}
+        loading={cached === undefined}
+      />
+    );
   }
   const days = mode === 'week' ? weekDates(date) : [date];
   return (
     <TimeGrid
-      key={days[0]}
+      // Drawn afresh once its bookings arrive, so it opens at the first one
+      // (scrolling the empty placeholder grid meanwhile isn't kept)
+      key={`${days[0]}:${cached === undefined}`}
       days={days}
       byDate={byDate}
+      loading={cached === undefined}
+      active={active}
       onPressAppointment={openAppointmentDetails}
       onPressDay={onPressDay}
     />

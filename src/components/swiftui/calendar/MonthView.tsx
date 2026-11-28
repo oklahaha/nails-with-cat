@@ -54,9 +54,11 @@ type Props = {
   onPressDay: (date: string) => void;
   /** Height the month has on screen. */
   height: number;
+  /** Its bookings haven't loaded yet: VoiceOver says so, not "0 個預約". */
+  loading?: boolean;
 };
 
-export function MonthView({ anchor, byDate, onPressDay, height }: Props) {
+export function MonthView({ anchor, byDate, onPressDay, height, loading = false }: Props) {
   const weeks = monthGrid(anchor);
   // Moves the today marker on at midnight while the screen stays open
   const today = toIsoDate(useNow());
@@ -104,6 +106,7 @@ export function MonthView({ anchor, byDate, onPressDay, height }: Props) {
               inMonth={isSameMonth(date, anchor)}
               isToday={date === today}
               layout={layout}
+              loading={loading}
               onPress={onPressDay}
             />
           ))}
@@ -120,10 +123,11 @@ type DayProps = {
   inMonth: boolean;
   isToday: boolean;
   layout: MonthLayout;
+  loading: boolean;
   onPress: (date: string) => void;
 };
 
-function Day({ date, appointments, inMonth, isToday, layout, onPress }: DayProps) {
+function Day({ date, appointments, inMonth, isToday, layout, loading, onPress }: DayProps) {
   const names = appointments.map(appointmentTitle);
   return (
     <VStack
@@ -138,7 +142,11 @@ function Day({ date, appointments, inMonth, isToday, layout, onPress }: DayProps
         onTapGesture(() => onPress(date)),
         accessibilityElement('ignore'),
         // Names are cut on screen, so VoiceOver reads them whole
-        accessibilityLabel(`${date}，${appointments.length} 個預約${names.length ? `：${names.join('、')}` : ''}`),
+        accessibilityLabel(
+          loading
+            ? `${date}，載入中`
+            : `${date}，${appointments.length} 個預約${names.length ? `：${names.join('、')}` : ''}`
+        ),
         accessibilityAddTraits(['isButton']),
       ]}
     >

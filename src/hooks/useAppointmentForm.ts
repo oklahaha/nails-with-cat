@@ -10,7 +10,9 @@
  * save. The customer name is mirrored here too, for the top-up price and
  * the suggestions.
  */
-import { useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 
 import {
   defaultDurationFor,
@@ -30,6 +32,7 @@ import { addPhotos, saveAppointment, wasRemovedHere } from '@/hooks/appointmentW
 import { useAddPhotos, useDraftPhotos } from '@/hooks/useAddPhotos';
 import { hapticSuccess, hapticWarning } from '@/utils/haptics';
 import {
+  cachedAppointments,
   useAppointments,
   useCustomerAppointments,
   useLiveAppointment,
@@ -43,7 +46,7 @@ import { addDays, formatShortDate, minutesToTime, timeToMinutes } from '@/utils/
 import { photosOf } from '@/utils/appointmentPhotos';
 import { previousKeptDeposit } from '@/utils/keptDeposit';
 import { firstQuote, parseQuotes } from '@/utils/quotes';
-import { describeOverlaps, findOverlaps } from '@/utils/overlap';
+import { bookingSpan, describeOverlaps, findOverlaps } from '@/utils/overlap';
 import { lastSetDate, lastSetHint, topUpPrice as topUpPriceFor, topUpRuleFor } from '@/utils/topUpPrice';
 
 export type FormField = 'service' | 'customerName' | 'date' | 'time' | 'endTime' | 'price' | 'quote';
@@ -53,6 +56,8 @@ export type FormErrors = Partial<Record<FormField, string>>;
 export type FormText = { customerName: string; notes: string; price: string };
 
 const SPECIAL: ServiceType = '特別事項';
+/** The form's text left out, to compare the other booking details. */
+const BLANK_TEXT: FormText = { customerName: '', notes: '', price: '' };
 const HHMM = /^\d{2}:\d{2}$/;
 /** Customer suggestions shown under the name field. */
 const MAX_SUGGESTIONS = 5;
@@ -167,6 +172,10 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     () => dayBookings.appointments.filter((apt) => apt.id !== editing?.id),
     [dayBookings.appointments, editing]
   );
+  // The day's other bookings as cached right now, undefined until loaded: read
+  // when a save is checked or confirmed, not from the last render
+  const dayBookingsNow = () =>
+    cachedAppointments({ from: date, to: date })?.filter((apt) => apt.id !== editing?.id);
 
   const isSpecial = service === SPECIAL;
   const showNailExtras = showsNailExtras(service, handOrFoot);
@@ -354,20 +363,74 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     return editing ? { ...input, status: isSpecial ? '' : status } : input;
   };
 
+  // One save confirmation at a time: a newer one replaces an older one, so two
+  // taps on Save can't save twice, and nothing is locked. One still open is
+  // dropped when any booking detail changes, as it would save what the form no
+  // longer shows, or the form closes. The text is re-read when it's answered
+  const pendingConfirm = useRef<{ dismiss: () => void } | null>(null);
+  // Plus the typed 報價 (a new booking's go with its photos, outside toInput;
+  // ones a reload brings aren't saved, so they leave it be) and the raw 完結,
+  // which toInput reduces to a duration that can stay the same
+  const details = service
+    ? JSON.stringify([toInput(BLANK_TEXT, service), quoteEdits, endTimeInput])
+    : '';
+  useEffect(
+    () => () => {
+      pendingConfirm.current?.dismiss();
+      pendingConfirm.current = null;
+    },
+    [details]
+  );
+  // Also when the form loses focus (e.g. a photo opened over it): answered from
+  // there, the save would close that screen and leave the saved form open
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        pendingConfirm.current?.dismiss();
+        pendingConfirm.current = null;
+      },
+      []
+    )
+  );
+  const confirmSave = (title: string, message: string, cancelText: string, save: () => void) => {
+    pendingConfirm.current?.dismiss();
+    const confirmation = { dismiss: () => {} };
+    pendingConfirm.current = confirmation;
+    const answer = (then?: () => void) => () => {
+      if (pendingConfirm.current !== confirmation) {
+        // A dropped one Android couldn't take back: say why nothing was saved
+        if (then) showAlert('預約資料已更改', '請檢查後再儲存。');
+        return;
+      }
+      pendingConfirm.current = null;
+      then?.();
+    };
+    // Web answers synchronously, inside showAlert
+    confirmation.dismiss = showAlert(title, message, [
+      { text: cancelText, style: 'cancel', onPress: answer() },
+      { text: '仍然儲存', onPress: answer(save) },
+    ]);
+  };
+
   /**
    * Validate, confirm any clash, then save (shown at once, sent in the
    * background) and pass the booking as it will be saved to `onSaved`.
    */
-  const submit = (text: FormText, onSaved: (saved: Appointment) => void) => {
-    const found = validate(text);
-    setErrors(found);
-    if (Object.keys(found).length > 0 || !service) {
+  const submit = (readText: () => FormText, onSaved: (saved: Appointment) => void) => {
+    const failed = (text: FormText) => {
+      const found = validate(text);
+      setErrors(found);
+      if (Object.keys(found).length === 0 && service) return false;
       hapticWarning();
       setFailedSaves((n) => n + 1);
-      return;
-    }
+      return true;
+    };
+    if (failed(readText()) || !service) return;
     const chosen = service;
     const save = () => {
+      // The text as it is now: it may have changed while a confirmation was up
+      const text = readText();
+      if (failed(text)) return;
       const saved = saveAppointment(toInput(text, chosen), editing);
       if (!editing && usesNailExtras(chosen)) {
         const drafts = referenceDrafts.take();
@@ -380,19 +443,40 @@ export function useAppointmentForm({ editing, initial, requireSpecialEndTime }: 
     };
 
     // Overlaps are sometimes intended, so they only need confirming
-    const overlaps = findOverlaps(otherBookings, time, duration);
-    if (overlaps.length === 0) {
-      save();
+    // Checked again when confirmed: the day may have loaded more meanwhile, and
+    // a clash not yet shown is asked about before saving
+    const checkOverlaps = (shown: Appointment[] = []) => {
+      const overlaps = findOverlaps(dayBookingsNow() ?? [], time, duration);
+      // Same booking at the same times: one moved or stretched since is asked about again
+      const span = (apt: Appointment) => `${apt.id} ${bookingSpan(apt).join('-')}`;
+      if (overlaps.every((apt) => shown.some((s) => span(s) === span(apt)))) {
+        save();
+        return;
+      }
+      confirmSave(
+        '時間重疊',
+        `此時段與以下預約時間重疊：\n${describeOverlaps(overlaps)}\n\n仍然要儲存嗎？`,
+        '返回修改',
+        () => checkOverlaps(overlaps)
+      );
+    };
+
+    // A day not loaded yet (or that failed to) isn't an empty day: the clash check can't run.
+    // Still savable, since offline saves wait in the outbox; if the day loads while
+    // this is open, its answer checks the clashes after all
+    if (!dayBookingsNow()) {
+      // Web's confirm() blocks the page, so the day couldn't load while it's up:
+      // there, saving while it loads waits instead
+      if (Platform.OS === 'web' && dayBookings.loading) {
+        showAlert('載入中', '這天的預約載入中，請稍後再儲存。');
+        return;
+      }
+      confirmSave('未能檢查時間', '這天的預約未載入，未能檢查時間有沒有重疊。\n\n仍然要儲存嗎？', '返回', () =>
+        dayBookingsNow() ? checkOverlaps() : save()
+      );
       return;
     }
-    showAlert(
-      '時間重疊',
-      `此時段與以下預約時間重疊：\n${describeOverlaps(overlaps)}\n\n仍然要儲存嗎？`,
-      [
-        { text: '返回修改', style: 'cancel' },
-        { text: '仍然儲存', onPress: save },
-      ]
-    );
+    checkOverlaps();
   };
 
   return {

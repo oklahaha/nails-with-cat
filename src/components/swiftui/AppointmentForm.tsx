@@ -190,11 +190,11 @@ export function AppointmentForm({ editing, defaults, onClose, onSaved, children 
 
   const handleSubmit = () =>
     submit(
-      {
+      () => ({
         customerName: customerNameText.get(),
         notes: notesText.get(),
         price: priceTextState.get(),
-      },
+      }),
       onSaved
     );
 
